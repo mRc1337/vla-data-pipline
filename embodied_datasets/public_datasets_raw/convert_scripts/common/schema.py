@@ -56,7 +56,7 @@ class RegistryEntry(BaseModel):
     convert_status: ConvertStatus = ConvertStatus.NOT_CONVERTED
     process_status: ProcessStatus = ProcessStatus.NOT_PROCESSED
     raw_local_path: Optional[str] = None
-    lerobot_v2_1_local_path: Optional[str] = None
+    lerobot_v3_0_local_path: Optional[str] = None
     storage_size_gb: Optional[float] = None
     num_episodes: Optional[int] = None
     num_frames: Optional[int] = None

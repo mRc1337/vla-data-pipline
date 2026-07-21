@@ -9,20 +9,20 @@ lerobot = pytest.importorskip("lerobot")
 
 from pathlib import Path
 
-from run_pipeline import _load_registry_common, compute_lerobot_v2_1_local_path
+from run_pipeline import _load_registry_common, compute_lerobot_v3_0_local_path
 
 
-def test_compute_lerobot_v2_1_local_path_is_relative_to_lerobot_v2_1_dir(tmp_path):
+def test_compute_lerobot_v3_0_local_path_is_relative_to_lerobot_v3_0_dir(tmp_path):
     """Design doc (docs/superpowers/specs/2026-07-08-vla-data-pipeline-design.md
-    section 5.1) documents `lerobot_v2_1_local_path` as relative to
-    `public_datasets/lerobot_v2_1/`, matching how `raw_local_path` is
+    section 5.1) documents `lerobot_v3_0_local_path` as relative to
+    `public_datasets/lerobot_v3_0/`, matching how `raw_local_path` is
     relative to `public_datasets_raw/` -- so the stored value must be just
-    `<dataset_id>`, not `lerobot_v2_1/<dataset_id>`.
+    `<dataset_id>`, not `lerobot_v3_0/<dataset_id>`.
     """
     data_root = tmp_path
-    output_path = data_root / "public_datasets" / "lerobot_v2_1" / "droid"
+    output_path = data_root / "public_datasets" / "lerobot_v3_0" / "droid"
 
-    result = compute_lerobot_v2_1_local_path(output_path, data_root)
+    result = compute_lerobot_v3_0_local_path(output_path, data_root)
 
     assert result == "droid"
 
@@ -402,7 +402,7 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
 
     dataset_id = f"zero_survivors_{uuid.uuid4().hex[:8]}"
     data_root = tmp_path / "data_root"
-    staging_path = data_root / "public_datasets_raw" / dataset_id / "lerobot_v2_1_staging"
+    staging_path = data_root / "public_datasets_raw" / dataset_id / "lerobot_v3_0_staging"
     make_synthetic_dataset(staging_path, repo_id=f"test/{dataset_id}", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
 
     registry_common = run_pipeline._load_registry_common()
@@ -441,7 +441,7 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
             cfg.dataset_config_path,
         )
 
-        output_path = data_root / "public_datasets" / "lerobot_v2_1" / dataset_id
+        output_path = data_root / "public_datasets" / "lerobot_v3_0" / dataset_id
         exit_code = run_pipeline.main(["--dataset-id", dataset_id, "--data-root", str(data_root)])  # must not raise
 
     assert exit_code == 1
@@ -454,15 +454,15 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
     assert reloaded_entry.num_frames == 0
     assert reloaded_entry.duration_hours == 0.0
     # Nothing was ever written to disk under this run, so storage_size_gb/
-    # lerobot_v2_1_local_path must not be fabricated for a path that doesn't
+    # lerobot_v3_0_local_path must not be fabricated for a path that doesn't
     # exist -- they stay at the registry's pre-run default.
     assert reloaded_entry.storage_size_gb is None
-    assert reloaded_entry.lerobot_v2_1_local_path is None
+    assert reloaded_entry.lerobot_v3_0_local_path is None
 
 
 def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
     """Design doc section 10 step 5 lists duration_hours/storage_size_gb
-    alongside process_status/num_episodes/num_frames/lerobot_v2_1_local_path
+    alongside process_status/num_episodes/num_frames/lerobot_v3_0_local_path
     as registry fields main() must write back after a successful run."""
     import uuid
 
@@ -473,7 +473,7 @@ def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
 
     dataset_id = f"main_success_{uuid.uuid4().hex[:8]}"
     data_root = tmp_path / "data_root"
-    staging_path = data_root / "public_datasets_raw" / dataset_id / "lerobot_v2_1_staging"
+    staging_path = data_root / "public_datasets_raw" / dataset_id / "lerobot_v3_0_staging"
     make_synthetic_dataset(staging_path, repo_id=f"test/{dataset_id}", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
 
     registry_common = run_pipeline._load_registry_common()
@@ -509,7 +509,7 @@ def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
             cfg.dataset_config_path,
         )
 
-        output_path = data_root / "public_datasets" / "lerobot_v2_1" / dataset_id
+        output_path = data_root / "public_datasets" / "lerobot_v3_0" / dataset_id
         exit_code = run_pipeline.main(["--dataset-id", dataset_id, "--data-root", str(data_root)])
 
         assert exit_code == 0
@@ -524,7 +524,7 @@ def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
     assert reloaded_entry.process_status == registry_common.schema.ProcessStatus.PROCESSED
     assert reloaded_entry.num_episodes == 2
     assert reloaded_entry.num_frames > 0
-    assert reloaded_entry.lerobot_v2_1_local_path == dataset_id
+    assert reloaded_entry.lerobot_v3_0_local_path == dataset_id
 
     expected_duration_hours = reloaded_entry.num_frames / 10.0 / 3600.0
     assert reloaded_entry.duration_hours == pytest.approx(expected_duration_hours)

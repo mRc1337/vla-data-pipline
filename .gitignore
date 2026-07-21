@@ -16,8 +16,8 @@ __pycache__/
 # run without --data-root never lands multi-GB data in git. See
 # common/paths.py for the exact layout these patterns mirror.
 embodied_datasets/public_datasets_raw/*/raw/
-embodied_datasets/public_datasets_raw/*/lerobot_v2_1_staging/
-embodied_datasets/public_datasets/lerobot_v2_1/
+embodied_datasets/public_datasets_raw/*/lerobot_v3_0_staging/
+embodied_datasets/public_datasets/lerobot_v3_0/
 embodied_datasets/urdf_assets/
 
 # Design docs / plans written while working the superpowers skill chain

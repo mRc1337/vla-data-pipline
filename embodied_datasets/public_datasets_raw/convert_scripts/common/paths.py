@@ -1,5 +1,5 @@
 """Resolve the configurable data root and build paths under it for the
-heavy data directories (raw/, lerobot_v2_1_staging/, public_datasets/,
+heavy data directories (raw/, lerobot_v3_0_staging/, public_datasets/,
 urdf_assets/). datasets_registry.yaml and convert_scripts/configs/ always
 stay inside the repo and are unaffected by this module -- see
 docs/superpowers/specs/2026-07-10-registry-schema-refinement-design.md
@@ -24,12 +24,12 @@ def raw_dir(data_root: Path, dataset_id: str) -> Path:
     return data_root / "public_datasets_raw" / dataset_id / "raw"
 
 
-def lerobot_v2_1_staging_dir(data_root: Path, dataset_id: str) -> Path:
-    return data_root / "public_datasets_raw" / dataset_id / "lerobot_v2_1_staging"
+def lerobot_v3_0_staging_dir(data_root: Path, dataset_id: str) -> Path:
+    return data_root / "public_datasets_raw" / dataset_id / "lerobot_v3_0_staging"
 
 
-def lerobot_v2_1_final_dir(data_root: Path, dataset_id: str) -> Path:
-    return data_root / "public_datasets" / "lerobot_v2_1" / dataset_id
+def lerobot_v3_0_final_dir(data_root: Path, dataset_id: str) -> Path:
+    return data_root / "public_datasets" / "lerobot_v3_0" / dataset_id
 
 
 def urdf_assets_dir(data_root: Path, robot_platform: str) -> Path:

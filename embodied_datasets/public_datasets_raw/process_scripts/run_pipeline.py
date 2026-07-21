@@ -214,7 +214,7 @@ README_TEMPLATE = """# {name}
 - 80 维统一表示层里的灵巧手槎位是 21 维，目前覆盖了注册表里所有机器人采集灵巧手数据集的
   实测自由度（最大 21，见 humanoidbench 的 Shadow Hand）；未来若出现超过 21 维的机器人
   灵巧手会被截断。MANO/人手视频数据集（human_hand/human_full_body）完全不经过这一层，
-  不受此限制，完整参数保留在 lerobot_v2_1_staging/ 原始数据中。详见
+  不受此限制，完整参数保留在 lerobot_v3_0_staging/ 原始数据中。详见
   embodied_datasets/README.md 的"跨本体统一表示层"一节。
 """
 
@@ -256,13 +256,13 @@ def _dir_size_bytes(path: Path) -> int:
     return total
 
 
-def compute_lerobot_v2_1_local_path(output_path: Path, data_root: Path) -> str:
+def compute_lerobot_v3_0_local_path(output_path: Path, data_root: Path) -> str:
     """Registry field is documented (design doc section 5.1) as relative to
-    `public_datasets/lerobot_v2_1/`, not `public_datasets/` -- so for
-    `output_path == data_root/public_datasets/lerobot_v2_1/<dataset_id>`
+    `public_datasets/lerobot_v3_0/`, not `public_datasets/` -- so for
+    `output_path == data_root/public_datasets/lerobot_v3_0/<dataset_id>`
     this yields just `<dataset_id>`.
     """
-    return str(output_path.relative_to(data_root / "public_datasets" / "lerobot_v2_1"))
+    return str(output_path.relative_to(data_root / "public_datasets" / "lerobot_v3_0"))
 
 
 def main(argv: List[str] = None) -> int:
@@ -291,8 +291,8 @@ def main(argv: List[str] = None) -> int:
         return 1
 
     dataset_config = registry_common.io.load_dataset_config(dataset_config_path)
-    staging_path = data_root / "public_datasets_raw" / args.dataset_id / "lerobot_v2_1_staging"
-    output_path = data_root / "public_datasets" / "lerobot_v2_1" / args.dataset_id
+    staging_path = data_root / "public_datasets_raw" / args.dataset_id / "lerobot_v3_0_staging"
+    output_path = data_root / "public_datasets" / "lerobot_v3_0" / args.dataset_id
 
     stats = run_dataset(args.dataset_id, staging_path, output_path, process_config_path, dataset_config=dataset_config)
 
@@ -332,7 +332,7 @@ def main(argv: List[str] = None) -> int:
     entry.process_status = registry_common.schema.ProcessStatus.PROCESSED
     entry.num_episodes = stats["output_episodes"]
     entry.num_frames = stats["output_frames"]
-    entry.lerobot_v2_1_local_path = compute_lerobot_v2_1_local_path(output_path, data_root)
+    entry.lerobot_v3_0_local_path = compute_lerobot_v3_0_local_path(output_path, data_root)
     entry.duration_hours = stats["output_frames"] / stats["fps"] / 3600.0
     entry.storage_size_gb = round(_dir_size_bytes(output_path) / 1e9, 2)
     registry_common.io.save_registry(entries, registry_path)

@@ -1,7 +1,7 @@
 # embodied_datasets
 
 VLA（视觉-语言-动作）机器人操作数据集的统一注册、清洗、对齐流水线。所有数据集
-先转换为 LeRobot v2.1 格式，再按论文方法论做五阶段数值清洗、三项跨模态质检和
+先转换为 LeRobot v3.0 格式，再按论文方法论做五阶段数值清洗、三项跨模态质检和
 跨本体维度统一。
 
 ## 目录结构
@@ -11,7 +11,7 @@ embodied_datasets/
 ├── datasets_registry.yaml          # 59个数据集的总览表（实测值，随流水线推进更新）
 ├── public_datasets_raw/
 │   ├── <dataset_id>/raw/                    # 原始下载数据（重数据，见下方"数据根目录"）
-│   ├── <dataset_id>/lerobot_v2_1_staging/   # 转换后未清洗的中间态（重数据）
+│   ├── <dataset_id>/lerobot_v3_0_staging/   # 转换后未清洗的中间态（重数据）
 │   ├── convert_scripts/
 │   │   ├── configs/<dataset_id>.yaml   # 每个数据集的调研配置（声明值）
 │   │   └── common/                     # 复用的 schema/io/onboarding 工具
@@ -20,14 +20,14 @@ embodied_datasets/
 │                                    # 见本文档"跨本体统一表示层"一节）
 ├── urdf_assets/<robot_platform>/   # 按机器人型号共享的 URDF（重数据）
 └── public_datasets/
-    └── lerobot_v2_1/<dataset_id>/  # 清洗完成的最终数据（重数据）
+    └── lerobot_v3_0/<dataset_id>/  # 清洗完成的最终数据（重数据）
 ```
 
 ## 数据根目录
 
 `datasets_registry.yaml`、`convert_scripts/configs/*.yaml` 和所有脚本代码始终
 留在仓库内，不受下面这条配置影响。只有实际的重数据目录
-（`raw/`、`lerobot_v2_1_staging/`、`public_datasets/lerobot_v2_1/`、
+（`raw/`、`lerobot_v3_0_staging/`、`public_datasets/lerobot_v3_0/`、
 `urdf_assets/`）可以指向仓库外任意路径，未来所有读写这些目录的脚本都会接受
 一个 `--data-root` 参数：
 
@@ -64,7 +64,7 @@ python3 some_future_script.py --data-root /mnt/big_disk/vla_data
 | `convert_status` | enum | 见下方 `ConvertStatus` |
 | `process_status` | enum | 见下方 `ProcessStatus` |
 | `raw_local_path` | str，可空 | 原始数据相对`public_datasets_raw/`的本地路径 |
-| `lerobot_v2_1_local_path` | str，可空 | 清洗完成数据相对`public_datasets/lerobot_v2_1/`的本地路径 |
+| `lerobot_v3_0_local_path` | str，可空 | 清洗完成数据相对`public_datasets/lerobot_v3_0/`的本地路径 |
 | `storage_size_gb` | float，可空 | 实测占用空间（GB） |
 | `num_episodes` | int，可空 | 实测episode数 |
 | `num_frames` | int，可空 | 实测帧数 |
@@ -82,7 +82,7 @@ python3 some_future_script.py --data-root /mnt/big_disk/vla_data
 
 #### `ConvertStatus`
 `not_converted` / `converting` / `converted` / `failed` —— `convert_scripts`
-（raw → lerobot_v2_1_staging）的执行状态。
+（raw → lerobot_v3_0_staging）的执行状态。
 
 #### `ProcessStatus`
 `not_processed` / `processing` / `processed` / `failed` —— `process_scripts`
@@ -342,7 +342,7 @@ for m in <EnumName>: print(m.value)
 
 ## 跨本体统一表示层 —— 数据公共规范
 
-本节描述 `process_scripts` 流水线产出的**最终 LeRobot v2.1 数据集**里，机器人本体
+本节描述 `process_scripts` 流水线产出的**最终 LeRobot v3.0 数据集**里，机器人本体
 （robot-collected embodiment）的 `observation.state` 到底是什么格式。这是给下游训练/
 评测脚本读取数据时依赖的公共契约，不是内部设计草稿——如果本节和 `unify_representation.py`
 的实际代码不一致，代码是准的，请提 issue。
@@ -469,7 +469,7 @@ observation.state_canonical_mask   # bool, shape (80,)，每帧都写，但整�
   没有独立的地面真值可以核对，正确性完全依赖上游 `DatasetConfig.dof_per_arm` 填得准。
 - **只统一 state，不统一 action**（见第5节）。
 - **不覆盖 MANO/人手视频**（见第1节）——这些数据的完整参数保留在
-  `lerobot_v2_1_staging/` 原始数据里，本层完全不touch它们。
+  `lerobot_v3_0_staging/` 原始数据里，本层完全不touch它们。
 - **超过21维的灵巧手会被截断**——目前注册表里没有这种数据集，一旦出现需要重新评估
   槎位宽度（见第4节）。
 

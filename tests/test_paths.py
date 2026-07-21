@@ -3,8 +3,8 @@ from pathlib import Path
 from common.paths import (
     DEFAULT_DATA_ROOT,
     REPO_ROOT,
-    lerobot_v2_1_final_dir,
-    lerobot_v2_1_staging_dir,
+    lerobot_v3_0_final_dir,
+    lerobot_v3_0_staging_dir,
     raw_dir,
     resolve_data_root,
     urdf_assets_dir,
@@ -35,17 +35,17 @@ def test_raw_dir():
     )
 
 
-def test_lerobot_v2_1_staging_dir():
+def test_lerobot_v3_0_staging_dir():
     data_root = Path("/mnt/big_disk")
-    assert lerobot_v2_1_staging_dir(data_root, "droid") == Path(
-        "/mnt/big_disk/public_datasets_raw/droid/lerobot_v2_1_staging"
+    assert lerobot_v3_0_staging_dir(data_root, "droid") == Path(
+        "/mnt/big_disk/public_datasets_raw/droid/lerobot_v3_0_staging"
     )
 
 
-def test_lerobot_v2_1_final_dir():
+def test_lerobot_v3_0_final_dir():
     data_root = Path("/mnt/big_disk")
-    assert lerobot_v2_1_final_dir(data_root, "droid") == Path(
-        "/mnt/big_disk/public_datasets/lerobot_v2_1/droid"
+    assert lerobot_v3_0_final_dir(data_root, "droid") == Path(
+        "/mnt/big_disk/public_datasets/lerobot_v3_0/droid"
     )
 
 
