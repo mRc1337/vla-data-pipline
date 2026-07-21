@@ -2,9 +2,24 @@
 .pytest_cache/
 __pycache__/
 *.pyc
+.DS_Store
 
 # Large reference materials kept locally, not tracked in git (see design doc
 # section 1 for why they're referenced by relative path but not committed).
 /VLA Research.xlsx
 /Qwen_RobotManip.pdf
 /2606.02800v4.pdf
+
+# Heavy dataset directories (raw downloads, converted/staged data, URDFs).
+# These live under --data-root, which defaults to embodied_datasets/ inside
+# the repo when not overridden -- ignore the default location so a script
+# run without --data-root never lands multi-GB data in git. See
+# common/paths.py for the exact layout these patterns mirror.
+embodied_datasets/public_datasets_raw/*/raw/
+embodied_datasets/public_datasets_raw/*/lerobot_v2_1_staging/
+embodied_datasets/public_datasets/lerobot_v2_1/
+embodied_datasets/urdf_assets/
+
+# Design docs / plans written while working the superpowers skill chain
+# (brainstorming -> writing-plans) -- process artifacts, kept locally only.
+docs/superpowers/

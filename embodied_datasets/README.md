@@ -2,10 +2,7 @@
 
 VLA（视觉-语言-动作）机器人操作数据集的统一注册、清洗、对齐流水线。所有数据集
 先转换为 LeRobot v2.1 格式，再按论文方法论做五阶段数值清洗、三项跨模态质检和
-跨本体维度统一。完整设计见：
-
-- [2026-07-08 数据预处理与对齐流水线设计文档](../docs/superpowers/specs/2026-07-08-vla-data-pipeline-design.md)
-- [2026-07-10 注册表 Schema 补全与数据根目录设计文档](../docs/superpowers/specs/2026-07-10-registry-schema-refinement-design.md)
+跨本体维度统一。
 
 ## 目录结构
 
@@ -44,9 +41,17 @@ python3 some_future_script.py --data-root /mnt/big_disk/vla_data
 
 `datasets_registry.yaml` 是"实测值"总览表（下载/转换/清洗进度），
 `convert_scripts/configs/<id>.yaml` 是每个数据集的"声明值"详细配置（调研得到
-的本体信息、数据表示方式等）。完整字段列表和取值范围见
+的本体信息、数据表示方式等）。每个字段的完整含义和枚举取值说明见
+[FIELD_REFERENCE.md](FIELD_REFERENCE.md)；权威定义永远是
 `public_datasets_raw/convert_scripts/common/schema.py` 里的 pydantic 模型，
-以及上面两份设计文档的字段表。
+文档如有出入以代码为准。
+
+下面"当前进度"表格只展示9个核心字段，看不全。如果需要每个数据集**全部**约40个
+字段（license、robot_platform、camera_views、num_subjects……），见
+`datasets_full_export.csv`——每个数据集一行，每个字段一列，适合用 Excel/Sheets
+打开筛选对比。由
+`public_datasets_raw/convert_scripts/common/generate_full_export.py` 生成，
+数据变化后重新运行即可刷新。
 
 ## 如何 onboard 新数据集
 
@@ -145,7 +150,7 @@ python3 some_future_script.py --data-root /mnt/big_disk/vla_data
 | vitra | VITRA | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
 | xr_1_dataset | XR-1 Dataset | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop |  |
 | yubi | YUBI | P2 | not_downloaded | not_converted | not_processed | confirmed | umi | dual_arm |
-| lerobot_ull_folding | lerobot/ull_folding | P2 | not_downloaded | not_converted | not_processed | pending_human_review |  |  |
+| lerobot_full_folding | lerobot/full_folding | P2 | not_downloaded | not_converted | not_processed | pending_human_review |  |  |
 
 <!-- AUTO-GENERATED TABLE END -->
 

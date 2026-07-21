@@ -1,5 +1,5 @@
-id: lerobot_ull_folding
-name: lerobot/ull_folding
+id: lerobot_full_folding
+name: lerobot/full_folding
 release_type: fixed_episode_dataset
 secondary_collection_methods: []
 camera_views: []

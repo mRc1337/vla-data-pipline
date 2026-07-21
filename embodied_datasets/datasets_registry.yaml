@@ -138,8 +138,8 @@
   integrity_status: not_verified
   convert_status: not_converted
   process_status: not_processed
-- id: lerobot_ull_folding
-  name: lerobot/ull_folding
+- id: lerobot_full_folding
+  name: lerobot/full_folding
   priority: P2
   download_status: not_downloaded
   integrity_status: not_verified
@@ -567,6 +567,13 @@
   process_status: not_processed
 - id: autobag
   name: AutoBag
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: tencent_hy_embodied_0_5_vla_data
+  name: tencent/Hy-Embodied-0.5-VLA-Data
   priority: P2
   download_status: not_downloaded
   integrity_status: not_verified
