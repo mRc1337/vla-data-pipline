@@ -1,0 +1,7 @@
+id: bridgedata_v2
+name: BridgeData V2
+source_url: https://rail.eecs.berkeley.edu/datasets/bridge_release/data/
+camera_views: []
+review_status: pending_human_review
+field_sources: {}
+suggested_new_enum_values: {}

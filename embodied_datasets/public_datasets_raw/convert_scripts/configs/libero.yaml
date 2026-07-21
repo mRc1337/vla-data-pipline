@@ -1,0 +1,7 @@
+id: libero
+name: LIBERO
+source_url: https://libero-project.github.io/datasets
+camera_views: []
+review_status: pending_human_review
+field_sources: {}
+suggested_new_enum_values: {}

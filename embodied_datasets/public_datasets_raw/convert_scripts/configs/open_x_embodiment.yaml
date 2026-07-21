@@ -1,0 +1,7 @@
+id: open_x_embodiment
+name: Open X-Embodiment
+source_url: https://github.com/google-deepmind/open_x_embodiment
+camera_views: []
+review_status: pending_human_review
+field_sources: {}
+suggested_new_enum_values: {}

@@ -1,0 +1,3 @@
+[tool.pytest.ini_options]
+pythonpath = ["embodied_datasets/public_datasets_raw/convert_scripts"]
+testpaths = ["tests"]

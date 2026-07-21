@@ -1,0 +1,7 @@
+id: robocoin
+name: RoboCOIN
+source_url: https://huggingface.co/RoboCOIN/datasets
+camera_views: []
+review_status: pending_human_review
+field_sources: {}
+suggested_new_enum_values: {}

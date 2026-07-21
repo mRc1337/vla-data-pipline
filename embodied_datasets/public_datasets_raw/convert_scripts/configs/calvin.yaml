@@ -1,0 +1,7 @@
+id: calvin
+name: CALVIN
+source_url: https://github.com/mees/calvin
+camera_views: []
+review_status: pending_human_review
+field_sources: {}
+suggested_new_enum_values: {}

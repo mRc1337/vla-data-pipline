@@ -1,0 +1,10 @@
+.claude/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Large reference materials kept locally, not tracked in git (see design doc
+# section 1 for why they're referenced by relative path but not committed).
+/VLA Research.xlsx
+/Qwen_RobotManip.pdf
+/2606.02800v4.pdf
