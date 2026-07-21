@@ -23,3 +23,9 @@ embodied_datasets/urdf_assets/
 # Design docs / plans written while working the superpowers skill chain
 # (brainstorming -> writing-plans) -- process artifacts, kept locally only.
 docs/superpowers/
+
+# Independent Python 3.11 venv for process_scripts (needs lerobot, which
+# requires >=3.10; repo root stays 3.9-compatible). See
+# docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
+# section 4.
+embodied_datasets/public_datasets_raw/process_scripts/.venv-process/
