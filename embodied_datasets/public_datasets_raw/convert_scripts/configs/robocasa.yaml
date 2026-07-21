@@ -1,7 +1,141 @@
 id: robocasa
 name: RoboCasa
 source_url: https://robocasa.ai/docs/build/html/introduction/overview.html
-camera_views: []
+license: CC-BY-4.0
+raw_format: LeRobot
+release_type: fixed_episode_dataset
+collection_method: human_to_robot_synthesis
+secondary_collection_methods: []
+embodiment_class: mobile_manipulator
+robot_platform: franka_panda
+num_arms: 1
+dof_per_arm: 7
+gripper_type: parallel_jaw
+has_mobile_base: true
+action_space: mixed
+action_frame: both
+rotation_representation: axis_angle
+fps: 20.0
+fps_variable: false
+num_camera_views: 3
+camera_views:
+- third_person
+- other
+has_camera_calibration: true
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 365
+urdf_available: true
+urdf_source: manufacturer_official
+expected_num_episodes: 655000
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  license: 'https://github.com/robocasa/robocasa README.md ''License'' section: ''Code:
+    MIT License ... Assets and Datasets: CC BY 4.0'' -- the demonstration/dataset
+    assets (as opposed to the codebase) are CC-BY-4.0.'
+  raw_format: 'https://robocasa.ai/docs/build/html/datasets/using_datasets.html ''Using
+    Datasets'': ''We provide datasets in the lerobot format ... RoboCasa datasets
+    follow the LeRobot format'', with documented meta/ + data/*.parquet + videos/*.mp4
+    layout; the intermediate HDF5 written by collect_demos.py is only the internal
+    raw-collection format before conversion via convert_hdf5_lerobot.py (https://robocasa.ai/docs/build/html/use_cases/creating_datasets.html),
+    not what download_datasets.py distributes to users.'
+  collection_method: 'arXiv:2603.04356 (RoboCasa365, ICLR 2026) Sec 3.4.1-3.4.3: 30k
+    (pretrain) + 25k (target) = 55k human-teleoperated demonstrations are collected
+    as seed data, then MimicGen (Mandlekar et al. 2023) generates 60 atomic tasks
+    x 10k demos = 600k synthetic demonstrations from those human seeds -- roughly
+    92% of the ~655k total demonstrations are MimicGen-synthesized from human seed
+    demos, matching the ''human_to_robot_synthesis'' semantics (same classification
+    precedent used for this repo''s mimicgen.yaml, where a similarly small human seed
+    set is majority-synthesized by MimicGen).'
+  embodiment_class: 'arXiv:2603.04356 Sec 3.4.1: ''For our data collection, we use
+    the Franka Panda Emika robot, equipped with an Omron mobile base (Haviland et
+    al., 2022)'' -- a single arm mounted on an actuated wheeled mobile base.'
+  robot_platform: Same source (arXiv:2603.04356 Sec 3.4.1); Franka Panda is the closest
+    enum match for the arm itself. The Omron mobile base component has no dedicated
+    enum value and is captured separately via has_mobile_base.
+  num_arms: 'Same source: single Franka Panda arm (robosuite''s ''PandaOmron'' robot
+    model, confirmed in robocasa/environments/kitchen/kitchen.py: ''from robosuite.models.robots
+    import PandaOmron'', used as the default robot).'
+  dof_per_arm: 'Franka Emika Panda manufacturer specification: 7 revolute joints,
+    standard for all Panda arms and unmodified by RoboCasa''s PandaOmron model.'
+  gripper_type: robocasa/environments/kitchen/kitchen.py (https://cdn.jsdelivr.net/gh/robocasa/robocasa@main/robocasa/environments/kitchen/kitchen.py)
+    constructor default 'gripper_types="default"' for the Panda arm, which resolves
+    to robosuite's stock 'PandaGripper', a 2-finger parallel-jaw gripper.
+  has_mobile_base: 'arXiv:2603.04356 Sec 3.4.1: ''Franka Panda Emika robot, equipped
+    with an Omron mobile base''; confirmed in kitchen.py which instantiates the ''PandaOmron''
+    robot model (renamed from ''PandaMobile'') with a ''base_types'' constructor arg.
+    Sec 3.3 also states ''220 [tasks] require mobility, 145 can be performed without
+    mobility''.'
+  action_space: 'https://robocasa.ai/docs/build/html/datasets/using_datasets.html
+    code sample (''Training beyond a single dataset''): GR00T dataloader modality_keys
+    for RoboCasa365 list action.end_effector_position, action.end_effector_rotation,
+    action.gripper_close, action.base_motion, action.control_mode -- i.e. end-effector
+    pose + gripper + a distinct mobile-base motion command + a discrete control-mode
+    selector, not a pure eef_pose action space.'
+  action_frame: 'https://huggingface.co/api/datasets/Asap7772/robocasa-mimicgen-PnPCounterToCab
+    dataset card feature schema (mirrors RoboCasa''s own robomimic/HDF5-derived MimicGen
+    output): each timestep has both an ''action'' (relative/delta) and an ''action_abs''
+    (absolute) field, consistent with the standard robosuite/robomimic convention
+    of shipping both delta and absolute action variants (same pattern as this repo''s
+    calvin.yaml).'
+  rotation_representation: 'robosuite OSC_POSE controller convention (https://robosuite.ai/docs/modules/controllers.html):
+    ''delta rotations from the current end-effector orientation in the form of axis-angle
+    coordinates (ax, ay, az)''. RoboCasa''s PandaOmron arm control is built on the
+    same robosuite/Franka-Panda OSC-based controller stack as MimicGen/LIBERO (see
+    this repo''s mimicgen.yaml and libero.yaml, which document identical axis-angle
+    rotation deltas for that lineage), and the original paper (arXiv:2406.02523 Sec
+    IX-C) confirms the simulated Franka arm ''uses Operational Space Control''.'
+  fps: 'robocasa/environments/kitchen/kitchen.py constructor default ''control_freq=20'';
+    corroborated by arXiv:2406.02523 Sec IX-C: ''our robot controller runs at 20 Hz
+    frequency'' for the simulated Franka robot (vs. 15 Hz for the real DROID-based
+    robot).'
+  fps_variable: 'Same kitchen.py source: control_freq=20 is a single fixed constructor
+    default with no per-task override in robocasa/utils/dataset_registry.py, and the
+    docs describe one uniform dataset pipeline/format for all tasks.'
+  num_camera_views: 'https://robocasa.ai/docs/build/html/datasets/using_datasets.html
+    ''Dataset structure'': the videos/ directory lists exactly three camera feature
+    folders -- observation.images.robot0_agentview_left, robot0_agentview_right, and
+    robot0_eye_in_hand.'
+  camera_views: 'Same source: ''robot0_agentview_left'' (Left third-person camera)
+    and ''robot0_agentview_right'' (Right third-person camera) both map to third_person;
+    ''robot0_eye_in_hand'' (the eye-in-hand/wrist camera on the single, non-handed
+    arm) is mapped to other, since neither left_wrist nor right_wrist correctly describes
+    a single-arm wrist camera (see suggested_new_enum_values; same issue and fix as
+    this repo''s calvin.yaml).'
+  has_camera_calibration: 'https://robocasa.ai/docs/build/html/api/robocasa.utils.html:
+    module robocasa.utils.camera_utils exposes get_robot_cam_configs / set_cameras
+    / randomize_cameras -- camera intrinsics and mount poses are simulator-defined
+    and programmatically configurable, i.e. fully known calibration (analogous to
+    this repo''s calvin.yaml precedent for simulator-rendered cameras).'
+  depth_coverage: robocasa/environments/kitchen/kitchen.py constructor default 'camera_depths=False';
+    the documented LeRobot dataset structure (using_datasets.html) lists only RGB
+    mp4 videos under videos/, with no depth video/array artifact in the shipped dataset.
+  has_language_instruction: arXiv:2603.04356 Fig. 3 shows an explicit natural-language
+    'Instruction:' field per task (e.g. 'Pick up the cup and bowl from the counter,
+    then place them in the dishwasher and close the door.'); https://robocasa.ai/docs/build/html/datasets/using_datasets.html
+    describes meta/tasks.jsonl as 'Language instructions with task indices'.
+  num_task_types: 'arXiv:2603.04356 Sec 3.3: ''In total, our benchmark includes 365
+    everyday tasks: 65 atomic tasks and 300 composite tasks.'''
+  urdf_available: RoboCasa/robosuite model the Franka Panda arm and Omron base natively
+    as MuJoCo MJCF assets, not URDF (see the extras/episode_*/model.xml.gz MJCF model
+    described in using_datasets.html); however the underlying Franka Panda arm has
+    an official manufacturer-published URDF at https://github.com/frankaemika/franka_description,
+    so a URDF for the core arm embodiment does exist even though RoboCasa's own repo
+    does not bundle one.
+  urdf_source: https://github.com/frankaemika/franka_description -- Franka Robotics'
+    own official ROS description package containing the Panda arm URDF/xacro files;
+    this is the manufacturer-official source rather than something bundled in the
+    robocasa dataset repo itself.
+  expected_num_episodes: arXiv:2603.04356 Sec 3.4.1 ('300 tasks ... 100 human demonstrations
+    per task ... 30k human demonstrations total for pretraining'; MimicGen '60 atomic
+    tasks ... generate 10k demonstrations' -> 600k synthetic) and Sec 3.4.2 ('50 target
+    tasks ... 500 human demonstrations ... 25k demonstrations') -> 30,000 + 25,000
+    + 600,000 = 655,000 total episodes; cross-checked against Fig. 4b caption ('55k
+    episodes' for the human-only subset) and the related-work claim 'over 500k demonstrations'.
+suggested_new_enum_values:
+  camera_views: wrist (generic, non-handed) - RoboCasa's PandaOmron is a single-arm
+    mobile manipulator with one eye-in-hand wrist camera (robot0_eye_in_hand); the
+    existing left_wrist/right_wrist options force an incorrect handedness/bimanual
+    label onto a robot with only one arm, so 'other' was used instead as a stand-in
+    (same gap already flagged in this repo's calvin.yaml).

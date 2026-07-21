@@ -1,0 +1,102 @@
+id: xr_1_dataset
+name: XR-1 Dataset
+source_url: https://huggingface.co/datasets/X-Humanoid/XR-1-Dataset-Sample
+license: Apache-2.0
+raw_format: LeRobot
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: mixed
+fps: 30.0
+fps_variable: false
+camera_views:
+- front
+- top
+- side
+- left_wrist
+- right_wrist
+- other
+has_camera_calibration: true
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 4
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 1.13
+expected_num_episodes: 60
+review_status: pending_human_review
+field_sources:
+  source_url: Corrected from stub value https://huggingface.co/X-Humanoid/XR-1-Dataset-Sample
+    (missing /datasets/ path segment, returns HF 404) to the real dataset page, confirmed
+    via HF Hub API https://huggingface.co/api/datasets/X-Humanoid/XR-1-Dataset-Sample
+  license: 'https://huggingface.co/api/datasets/X-Humanoid/XR-1-Dataset-Sample (cardData.license
+    = apache-2.0) and https://raw.githubusercontent.com/Open-X-Humanoid/XR-1/main/LICENSE
+    (Apache License 2.0 text). Note: the dataset card body text on the HF page itself
+    says ''released under the MIT License'' linking to the same GitHub LICENSE file
+    -- that appears to be an error in X-Humanoid''s own README, since the linked file
+    is actually Apache-2.0.'
+  raw_format: 'meta/info.json ''codebase_version'': ''v2.1'' and LeRobot-style data/videos/meta
+    directory layout for DUAL_ARM_AGX, DUAL_ARM_FRANKA, DUAL_ARM_TIEN_KUNG2, DUAL_ARM_UR,
+    SINGLE_ARM_UR subsets; https://raw.githubusercontent.com/Open-X-Humanoid/XR-1/main/README.md
+    (''aligned with Lerobot dataset v2.1''). Caveat: the EGO4D subset in the same
+    release is plain mp4 clips + a JSON index, not LeRobot format.'
+  collection_method: 'arXiv:2511.02776 (XR-1 paper, real-robot setup section): ''expert
+    demonstrations were collected via teleoperation, recording synchronized RGB and
+    proprioceptive streams'''
+  gripper_type: 'arXiv:2511.02776: ''Each platform is equipped with parallel grippers
+    and calibrated multi-view cameras'''
+  action_space: meta/info.json feature lists for DUAL_ARM_AGX/FRANKA/UR/SINGLE_ARM_UR
+    subsets each record both action.arm_joint_position and action.end_effector in
+    parallel (DUAL_ARM_TIEN_KUNG2 records joint_position only), i.e. a mixed joint+eef
+    action representation overall
+  fps: 'meta/info.json ''fps'': 30 in every one of the 5 robot subsets (DUAL_ARM_AGX,
+    DUAL_ARM_FRANKA, DUAL_ARM_TIEN_KUNG2, DUAL_ARM_UR, SINGLE_ARM_UR) and EGO4D/action_clips_new_info.json
+    (''fps'': 30.0)'
+  fps_variable: same info.json files above show a single constant fps value (30) with
+    no per-episode variation field
+  camera_views: 'meta/info.json / meta/modality.json camera keys across subsets: camera_front->front,
+    camera_top->top, unqualified camera_left/camera_right->side, camera_wrist_left/camera_wrist_right->left_wrist/right_wrist,
+    and the single unqualified camera_wrist on SINGLE_ARM_UR (arm side not specified)->other'
+  has_camera_calibration: 'arXiv:2511.02776: ''calibrated multi-view cameras''. Note:
+    the calibration files/intrinsics themselves are not bundled in the public HF sample
+    repo (verified via full file listing) -- this reflects the paper''s hardware-setup
+    claim, not an artifact shipped in the sample.'
+  depth_coverage: 'meta/info.json feature lists: every RGB camera key (observation.rgb_images.*)
+    has a matching observation.depth_images.* entry in all 5 robot subsets. Caveat:
+    the EGO4D human egocentric clips in the same release are RGB-only with no depth.'
+  has_language_instruction: meta/tasks.jsonl in every robot subset (e.g. 'put the
+    blue bowl in the middle of the table and stack the green bowl on the blue bowl.')
+    plus meta/modality.json 'human.action.task_description' annotation field
+  num_task_types: 'meta/tasks.jsonl across the 5 task folders in the public sample
+    yields 4 distinct task descriptions (DUAL_ARM_UR and SINGLE_ARM_UR share the same
+    ''find out packaging tape into the other basket'' task). Caveat: arXiv:2511.02776
+    states the full internal XR-D training corpus covers 20 tasks x 6 embodiments
+    (~120 tasks total) -- this public sample only illustrates 4 of those tasks, it
+    is not the full task set.'
+  has_mobile_base: meta/info.json feature lists for every subset (including the DUAL_ARM_TIEN_KUNG2
+    humanoid) contain only arm_joint_position/hand_joint_position/end_effector channels
+    -- no base, leg, or torso state/action channels are recorded anywhere in the sample
+  urdf_available: Complete HF file listing (https://huggingface.co/api/datasets/X-Humanoid/XR-1-Dataset-Sample)
+    contains no .urdf/.xacro files, and none are referenced in the GitHub repo https://github.com/Open-X-Humanoid/XR-1
+  urdf_source: same as urdf_available -- no URDF is bundled with or linked from this
+    specific dataset release
+  expected_size_gb: 'HF Hub API https://huggingface.co/api/datasets/X-Humanoid/XR-1-Dataset-Sample
+    field ''usedStorage'': 1214594654 bytes (~1.13 GB)'
+  expected_num_episodes: 'HF file listing: 5 robot task folders x 10 LeRobot episodes
+    each = 50, plus EGO4D/action_clips_new_info.json listing 10 egocentric video clips
+    = 60 total data instances in the sample'
+suggested_new_enum_values:
+  embodiment_class: 'cross_embodiment -- rationale: this single public release simultaneously
+    bundles dual_arm data (AgileX Cobot Magic, Franka, UR), single_arm data (UR),
+    and humanoid dual-arm data (Tien Kung 2.0), plus non-robot EGO4D human egocentric
+    video, in one dataset. No single existing enum value describes the release as
+    a whole. Source: HF file listing (DUAL_ARM_AGX/DUAL_ARM_FRANKA/DUAL_ARM_TIEN_KUNG2/DUAL_ARM_UR/SINGLE_ARM_UR/EGO4D
+    top-level folders) and arXiv:2511.02776 abstract (''six heterogeneous embodiments'').'
+  robot_platform: 'mixed_multi_platform -- rationale: the same release contains agilex_cobot_magic,
+    franka_panda, tien_kung, and ur5e/ur5 data as parallel subsets; the schema''s
+    robot_platform field only supports one value per dataset entry. Source: same file
+    listing plus arXiv:2511.02776 (''Tien Kung 1.0/2.0, single/dual-arm UR-5e, dual-arm
+    Franka, and AgileX Cobot Magic 2.0'').'

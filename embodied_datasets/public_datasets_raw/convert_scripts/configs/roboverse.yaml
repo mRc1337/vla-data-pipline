@@ -1,6 +1,124 @@
 id: roboverse
 name: RoboVerse
+source_url: https://roboverseorg.github.io
+license: Apache-2.0
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: simulation
+secondary_collection_methods: []
+embodiment_class: single_arm
+num_arms: 1
+gripper_type: parallel_jaw
+action_space: mixed
 camera_views: []
+has_camera_calibration: true
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 276
+urdf_available: true
+urdf_source: dataset_repo
+expected_size_gb: 44.9
+expected_num_episodes: 510500
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: 'Stub had no usable source_url; corrected to the official project homepage
+    https://roboverseorg.github.io (page title ''RoboVerse: Towards a Unified Platform,
+    Dataset and Benchmark for Scalable and Generalizable Robot Learning''), cross-referenced
+    with GitHub org https://github.com/RoboVerseOrg/RoboVerse and the docs/wiki https://roboverse.wiki/'
+  license: 'GitHub API https://api.github.com/repos/RoboVerseOrg/RoboVerse reports
+    license.spdx_id = ''Apache-2.0''; README https://github.com/RoboVerseOrg/RoboVerse/blob/main/README.md
+    License section: ''The RoboVerse source code is licensed under the Apache License
+    2.0''; HF dataset card https://huggingface.co/datasets/RoboVerseOrg/roboverse_data
+    lists license: apache-2.0. Note: the same README also states ''The licenses for
+    the assets used in RoboVerse will be added soon'', and the released repo contains
+    many separate per-asset LICENSE files under robots/*/ and scenes/*/ (e.g. robots/franka/mjcf/LICENSE,
+    robots/Kinova_Gen3/mjcf/LICENSE, scenes/arnold/LICENSE) -- bundled third-party
+    robot/scene assets may carry their own original licenses distinct from the Apache-2.0
+    code/dataset-repo license.'
+  raw_format: HF dataset file listing (https://huggingface.co/api/datasets/RoboVerseOrg/roboverse_data)
+    shows trajectories stored as Python pickle files (10386 .pkl + 801 .pkl.gz, e.g.
+    trajs/calvin/calvin_traj_ann/env_A_out/task_100_v2.pkl) plus per-task initial_state_v2.json
+    files (e.g. trajs/bidex/ShadowHandBottle/v2/initial_state_v2.json) and .npy annotation
+    arrays -- a bespoke pickle/json/npy layout, not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord.
+  collection_method: 'arXiv:2504.18904 abstract: ''we introduce RoboVerse, a comprehensive
+    framework comprising a simulation platform, a synthetic dataset, and unified benchmarks'';
+    Section IV-B ''Data Collection'': trajectories/tasks/assets are obtained via direct
+    migration from existing simulation benchmarks, motion planning + RL rollout, teleoperation,
+    and generative task creation -- all performed inside simulators, so the overarching
+    collection method is simulation (no real-world/real-robot data collection is used).'
+  embodiment_class: 'arXiv:2504.18904 Table I ''Migration progress statistics for
+    manipulation tasks'' lists 276 task categories / 510.5k trajectories / 5.5k assets
+    sourced from 15 benchmarks (ManiSkill, RLBench, CALVIN, Meta-World, RoboSuite/MimicGen,
+    GAPartNet, Open6DOR, ARNOLD, LIBERO, Simpler, RLAfford, GraspNet, GarmentLab,
+    UniDoorManip, GAPartManip), all of which are single fixed-base-arm tabletop manipulation
+    benchmarks -- the dominant mode (~94% of released manipulation trajectories).
+    Note: the platform also ships a smaller bimanual dexterous-hand subset (trajs/bidex/ShadowHand*
+    in the HF dataset repo), a Navigation dataset with mobile legged/wheeled robots
+    (Section IV-E1 ''Navigation Dataset'': Unitree Dog + JetBot), and a Humanoid dataset
+    (HumanoidBench/Humanoid-X/SkillBlender migration) -- so embodiment_class is genuinely
+    multi-embodiment at the platform level; single_arm is recorded here as the dominant/majority
+    mode only.'
+  gripper_type: 'Same Table I source benchmarks (RLBench, CALVIN, LIBERO, Meta-World,
+    RoboSuite, ManiSkill baselines, etc.) predominantly use parallel two-finger grippers
+    (Franka Panda / Sawyer / UR5 parallel grippers) -- dominant mode for the single-arm
+    manipulation majority. Note: the bidex ShadowHand subset (trajs/bidex/ in the
+    HF dataset repo) and the h1_hand/shadow_hand/unitree_dex3-1 robot assets shipped
+    in robots/ use dexterous_hand end-effectors instead -- gripper_type is heterogeneous
+    at the platform level; parallel_jaw recorded here as the dominant/majority mode
+    only.'
+  num_arms: 'Same evidence as embodiment_class: the dominant single-arm manipulation
+    subset (Table I, 510.5k trajectories) uses exactly one manipulator arm; the smaller
+    bidex bimanual subset uses two.'
+  action_space: 'arXiv:2504.18904 Section VI / Appendix XIX-C: ''action conditions
+    (gripper states with either Cartesian position plus orientation or joint position)''
+    and ''we first compare Cartesian position plus orientation to joint positions
+    as action conditions'' -- confirms both eef_pose and joint_position action representations
+    are used across the dataset, matching the ''mixed'' enum value.'
+  has_language_instruction: 'arXiv:2504.18904: many migrated source benchmarks carry
+    per-task language instructions -- Section IV-E1 Navigation Dataset uses ''off-the-shelf
+    instructions from R2R ... and RxR ...''; Section on AI-assisted task generation
+    gives ''a short, human-readable instruction (e.g., "Place the butter in the drawer,
+    then close the drawer.")''; the GraspNet-derived subset is described as ''grasping
+    tasks with diverse and challenging language instructions''.'
+  has_camera_calibration: 'RoboVerse cameras are synthetic/simulated and fully specified
+    via MetaSim''s declarative configuration system (https://roboverse.wiki/metasim/
+    -- ''Configure Declaratively: Define robots, scenes, cameras, and physics parameters
+    through a configuration system''; Tutorial 10 ''Mount Camera''), so camera intrinsics/extrinsics
+    are exactly known by construction for every simulated view.'
+  urdf_available: HF dataset repo file listing (https://huggingface.co/api/datasets/RoboVerseOrg/roboverse_data)
+    contains 177 .urdf files plus MJCF/USD robot descriptions under robots/ (e.g.
+    robots/franka/, robots/Kinova_Gen3/, robots/Interbotix_WidowX_250/, robots/h1_hand/,
+    robots/unitree_dex3-1/).
+  urdf_source: Same HF dataset repo (RoboVerseOrg/roboverse_data) ships the URDF/MJCF/USD
+    files directly under robots/ within its own repository, each with its own bundled
+    LICENSE file (e.g. robots/franka/mjcf/LICENSE, robots/Kinova_Gen3/mjcf/LICENSE)
+    -- hosted in the dataset's own repo, i.e. dataset_repo.
+  num_task_types: 'arXiv:2504.18904 Table I total row: ''Total - 276 510.5k 5.5k''
+    (276 task categories across the migrated manipulation benchmarks). Note: this
+    excludes the separate Navigation dataset (VLN-CE tasks) and Humanoid dataset (HumanoidBench/Humanoid-X/SkillBlender
+    tasks) described in the same section, which add further task types not tallied
+    in this number.'
+  expected_size_gb: HuggingFace Hub API https://huggingface.co/api/datasets/RoboVerseOrg/roboverse_data?expand=usedStorage
+    reports usedStorage = 44869086705 bytes (~44.9 GB) for the official RoboVerseOrg/roboverse_data
+    dataset repo (assets + robots + scenes + trajs).
+  expected_num_episodes: 'arXiv:2504.18904 Table I total row and Section IV-E1: ''this
+    migration results in 276 task categories, 510.5k trajectories, and 5.5k assets''
+    for the manipulation dataset. Note: additional episodes exist in the Navigation
+    dataset (R2R 10k + RxR 20k = 30k episodes) and the Humanoid dataset, not included
+    in this manipulation-only figure.'
+suggested_new_enum_values:
+  robot_platform: multi_platform -- the HF dataset repo's robots/ directory ships
+    dozens of distinct robot descriptions (Franka, Kinova Gen3, Interbotix WidowX
+    250, KUKA LBR IIWA14, ARX Robotics L5 Arm, UFactory Lite6, Unitree Z1, Universal
+    Robots UR5e/UR10e, Siasun SO-ARM100, Unitree H1 humanoid, Shadow Hand, Unitree
+    Dex3-1, etc.) migrated from 15+ source benchmarks (arXiv:2504.18904 Table I);
+    no single named enum value or generic 'other' can honestly represent this many
+    concurrently-supported platforms, so robot_platform was left blank instead of
+    forced.
+  rotation_representation: mixed -- source benchmarks migrated into RoboVerse (RLBench,
+    CALVIN, LIBERO, ManiSkill, Meta-World, etc., per Table I) each natively use different
+    end-effector/state orientation encodings (quaternion, euler, rotation matrix depending
+    on origin simulator/benchmark), and no single dataset-wide representation could
+    be confirmed from the paper/docs. A 'mixed' option, analogous to the existing
+    'mixed' value already allowed for action_space, would let this be recorded honestly
+    instead of leaving it silently blank.

@@ -1,6 +1,123 @@
 id: dobb_e
 name: Dobb-E
-camera_views: []
+source_url: https://dobb-e.com
+license: Unknown
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: umi
+secondary_collection_methods: []
+embodiment_class: mobile_manipulator
+robot_platform: other
+num_arms: 1
+dof_per_arm: 6
+gripper_type: parallel_jaw
+has_mobile_base: true
+action_space: eef_pose
+action_frame: delta
+rotation_representation: axis_angle
+action_dim: 7
+fps: 30.0
+fps_variable: false
+num_camera_views: 1
+camera_views:
+- other
+depth_coverage: full
+additional_modalities: []
+num_task_types: 8
+urdf_available: true
+urdf_source: manufacturer_official
+expected_size_gb: 77.0
+expected_num_episodes: 5620
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: Stub's recorded name 'Dobb-E' resolved to the project's official homepage
+    https://dobb-e.com (confirmed via arXiv:2311.16098 abstract, which links to https://dobb-e.com
+    as the official open-source release site); GitHub code repo is https://github.com/notmahi/dobb-e
+    and paper is https://arxiv.org/abs/2311.16098
+  license: https://github.com/notmahi/dobb-e/blob/main/LICENSE - software repo is
+    MIT. https://dobb-e.com footer states 'source code is licensed MIT. The website
+    content is licensed CC BY-NC-SA 4.0' (generic academic-page-template boilerplate).
+    No explicit license is stated for the downloadable HoNY dataset files themselves
+    (hosted at dl.dobb-e.com / Google Drive), and CC-BY-NC-SA-4.0 is not in the given
+    enum (has ShareAlike, unlike CC-BY-NC-4.0), so license is recorded as Unknown
+    rather than guessed — see suggested_new_enum_values
+  raw_format: 'arXiv:2311.16098 sec ''Dataset Format'' (p.9): dataset is exported
+    RGB+depth video plus a custom per-frame action/pose annotation format (via Record3D
+    R3D export processed by stick-data-collection code), not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord'
+  collection_method: 'arXiv:2311.16098 sec 2.1 ''The Stick'': demonstrations are collected
+    with a handheld reacher-grabber stick with a mounted iPhone (visual+inertial odometry
+    via ARKit) standing in for the robot gripper, i.e. a UMI-style (Universal Manipulation
+    Interface) handheld-device collection method, not teleoperation of the physical
+    robot'
+  embodiment_class: 'arXiv:2311.16098 sec 2.1.3 ''Robot Platform'': ''All of our systems
+    are deployed on the Hello Robot Stretch, which is a single-arm mobile manipulator
+    robot'''
+  robot_platform: 'arXiv:2311.16098 sec 2.1.3: robot is the Hello Robot Stretch (RE1);
+    not present in the given enum, so mapped to ''other'' (see suggested_new_enum_values)'
+  num_arms: 'arXiv:2311.16098 sec 2.1.3: Hello Robot Stretch is explicitly described
+    as ''single-arm'''
+  dof_per_arm: 'arXiv:2311.16098 sec 2.1.3: ''We use the Stretch RE1 version in all
+    of our experiments, with the dexterous wrist attachment that confers 6D movement
+    abilities on the robot'''
+  gripper_type: 'arXiv:2311.16098 sec 2.1 / 2.1.5 ''Gripper Tips'': Stick and Stretch
+    both use a two-finger reacher-grabber style parallel-jaw gripper (with modified
+    cylindrical gripper tips)'
+  has_mobile_base: 'arXiv:2311.16098 sec 2.1.3: Hello Robot Stretch is a ''mobile
+    manipulator robot'' with a wheeled mobile base'
+  action_space: 'arXiv:2311.16098 sec 2.2 ''Learning Details'': policy output space
+    is a 7-dimensional vector of relative translation, relative rotation, and gripper
+    opening — i.e. end-effector pose (+ gripper), not joint-space'
+  action_frame: 'arXiv:2311.16098 sec 2.2 ''Dataset Format'' (p.9): ''we store the
+    absolute 6D poses of the iPhone at 30 Hz. During model training or fine-tuning,
+    we calculate the relative pose change as the action at the desired frequency during
+    runtime'''
+  rotation_representation: 'arXiv:2311.16098 sec 2.2 ''Learning Details'': ''the output
+    space is a 7-dimensional vector, where the first 3 dimensions are relative translations,
+    next 3 dimensions are relative rotations (in axis angle representation), and the
+    final dimension is a gripper value'''
+  action_dim: 'arXiv:2311.16098 sec 2.2 ''Learning Details'': explicit 7-dimensional
+    action vector (3 translation + 3 axis-angle rotation + 1 gripper)'
+  fps: 'arXiv:2311.16098 sec 2.1.4 ''Data Collection'': ''We record this data at 30
+    FPS onto the phone''; also dobb-e.com dataset section: ''RGB and depth videos
+    at 30 fps'''
+  fps_variable: arXiv:2311.16098 sec 2.1.4 and dobb-e.com dataset section consistently
+    state a fixed 30 FPS/Hz recording rate, no mention of variable frame rate
+  num_camera_views: 'arXiv:2311.16098 sec 2.1.3 ''Camera Mounts'': ''our setup operates
+    with only one robot mounted camera'' (the iPhone on the Stick/wrist mount)'
+  camera_views: 'arXiv:2311.16098 sec 2.1.3 ''Camera Mounts'': single iPhone camera
+    mounted at the gripper/wrist (matching mounts on the Stick and the Stretch arm).
+    Stretch is single-arm with no left/right distinction, so mapped to ''other'' rather
+    than left_wrist/right_wrist (see suggested_new_enum_values, same convention used
+    in configs/calvin.yaml)'
+  depth_coverage: 'dobb-e.com dataset section: ''The dataset contains RGB and depth
+    videos at 30 fps''; arXiv:2311.16098 sec 2.1.4: depth captured from the iPhone
+    LiDAR at every frame alongside RGB'
+  num_task_types: 'arXiv:2311.16098 sec 2.1.2 ''Pretraining Dataset'': ''eight total
+    defined broad classes of tasks: switching button, door opening, door closing,
+    drawer opening, drawer closing, pick and place, handle grasping, and play data'''
+  urdf_available: https://github.com/hello-robot/stretch_urdf - Hello Robot's official
+    'URDFs for the Stretch mobile manipulators from Hello Robot Inc.' repository,
+    distributed as the hello-robot-stretch-urdf PyPI package
+  urdf_source: https://github.com/hello-robot/stretch_urdf - official manufacturer
+    (Hello Robot Inc.) repository, not the Dobb-E dataset repo itself
+  expected_size_gb: 'https://dobb-e.com/#dataset: two downloadable versions offered,
+    ''RGB + actions dataset (814 MB)'' and ''RGB-D + actions dataset (77 GB)''; recorded
+    the larger/full RGB-D+actions release (77 GB) since it is the complete raw modality
+    set; also stated in arXiv:2311.16098 sec 3 ''Discussion/Artifacts'' as ''a 814
+    MB version ... and an 77 GB version with RGB, depth, and the actions'''
+  expected_num_episodes: 'arXiv:2311.16098 sec 2.1.2 ''Pretraining Dataset'' and sec
+    2.1.4: ''The HoNY dataset ... contains 5620 demonstrations in 13 hours of total
+    recording time''; also shown on dobb-e.com dataset section as ''5620 trajectories'''
+suggested_new_enum_values:
+  robot_platform: hello_robot_stretch - Dobb-E (and other home-robot datasets) deploy
+    on the Hello Robot Stretch RE1, a widely-used commercially-available single-arm
+    mobile manipulator with a dexterous wrist; it does not match any manufacturer-specific
+    value in the current enum, so 'other' was used as a fallback here.
+  camera_views: wrist (generic, non-handed) - Dobb-E's single robot-mounted iPhone
+    sits at the gripper/wrist of a single-arm robot with no left/right arm distinction,
+    so the existing left_wrist/right_wrist options would force an incorrect handedness
+    label; 'other' was used instead as a stand-in (same gap noted in configs/calvin.yaml).
+  license: CC-BY-NC-SA-4.0 - dobb-e.com's footer states the website content (and,
+    ambiguously, possibly the dataset) is licensed under CC BY-NC-SA 4.0, which includes
+    a ShareAlike clause not covered by the existing CC-BY-NC-4.0 enum value; recorded
+    as Unknown here since it's unclear whether this applies to the dataset files themselves.

@@ -1,0 +1,140 @@
+id: bigym
+name: BiGym
+source_url: https://chernyadev.github.io/bigym/
+license: Apache-2.0
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: humanoid
+robot_platform: unitree_h1
+num_arms: 2
+dof_per_arm: 5
+gripper_type: parallel_jaw
+has_mobile_base: true
+action_space: joint_position
+action_frame: both
+rotation_representation: none
+state_dim: 64
+action_dim: 16
+fps: 500.0
+fps_variable: true
+num_camera_views: 3
+camera_views:
+- head
+- left_wrist
+- right_wrist
+has_camera_calibration: true
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: false
+num_task_types: 40
+urdf_available: true
+urdf_source: community_repo
+expected_num_episodes: 2000
+review_status: pending_human_review
+field_sources:
+  source_url: https://chernyadev.github.io/bigym/ (official project page; stub value
+    confirmed correct, links to code github.com/chernyadev/bigym and paper arXiv:2407.07788).
+  license: 'https://github.com/chernyadev/bigym README.md ''Licenses'' section: ''BiGym
+    License (Apache 2.0) - This repository''. (Third-party MuJoCo Menagerie robot/gripper
+    models are also Apache 2.0; 3D assets are separately CC0/CC-BY-4.0/CC-BY-NC-4.0,
+    but the dataset/code license itself is Apache-2.0.)'
+  raw_format: 'github.com/chernyadev/bigym demonstrations/demo_store.py and demonstrations/utils.py:
+    demos are serialized/cached using the `safetensors` library (`from safetensors
+    import safe_open`, `SAFETENSORS_SUFFIX` constant) as ''lightweight'' action-only
+    files, not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord; mapped to Custom.'
+  collection_method: 'arXiv:2407.07788 paper Sec 3 ''Demo Collection Pipeline'': ''We
+    use VR (Valve Index VR headset, two controllers and two base stations) to collect
+    demonstrations by virtually tele-operating the H1 robot in simulation.'' Human
+    teleoperation performed inside a MuJoCo simulator -> closest enum match is teleop
+    (same mapping used for other ''human teleoperation in simulation'' datasets in
+    this corpus, e.g. gr00t_teleop_sim.yaml).'
+  embodiment_class: 'Paper Sec 1/3: ''Built upon the humanoid embodiment of Unitree
+    H1 robot'' -- a legged bipedal humanoid with two arms, matching the humanoid enum
+    value.'
+  num_arms: 'Paper Sec 3.2/Fig 2: ''BiGym builds upon Unitree H1 robot with 3 RGB-D
+    cameras at the head, left wrist, and right wrist'' and describes bi-manual (two-arm)
+    control throughout (action space includes A_arms for both arms).'
+  dof_per_arm: 'Base Unitree H1 arm has 4 joints (shoulder pitch/roll/yaw + elbow),
+    confirmed via the cited model github.com/google-deepmind/mujoco_menagerie/tree/main/unitree_h1
+    (h1.xml joint list: left/right shoulder_pitch, shoulder_roll, shoulder_yaw, elbow).
+    Paper Sec 3.2 ''Humanoid Body Configurations'': ''As the original H1 comes with
+    no grippers, we attach an additional Robotiq 2F-85 gripper with an actuated wrist
+    joint to each arm'' -> 4 native + 1 added wrist joint = 5 DoF per arm in BiGym''s
+    configuration.'
+  gripper_type: 'Paper Sec 3.2: ''we attach an additional Robotiq 2F-85 gripper with
+    an actuated wrist joint to each arm'' -- the Robotiq 2F-85 is a two-finger parallel-jaw
+    gripper.'
+  has_mobile_base: 'Paper title/abstract: ''mobile bi-manual manipulation''; Sec 3.2
+    describes a ''whole-body mode'' (full leg control) and ''bi-manual mode'' (legs
+    replaced by an omni-directional floating base) -- the embodiment is mobile (able
+    to navigate the scene), unlike a fixed-base manipulator.'
+  action_space: 'Paper Table 1 comparison row for BiGym: action mode = ''J / J+FB''
+    (Joint position action mode, optionally with Floating Base). README.md ''Working
+    with demonstrations'' warning: released demos only cover `JointPositionActionMode(floating_base=True,
+    absolute=True/False)` -- joint-position control.'
+  action_frame: 'README.md warning: ''The current dataset includes demonstrations
+    for the following action modes only: JointPositionActionMode(floating_base=True,
+    absolute=True) - JointPositionActionMode(floating_base=True, absolute=False)''
+    -- both absolute and delta (absolute=False) joint-position targets are present
+    in the released dataset.'
+  rotation_representation: Action space is joint-position control (arms + floating
+    base + gripper opening), per paper Sec 3.2 equations for A_bm; there is no explicit
+    Cartesian end-effector orientation representation encoded in the action vector.
+  state_dim: 'Paper Sec 3.2 (Observation Spaces): bi-manual/floating-base proprioceptive
+    state ''s_proprio^bm ∈ R^64 = {s_qpos^bm, s_qvel^bm, s_base, s_grip}'', matching
+    the floating_base=True configuration used for the publicly released demonstrations.'
+  action_dim: 'Paper Sec 3.2 (Action Spaces): bi-manual mode action space ''A_bm ∈
+    R^16 = {A_arms, A_base, A_grip}'', matching the floating_base=True JointPositionActionMode
+    variants that make up the released demo dataset (the alternative whole-body mode
+    uses A_wb ∈ R^23, not the released config).'
+  fps: 'github.com/chernyadev/bigym bigym/bigym_env.py: ''CONTROL_FREQUENCY_MAX =
+    500'' with control_frequency defaulting to CONTROL_FREQUENCY_MAX and docstring
+    ''Control loop frequency, 500 Hz by default.''; demonstrations/demo_store.py DemoStore.get_demos()
+    also defaults `frequency: int = CONTROL_FREQUENCY_MAX` (500).'
+  fps_variable: 'Paper Sec 3.2 ''Down-Sampling Demonstrations'': demos are captured
+    at 500 Hz (physics rate) and can be down-sampled to any frequency between 20 and
+    500 Hz; bigym_env.py defines CONTROL_FREQUENCY_MIN=20 / CONTROL_FREQUENCY_MAX=500
+    and asserts requested frequency falls in that range.'
+  num_camera_views: 'Paper Sec 3.2 ''Observation Spaces'': ''we mount three cameras
+    on the robot: the forehead, the left wrist, and the right wrist.'''
+  camera_views: 'Paper Fig 2 caption: ''Unitree H1 robot with 3 RGB-D cameras at the
+    head, left wrist, and right wrist'' -- mapped to head/left_wrist/right_wrist enum
+    values.'
+  has_camera_calibration: github.com/chernyadev/bigym README.md usage example shows
+    cameras configured via `CameraConfig(name=..., rgb=..., depth=..., resolution=...)`
+    attached to fixed robot sites (head/left wrist/right wrist) in the MJCF model;
+    since this is a MuJoCo simulation, exact camera intrinsics/extrinsics are fully
+    known/derivable from the scene definition rather than estimated.
+  depth_coverage: 'Paper abstract/Sec 3.2: ''Each camera can generate both RGB and
+    depth observations'' for all 3 cameras -> full depth coverage.'
+  has_language_instruction: No natural-language task instructions, language-conditioning,
+    or text annotations are described anywhere in the paper or README; tasks are selected
+    via discrete named Gym-style environment classes (e.g. ReachTarget, DishwasherOpen),
+    not free-form language.
+  num_task_types: 'Paper abstract/Sec 3: ''BiGym features 40 diverse tasks set in
+    home environments''; README.md ''Tasks'' table also enumerates exactly 40 task
+    classes.'
+  urdf_available: Paper Sec 3.2 footnote cites the publicly available MJCF robot model
+    at github.com/google-deepmind/mujoco_menagerie/tree/main/unitree_h1, used as the
+    base H1 model with an added Robotiq 2F-85 gripper model; a machine-readable robot
+    description is available (MJCF, not URDF proper, but functionally equivalent and
+    shipped/referenced in the codebase).
+  urdf_source: Paper Sec 3.2 footnote 1 links directly to github.com/google-deepmind/mujoco_menagerie/tree/main/unitree_h1
+    -- a third-party/community-maintained (Google DeepMind) curated model repository,
+    not Unitree's own manufacturer repo, so mapped to community_repo.
+  expected_num_episodes: 'Paper Sec 3 (Introduction): ''we provide for each task only
+    sparse rewards but with 50 demonstrations''; Paper Sec 3/abstract confirms 40
+    tasks total -> 50 x 40 = 2000 human-collected demonstrations.'
+suggested_new_enum_values:
+  robot_platform: Add 'unitree_h1' (Unitree H1 humanoid). BiGym's sole embodiment
+    is the Unitree H1 (per mujoco_menagerie/unitree_h1 model + Robotiq 2F-85 grippers);
+    the current enum only offers 'unitree_g1' for Unitree platforms, which is a different
+    (smaller) robot and would misrepresent the actual hardware if selected, so this
+    field is left blank rather than forced to 'unitree_g1' or 'other'.
+  expected_size_gb: 'No documented fixed dataset size found: BiGym distributes ''lightweight''
+    action-only safetensors demonstrations (per demonstrations/demo_store.py) that
+    are re-rendered locally into full RGB-D observations on demand at user-chosen
+    resolution/frequency, so there is no single canonical on-disk size to report;
+    leaving this field blank rather than guessing is preferred to fabricating a number.'

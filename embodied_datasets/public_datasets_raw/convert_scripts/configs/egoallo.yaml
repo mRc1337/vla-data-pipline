@@ -1,6 +1,76 @@
 id: egoallo
 name: EgoAllo
-camera_views: []
+source_url: https://egoallo.github.io/
+license: MIT
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: egocentric_human
+secondary_collection_methods: []
+num_arms: 2
+gripper_type: none
+rotation_representation: rotation_matrix
+fps: 30.0
+fps_variable: true
+num_camera_views: 1
+camera_views:
+- head
+has_camera_calibration: true
+depth_coverage: partial
+additional_modalities: []
+has_language_instruction: false
+urdf_available: false
+urdf_source: not_found
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: https://arxiv.org/abs/2410.03665 abstract links to project page https://egoallo.github.io/
+    ; stub had no usable source_url, corrected here
+  license: 'https://github.com/brentyi/egoallo/blob/main/LICENSE (MIT License, code
+    repo). Note: underlying AMASS training data and Google-Drive-hosted checkpoint/sample
+    trajectories are not covered by this license (README: ''Due to licensing constraints,
+    we cannot redistribute the preprocessed [AMASS] data.'')'
+  raw_format: 'https://github.com/brentyi/egoallo README (''Running inference'' section):
+    released sample data is a custom per-sequence directory of a Project Aria VRS
+    file + MPS outputs (closed_loop_trajectory.csv, semidense_points.csv.gz) + optional
+    hamer_outputs.pkl -- not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord as released;
+    training-time preprocessing does convert AMASS to an internal HDF5, but the distributed
+    raw capture format is the custom VRS+CSV+pkl layout'
+  collection_method: 'https://arxiv.org/abs/2410.03665 abstract: ''Using only egocentric
+    SLAM poses and images'' captured by a human wearing a head-mounted Project Aria
+    device'
+  num_arms: https://arxiv.org/abs/2410.03665 -- system estimates full-body SMPL-H
+    pose including both arms/hands (also guided by HaMeR two-hand pose estimates)
+  gripper_type: https://github.com/brentyi/egoallo -- no robot end-effector/gripper
+    hardware is involved at all; captured subject is a human wearing a head-mounted
+    sensor, so 'none' (no gripper) applies rather than any robotic gripper category
+  rotation_representation: 'arXiv:2410.03665 (HTML, body-pose representation section):
+    body pose represented as local joint rotation matrices, notation ''Theta^t in
+    R^{51x3x3}'''
+  fps: 'https://github.com/brentyi/egoallo README ''Preprocessing Training Data''
+    step 2: AMASS preprocessing script ''Downsampling to 30fps'''
+  fps_variable: https://github.com/brentyi/egoallo README -- AMASS source mocap sub-datasets
+    have varying native capture rates before being downsampled uniformly to 30fps
+    for training; Aria capture streams (RGB/SLAM/IMU) also run at multiple native
+    rates, so overall data is multi-rate before normalization
+  num_camera_views: https://arxiv.org/abs/2410.03665 / https://egoallo.github.io/
+    -- single head-mounted Project Aria device is the capture rig
+  camera_views: https://egoallo.github.io/ -- described throughout as a 'head-mounted
+    device'; all imagery is egocentric/head-worn, no third-person or wrist cameras
+  has_camera_calibration: 'https://github.com/brentyi/egoallo README ''Running inference''
+    step 3: ''A VRS file from Project Aria, which contains calibrations and images.'''
+  depth_coverage: https://github.com/brentyi/egoallo README -- Project Aria MPS outputs
+    include semidense_points.csv.gz, a sparse/semi-dense SLAM point cloud (partial
+    3D scene structure); there is no dense per-pixel depth sensor on the device
+  has_language_instruction: https://arxiv.org/abs/2410.03665 and https://github.com/brentyi/egoallo
+    -- no language-instruction annotation or task-language pipeline is described anywhere
+    in the paper or repo; this is a motion-estimation system, not a language-conditioned
+    policy dataset
+  urdf_available: https://github.com/brentyi/egoallo -- system uses the SMPL-H parametric
+    human body/hand mesh model (via AMASS/MANO), not a robot URDF; no URDF is provided
+    or referenced
+  urdf_source: same basis as urdf_available -- not_found
+suggested_new_enum_values:
+  embodiment_class: 'human_full_body -- EgoAllo estimates whole-body human motion
+    (SMPL-H body pose + height + two-hand pose) from an egocentric head-mounted sensor.
+    None of the existing options fit: ''human_hand'' only covers isolated hand embodiment,
+    and the robot-oriented options (single_arm/dual_arm/humanoid/mobile_manipulator)
+    describe robot bodies, not a captured human subject''s full body.'

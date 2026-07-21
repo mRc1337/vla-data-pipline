@@ -1,7 +1,103 @@
 id: droid
 name: DROID
-source_url: https://colab.research.google.com/drive/1b4PPH4XGht4Jve2xPKMCh-AXXAQziNQa?usp=sharing
-camera_views: []
+source_url: https://droid-dataset.github.io/
+license: CC-BY-4.0
+raw_format: RLDS
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: single_arm
+robot_platform: franka_panda
+num_arms: 1
+dof_per_arm: 7
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: mixed
+action_frame: both
+rotation_representation: axis_angle
+action_dim: 7
+fps: 15.0
+fps_variable: false
+num_camera_views: 3
+camera_views:
+- third_person
+- left_wrist
+has_camera_calibration: true
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 86
+urdf_available: true
+urdf_source: manufacturer_official
+expected_size_gb: 1834.75
+expected_num_episodes: 92233
 review_status: pending_human_review
-field_sources: {}
+field_sources:
+  source_url: Corrected from a pasted Colab-notebook link (still functional, https://colab.research.google.com/drive/1b4PPH4XGht4Jve2xPKMCh-AXXAQziNQa)
+    to the official project homepage https://droid-dataset.github.io/
+  license: https://huggingface.co/datasets/KarlP/droid (tag license:cc-by-4.0) cross-checked
+    against the license marker object at https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/CC-BY-4.0
+  raw_format: https://droid-dataset.github.io/ quickstart snippet (tfds.load('droid',
+    data_dir='gs://gresearch/robotics')) and https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json,
+    which uses the RLDS episode/steps FeaturesDict schema
+  collection_method: 'arXiv:2403.12945 section III-A: ''we use the controllers of
+    a Meta Quest 2 headset to control the pose of the arm ... for teleoperation'''
+  embodiment_class: arXiv:2403.12945 section III-A (single Franka Panda arm hardware
+    setup, Fig. 2)
+  robot_platform: 'arXiv:2403.12945 section III-A: ''We chose the Franka Emika Panda
+    7 DoF robot arm as the base of our setup'''
+  num_arms: arXiv:2403.12945 section III-A (single-arm platform)
+  dof_per_arm: 'arXiv:2403.12945 section III-A: ''Franka Panda 7DoF robot arm'''
+  gripper_type: 'arXiv:2403.12945 section III-A: ''equipped with a Robotiq 2F-85 gripper''
+    (parallel-jaw gripper)'
+  has_mobile_base: 'arXiv:2403.12945 section III-A: arm is mounted on a height-adjustable
+    standing desk with wheels for moving between scenes, not an actively-actuated
+    mobile base used during task execution'
+  action_space: https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json
+    action_dict contains joint_position, joint_velocity, cartesian_position, cartesian_velocity,
+    gripper_position, gripper_velocity -- multiple action-space representations recorded
+    per step
+  action_frame: https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json
+    action_dict includes both absolute cartesian_position/joint_position and velocity-based
+    cartesian_velocity/joint_velocity fields
+  rotation_representation: 'Inferred from https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json:
+    cartesian_position/cartesian_velocity tensors have shape [6] (3 translation +
+    3 rotation dims), which rules out quaternion(4)/rotation_6d/rotation_matrix and
+    is consistent with the axis-angle (rotation-vector) convention used by the Polymetis
+    controller cited in arXiv:2403.12945 section III-A'
+  action_dim: https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json
+    top-level 'action' tensor shape [7]
+  fps: 'arXiv:2403.12945 Appendix B: ''All DROID data is recorded at 15Hz.'''
+  fps_variable: arXiv:2403.12945 Appendix B (fixed 15Hz recording rate, no mention
+    of variable rate)
+  num_camera_views: 'arXiv:2403.12945 Appendix B: ''3 stereo RGB camera streams''
+    / https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json
+    lists exterior_image_1_left, exterior_image_2_left, wrist_image_left'
+  camera_views: 'https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json:
+    exterior_image_1_left and exterior_image_2_left are adjustable 3rd-person cameras
+    (third_person); wrist_image_left is the wrist-mounted camera (left_wrist)'
+  has_camera_calibration: 'arXiv:2403.12945 Appendix B: ''extrinsic camera calibration
+    matrices for both exterior cameras'' recorded per trajectory; homepage April 2025
+    update also released improved per-episode calibrations'
+  depth_coverage: https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json
+    defines only RGB image features (no depth tensor) in the officially released dataset
+    schema; note the paper's Fig. 1 caption claims raw episodes include 'depth information'
+    from the stereo cameras, but this is not exposed as a depth channel in the released
+    RLDS features
+  has_language_instruction: 'https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json:
+    language_instruction, language_instruction_2, language_instruction_3 string fields
+    per step'
+  num_task_types: 'arXiv:2403.12945 abstract/Fig. 1: ''86 Tasks / Verbs'''
+  urdf_available: https://github.com/frankaemika/franka_ros (develop branch) ships
+    franka_description/robots/panda/panda.urdf.xacro for the Franka Panda arm used
+    by DROID
+  urdf_source: https://github.com/frankaemika/franka_ros franka_description package
+    is the manufacturer's official URDF for the Franka Emika Panda
+  expected_size_gb: https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/dataset_info.json
+    train split numBytes=1834749018029 (~1834.75 GB)
+  expected_num_episodes: https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/dataset_info.json
+    train split shardLengths sum to 92233 episodes in the current released RLDS build
+    (arXiv:2403.12945 reports 76k trajectories at paper-publication time; the dataset
+    has grown since, consistent with the ~95k trajectories cited by Qwen_RobotManip.pdf
+    section 2.1 as a secondary cross-check)
 suggested_new_enum_values: {}

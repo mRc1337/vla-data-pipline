@@ -1,7 +1,87 @@
 id: rh20t
 name: RH20T
 source_url: https://rh20t.github.io/#download
-camera_views: []
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: single_arm
+num_arms: 1
+gripper_type: parallel_jaw
+has_mobile_base: false
+fps: 10.0
+fps_variable: true
+camera_views:
+- third_person
+- other
+has_camera_calibration: true
+depth_coverage: partial
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 147
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 40000.0
+expected_num_episodes: 110000
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: https://rh20t.github.io/ (official project site, Download section anchor
+    confirmed live)
+  raw_format: https://rh20t.github.io/ Data Format section (per-scene dirs with color.mp4/depth.mp4
+    videos, timestamps.npy, tcp/joint/gripper/force_torque .npy files, metadata.json
+    — a bespoke directory layout, not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord)
+  collection_method: arXiv:2307.00595 sec. III-B 'Tele-Operation' (haptic device +
+    pedal for intuitive teleoperation); rh20t.github.io Tele-Operation section
+  embodiment_class: 'arXiv:2307.00595 Table II (Cfg 1-7: Flexiv/UR5/Franka/Kuka, all
+    single fixed-base arms, no dual-arm/mobile/humanoid configs); rh20t.github.io
+    Platform Setup (''Each platform contains a robot arm ... gripper'')'
+  num_arms: same as embodiment_class — every one of the 7 hardware configs uses exactly
+    one robot arm
+  gripper_type: 'arXiv:2307.00595 Table II Gripper column: Dahuan AG95, WSG50, Robotiq-85,
+    Franka Hand — all two-finger parallel-jaw grippers'
+  has_mobile_base: 'rh20t.github.io Platform Setup: fixed robot arm mounted with a
+    stationary data-collection workstation; no mobile base described anywhere in paper
+    or site'
+  fps: 'arXiv:2307.00595 Table III / rh20t.github.io Data Details table: RGB image
+    sampled at 10 Hz'
+  fps_variable: 'same table: RGB/depth/joint angle/joint torque/gripper width at 10
+    Hz, gripper TCP pose and 6-DoF F/T at 100 Hz, audio at 30 Hz, Cfg-7 fingertip
+    tactile at 200 Hz'
+  camera_views: 'rh20t.github.io Platform Setup: ''1-2 inhand cameras, 8-10 global
+    RGBD cameras''; arXiv:2307.00595 sec. III-B Collection, same description — global
+    multi-viewpoint cams mapped to third_person, in-hand/wrist cams (not distinguished
+    left/right in source) mapped to other'
+  has_camera_calibration: 'rh20t.github.io: ''all the cameras are calibrated with
+    respect to the robot''s base frame''; arXiv:2307.00595 sec. III-B: ''All the cameras
+    are extrinsically calibrated before conducting the manipulation'''
+  depth_coverage: rh20t.github.io Data Format section marks depth.mp4 as '(optional)'
+    per camera folder, and the Download section offers Depth as a separate, optional
+    archive from RGB — depth is not guaranteed for every camera/episode
+  has_language_instruction: 'arXiv:2307.00595 abstract: ''we also provide a corresponding
+    human demonstration video and a language description for each robot sequence'';
+    rh20t.github.io Task Description File download'
+  num_task_types: 'arXiv:2307.00595 sec. III-A Diversity: ''it contains 147 tasks,
+    consisting of 42 skills'''
+  urdf_available: checked https://github.com/rh20t/rh20t_api README and repo listing
+    plus rh20t.github.io — no URDF/mesh files are published; point-cloud videos render
+    a robot model but no downloadable URDF/mesh asset is provided
+  urdf_source: same search as urdf_available — not found in dataset repo, official
+    site, or paper
+  expected_size_gb: 'rh20t.github.io Download section note: ''the original size is
+    too large (40TB)'' — figure is the authors'' own approximate stated size of the
+    full raw dataset before the resized redistributions'
+  expected_num_episodes: 'arXiv:2307.00595 abstract and sec. III-A Scale: ''over 110,000
+    contact-rich robot manipulation sequences'' / ''Our dataset consists of over 110,000
+    robot sequences'''
+suggested_new_enum_values:
+  license: CC-BY-SA-4.0 for the RH20T-C subset (episode names 'scene_0001'-'scene_0005')
+    and CC-BY-NC-SA-4.0 for the RH20T-NC subset ('scene_0006'-'scene_0010') — rh20t.github.io
+    License section states a mixed ShareAlike license split by commercial/non-commercial
+    subset; the existing CC-BY-4.0/CC-BY-NC-4.0 enum values omit the ShareAlike clause
+    and would misrepresent the redistribution terms, so left blank instead of forcing
+    an inexact match.
+  robot_platform: 'multi_platform (or add flexiv_rizon / kuka_iiwa) — arXiv:2307.00595
+    Table II shows the dataset spans 7 hardware configs across 4 distinct arm models:
+    Flexiv Rizon (Cfg1-2), UR5 (Cfg3-4), Franka Panda (Cfg5), and KUKA iiwa (Cfg6-7).
+    UR5/Franka have close enum matches but Flexiv and KUKA have none, and no single
+    enum value can honestly represent the whole multi-embodiment collection.'

@@ -1,0 +1,140 @@
+id: airexo_2
+name: AirExo-2
+source_url: https://airexo.tech/airexo2/
+license: CC-BY-NC-SA-4.0
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: human_to_robot_synthesis
+secondary_collection_methods: []
+embodiment_class: dual_arm
+robot_platform: flexiv_rizon4
+num_arms: 2
+dof_per_arm: 7
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: eef_pose
+action_frame: absolute
+rotation_representation: rotation_6d
+state_dim: 20
+action_dim: 20
+fps: 30.0
+fps_variable: false
+num_camera_views: 1
+camera_views:
+- top
+has_camera_calibration: true
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: false
+num_task_types: 5
+urdf_available: true
+urdf_source: dataset_repo
+expected_num_episodes: 250
+review_status: pending_human_review
+field_sources:
+  source_url: https://airexo.tech/ redirects/links to the dedicated AirExo-2 section
+    at https://airexo.tech/airexo2/ (paper section, CoRL 2025); corrected stub's generic
+    landing-page URL to the specific AirExo-2 project page.
+  raw_format: 'https://github.com/AirExo/AirExo-2 README ''Data Format'' section:
+    per-scene directories mixing PNG color/depth images, HDF5 low-dim files (robot/gripper/airexo
+    *.h5), per-timestep .npy action/state files, and meta.json -- a bespoke directory
+    layout, not one of RLDS/HDF5-only/LeRobot/ROS_bag/MCAP/TFRecord.'
+  collection_method: 'arXiv:2503.03081 Abstract and Section 3.1: a human wears the
+    AirExo-2 exoskeleton (kinematically isomorphic device, no robot present) to collect
+    in-the-wild demonstrations, which are then explicitly converted via image/depth/operation-space
+    adaptors into pseudo-robot demonstrations for policy training -- matches the ''human_to_robot_synthesis''
+    enum value rather than teleop (no robot in the loop) or umi (not a handheld gripper).'
+  embodiment_class: 'https://github.com/AirExo/AirExo-2 README ''Real Robot'' section:
+    ''We use two Flexiv Rizon 4 robotics arms ... as our dual-arm robot platform.'''
+  robot_platform: https://github.com/AirExo/AirExo-2 README 'Real Robot' section names
+    Flexiv Rizon 4 arms; Flexiv is not one of the listed enum options, so mapped to
+    'other' (see suggested_new_enum_values for the specific platform name).
+  num_arms: 'https://github.com/AirExo/AirExo-2 README ''Real Robot'' section: ''two
+    Flexiv Rizon 4 robotics arms ... The right arm is the mirrored version of the
+    left arm.'''
+  dof_per_arm: 'https://github.com/AirExo/AirExo-2 assets/docs/CONFIG.md, robot joint
+    configuration example: ''num_joints: 8 # number of all joints (include gripper).
+    num_robot_joints: 7 # number of all robot joints (exclude gripper).'' -- 7 DoF
+    per arm, matching AirExo-2''s 1:1 kinematically-isomorphic joint mapping.'
+  gripper_type: 'https://github.com/AirExo/AirExo-2 README ''Real Robot'' section:
+    both arms ''equipped with the Robotiq 2F-85 grippers'' (parallel-jaw); paper Section
+    6 Limitations: ''The current AirExo-2 system only supports parallel grippers as
+    end-effectors.'''
+  has_mobile_base: 'https://github.com/AirExo/AirExo-2 README ''Real Robot'' section:
+    the target dual-arm robot platform is a fixed base (''mounted on the base at a
+    45 degree angle w.r.t. the ground''), not mobile; the AirExo-2 exoskeleton collection
+    rig itself is mounted on a mobile stand for portability during collection (paper
+    Appendix A.1, ''Mobile Data Collection Platform (H3)''), but that is the capture
+    hardware, not the target embodiment.'
+  action_space: arXiv:2503.03081 Section 3.2 'Operation Space Adaptor'/Action Generator
+    description ('translations in absolute coordinates and rotations in the 6D format');
+    confirmed in https://github.com/rise-policy/RISE-2 dataset/realworld.py where
+    per-timestep tcp pose (xyz + rotation) + gripper width form the action, i.e. end-effector
+    pose, not joint angles.
+  action_frame: 'https://github.com/rise-policy/RISE-2 dataset/realworld.py `_normalize_tcp`:
+    translations are normalized against fixed absolute min/max workspace bounds (not
+    deltas relative to the previous frame); paper Section 3.2 explicitly states actions
+    use ''translations in absolute coordinates.'''
+  rotation_representation: 'arXiv:2503.03081 Section 3.2: ''rotations in the 6D format
+    [126]'' (Zhou et al., continuity of rotation representations); confirmed in https://github.com/rise-policy/RISE-2
+    dataset/realworld.py, `xyz_rot_transform(..., to_rep=''rotation_6d'')`.'
+  state_dim: 'https://github.com/rise-policy/RISE-2 train.py: `action_dim = 10 if
+    config.robot_type == ''single'' else 20` (3 translation + 6 rotation_6d + 1 gripper
+    = 10 per arm, x2 arms = 20); the released per-timestep low-dim files store the
+    analogous tcp-pose + gripper-width state alongside the action (AirExo-2 README
+    ''Data Format'': ''.npy # tcp pose, gripper information and gripper action'').'
+  action_dim: 'https://github.com/rise-policy/RISE-2 train.py: `action_dim = 10 if
+    config.robot_type == ''single'' else 20`; dataset/realworld.py reshapes dual-arm
+    actions to width 20 (10 per arm: 3 translation + 6D rotation + 1 gripper).'
+  fps: 'https://github.com/AirExo/AirExo-2 assets/docs/CONFIG.md camera configuration
+    example: ''frame_rate: 30 # frame rate''; camera data is the timestamp reference
+    that all low-dim data is aligned to in the released/transformed dataset.'
+  fps_variable: 'Same camera config in CONFIG.md specifies a single fixed `frame_rate:
+    30` per camera, with no indication of variable/adaptive frame rate.'
+  num_camera_views: 'arXiv:2503.03081 Appendix A.1 ''Mobile Data Collection Platform
+    (H3)'': ''An Intel RealSense D415 camera is set up on top of the mobile platform
+    to capture global observations'' for the AirExo-2 in-the-wild collection rig (wrist/in-hand
+    cameras are only used with the original AirExo for teleoperated collection, per
+    paper Section 6 Limitations: ''the current AirExo-2 system does not include in-hand
+    cameras'').'
+  camera_views: Same source as num_camera_views -- a single camera mounted on top
+    of the (mobile) collection platform overlooking the workspace.
+  has_camera_calibration: 'arXiv:2503.03081 Appendix A.2 ''Calibration'': two-stage
+    calibration process (initial + differentiable-rendering refinement) between the
+    global camera and the AirExo-2 base, producing per-demonstration calibration parameters
+    stored in a `calib/` directory (AirExo-2 README ''Data Format'').'
+  depth_coverage: Intel RealSense D415 is an RGB-D camera; both the raw and transformed
+    data formats include a `depth/` folder per camera (AirExo-2 README 'Data Format'),
+    and the paper's Depth Adaptor (Section 3.1) operates on depth for every frame.
+  has_language_instruction: 'No natural-language task instructions are recorded per
+    episode -- the AirExo-2 README data-collection workflow only prompts the operator
+    for a numeric task ID and scene ID (README ''Data Collection (2): In-the-Wild''),
+    and the RISE-2 policy architecture (arXiv:2503.03081 Section 3.2) has no language/text
+    input branch.'
+  num_task_types: arXiv:2503.03081 Figure 4 defines 4 tasks (Collect Toys, Lift Plate,
+    Open Lid, Close Lid); Section 4.2 adds a 5th, more complex task (Serve Steak)
+    -- 5 distinct task types total across the paper's experiments.
+  urdf_available: arXiv:2503.03081 Figure 2 shows an explicit 'AirExo-2 URDF' block
+    feeding the forward-kinematics/camera-projection pipeline; the model/hardware
+    assets are published at https://github.com/AirExo/AirExo-2/tree/main/assets/models/AirExo-2.
+  urdf_source: URDF/hardware model files are hosted inside the dataset's own codebase
+    repository, https://github.com/AirExo/AirExo-2/tree/main/assets/models/AirExo-2
+    (also cross-linked from a companion CAD repo https://github.com/AirExo/airexo-models).
+  expected_num_episodes: 'arXiv:2503.03081 Section 4.1 Setup (''we collect 50 teleoperated
+    demonstrations for RISE-2 policy evaluation and 50 in-the-wild demonstrations
+    for AirExo-2 system evaluations'' per task) and Section 4.2 (''Using 50 in-the-wild
+    demonstrations ... Serve Steak''): 5 task types x 50 in-the-wild demonstrations
+    each = 250 in-the-wild (AirExo-2-collected) episodes reported in the paper''s
+    experiments; this may not equal the full scope of the publicly released ''Sample
+    Data'' archive, whose exact episode count could not be confirmed.'
+suggested_new_enum_values:
+  license: CC-BY-NC-SA-4.0 -- https://github.com/AirExo/AirExo-2 README states the
+    project (hardware models, codebase and data) is licensed under Creative Commons
+    CC BY-NC-SA 4.0. The given 'CC-BY-NC-4.0' option omits the ShareAlike clause,
+    which changes the redistribution/derivative-work terms, so it would misrepresent
+    the actual license; left the `license` field blank rather than force this mismatch.
+  robot_platform: flexiv_rizon4 -- the dataset's actual target robot platform is two
+    Flexiv Rizon 4 arms (https://github.com/AirExo/AirExo-2 README 'Real Robot' section),
+    which is not among the listed named platforms (Franka/UR/AgileX/xArm/Kinova/Sawyer/WidowX/ViperX/AgiBot/TienKung/ARX5/Unitree).
+    Filled `robot_platform` with the existing 'other' value to keep the record valid,
+    but a dedicated Flexiv enum value would preserve this detail for future onboarding.

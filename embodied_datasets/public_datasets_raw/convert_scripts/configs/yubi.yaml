@@ -1,0 +1,145 @@
+id: yubi
+name: YUBI
+source_url: https://sites.google.com/view/yubi-manipulation
+license: CC-BY-NC-SA-4.0
+raw_format: LeRobot
+release_type: fixed_episode_dataset
+collection_method: umi
+secondary_collection_methods: []
+is_multi_embodiment: true
+embodiment_class: dual_arm
+robot_platform: toyota_eley
+num_arms: 2
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: eef_pose
+action_frame: delta
+rotation_representation: euler_xyz
+state_dim: 14
+action_dim: 14
+fps: 30.0
+fps_variable: false
+num_camera_views: 3
+camera_views:
+- left_wrist
+- right_wrist
+- top
+has_camera_calibration: true
+depth_coverage: partial
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 119
+urdf_available: false
+urdf_source: not_found
+expected_num_episodes: 1200000
+review_status: pending_human_review
+field_sources:
+  source_url: https://sites.google.com/view/yubi-manipulation (project page linked
+    from the paper); the Google Sites page itself required Google sign-in when fetched
+    directly in this sandbox, so all facts below come from the arXiv paper and the
+    linked GitHub hardware repo instead.
+  raw_format: 'arXiv:2606.10244 (HTML, Sec. 4 ''Dataset Schema''): ''All sensor streams
+    are initially recorded in rosbag2 format at their native frequencies and are subsequently
+    converted to the LeRobot format Cadene et al. [2024], standardized at 30 Hz.''
+    The released/distributed dataset format is LeRobot.'
+  collection_method: 'arXiv:2606.10244 Abstract: ''We curate a UMI-based dataset of
+    unprecedented scale'' and paper Sec. 2 comparisons against ''previous UMI-based
+    datasets'' -- YUBI is explicitly a handheld, finger-driven evolution of the UMI
+    (Universal Manipulation Interface) data-collection paradigm, matching the ''umi''
+    enum value directly (same classification used for umi_datasets.yaml and dobb_e.yaml).'
+  embodiment_class: 'arXiv:2606.10244 Sec. 6 ''Robot Deployment'' / Appendix C.2 ''Robot
+    Platforms'': ''three bimanual robot platforms with distinct kinematics: UR ...,
+    Franka ..., and Toyota semi-humanoid ELEY ...'' and Sec. 7 Limitations: ''...embodiments
+    beyond fixed-base bimanual arms.'' Data collection itself is also bimanual (two
+    YUBI grippers, one per hand; see field_sources.state_dim).'
+  robot_platform: 'arXiv:2606.10244 Sec. 6 / Appendix C.2: policies are deployed and
+    evaluated across three distinct platforms -- UR (Universal Robots, model unspecified),
+    Franka (Franka Panda), and Toyota''s semi-humanoid ELEY -- with ''the robot''s
+    native gripper... replaced with the YUBI gripper'' on each. No single enum value
+    captures all three (ELEY has no enum entry at all, and ''UR'' is not specified
+    to model level), so mapped to ''other'' -- same approach used in umi_datasets.yaml
+    for its own multi-platform deployment story.'
+  num_arms: 'arXiv:2606.10244 Sec. 4 ''Dataset Schema'': recorded pose data has separate
+    right/left components (t^right, t^left, r^right, r^left, d^right, d^left) for
+    a two-handed/bimanual gripper setup; deployment platforms in Sec. 6 are likewise
+    described as ''bimanual'' (2 arms each).'
+  gripper_type: 'arXiv:2606.10244 Sec. 3.1 ''Finger-aligned design'': ''the sharpened
+    fingertip geometry enables precise, fine-grained control with a parallel-jaw gripper
+    (e.g., box assembly and cable insertion)''; the YUBI mechanism has exactly two
+    jaws (one thumb-actuated, one index/middle-actuated), consistent with ''parallel_jaw''
+    rather than a multi-fingered dexterous hand.'
+  has_mobile_base: 'arXiv:2606.10244 Sec. 7 Limitations: ''a natural data source for
+    embodiments beyond fixed-base bimanual arms'' -- confirms all three deployment
+    platforms (UR/Franka/ELEY) used in this work are fixed-base bimanual arm rigs,
+    not mobile bases.'
+  action_space: 'arXiv:2606.10244 Sec. 6: ''a single policy trained jointly on multiple
+    tasks in the end-effector trajectory action space... the action space is the gripper
+    trajectory rather than robot-specific joint commands.'''
+  action_frame: 'arXiv:2606.10244 Sec. 6: policy ''predicts relative end-effector
+    poses in action chunks (e.g., 32 steps)''; Sec. 4 also stores ''relative poses
+    expressed in the wrist frames'' for the raw dataset schema.'
+  rotation_representation: 'arXiv:2606.10244 Sec. 4 ''Dataset Schema'': ''we store
+    the translational components t^right, t^left ∈ R^3 and rotational components r^right,
+    r^left ∈ R^3, where rotation is represented as Euler angles.'''
+  state_dim: 'Derived from arXiv:2606.10244 Sec. 4 schema: per hand, translation (3)
+    + Euler rotation (3) + fingertip jaw angle d (1) = 7 dims; bimanual (2 hands)
+    = 14.'
+  action_dim: 'Same basis as state_dim (Sec. 4 schema: t + r + jaw angle per hand);
+    the policy predicts relative end-effector poses in this same representation (Sec.
+    6), so action_dim = 14 (2 hands x 7).'
+  fps: 'arXiv:2606.10244 Sec. 4: raw rosbag2 streams recorded at native rates (wrist
+    camera 100 Hz, Quest controller 80 Hz, magnetic encoder 100 Hz, top-view stereo
+    camera 30 Hz) but ''subsequently converted to the LeRobot format..., standardized
+    at 30 Hz''; Sec. 6 also conditions the policy on ''wrist RGB images at 30 Hz.'''
+  fps_variable: 'arXiv:2606.10244 Sec. 4: the released/converted LeRobot dataset is
+    explicitly ''standardized at 30 Hz'' (a single fixed rate), even though the underlying
+    raw rosbag2 sensor streams were captured at different native frequencies before
+    conversion.'
+  num_camera_views: 'arXiv:2606.10244 Sec. 3.2 / Sec. 4: ''a stereo top-view camera
+    for stable workspace observation'' plus ''an onboard wrist camera'' on each of
+    the two YUBI devices (''two wrist cameras and RealSense'' per Sec. 4 ''Dataset
+    Schema'') = 3 total camera views.'
+  camera_views: 'arXiv:2606.10244 Sec. 4: ''three synchronized camera streams (two
+    wrist cameras and RealSense)'' -- one wrist camera per hand (mapped to left_wrist/right_wrist)
+    plus the stationary top-view RealSense (mapped to top).'
+  has_camera_calibration: 'arXiv:2606.10244 Appendix A.2 ''Data Processing: Calibration''
+    and Fig. 12 ''Extrinsic calibration process'': ChArUco-board-based extrinsic calibration
+    is performed across cameras/desks to align coordinate frames to a shared world
+    origin.'
+  depth_coverage: 'arXiv:2606.10244 Sec. 3.2: the stationary top-view camera ''provides
+    a stable top-down view of the workspace at 30 Hz (RGB + depth)'' (RealSense D435),
+    while the two wrist-mounted cameras are described only as RGB/fisheye observation
+    cameras with no depth channel mentioned -- hence ''partial'' (only 1 of 3 views
+    has depth).'
+  has_language_instruction: 'arXiv:2606.10244 Sec. 6: policy is ''conditioned on a
+    natural-language task instruction''; Table 2 reports ''Total video-language-action
+    triplets'' as a dataset statistic, and Sec. 4 records per-sub-action language/task
+    metadata.'
+  num_task_types: 'arXiv:2606.10244 Abstract / Table 2 ''YUBI data statistics'': ''#
+    Tasks 119''; Sec. 4: ''The collected dataset features diverse 119 tasks... across
+    seven categories (industrial, kitchen, toy, desk work, clothing, appliance, personal
+    care).'''
+  urdf_available: 'https://github.com/Toyota/yubi-hw/ ''Repository Structure'': hardware
+    is released only as STEP/STL CAD files (glove, gripper, portable/stationary rig,
+    flange) plus BOM/assembly-instruction docs; no .urdf files are listed anywhere
+    in the repo tree.'
+  urdf_source: Same as urdf_available -- no URDF file was found in the official hardware
+    repo (https://github.com/Toyota/yubi-hw/), only STEP/STL mechanical CAD.
+  expected_num_episodes: 'arXiv:2606.10244 Abstract and Table 2 ''YUBI data statistics'':
+    ''# Episodes 1.20M'' (1,200,000), part of ''the largest UMI-based dataset for
+    bimanual dexterous manipulation, comprising 8434 hours of data across 1.20M episodes
+    and 119 tasks.'''
+suggested_new_enum_values:
+  license: '''CC-BY-NC-SA-4.0'' -- arXiv:2606.10244 (HTML) Appendix D.2 ''Software'':
+    ''The processed LeRobot dataset will be released on Hugging Face under the CC-BY-NC-SA-4.0
+    license.'' This ShareAlike variant is not covered by the existing CC_BY_NC_4_0
+    enum value (which lacks the SA clause), so the `license` field is left blank rather
+    than mis-selecting the non-SA variant. (Note: the separate hardware repo https://github.com/Toyota/yubi-hw/
+    is licensed CERN-OHL-W v2, and the data-collection *software* stack is Apache-2.0
+    per the paper''s Appendix D.2 -- neither applies to the dataset itself.)'
+  robot_platform: '''toyota_eley'' -- Toyota Frontier Research Center''s semi-humanoid
+    ''ELEY'' platform (arXiv:2606.10244 Sec. 6/Appendix C.2), one of three robots
+    YUBI-trained policies are deployed on. It has no existing enum entry at all (unlike
+    UR/Franka, which at least have partial matches), so a dedicated value would let
+    this and future Toyota-ELEY-based datasets be identified precisely instead of
+    falling back to ''other''.'

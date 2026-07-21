@@ -1,7 +1,99 @@
 id: rt_1
 name: RT-1
 source_url: https://console.cloud.google.com/storage/browser/gresearch/rt-1-data-release;tab=objects?prefix=&forceOnObjectsSortingFiltering=false
-camera_views: []
+license: CC-BY-4.0
+raw_format: RLDS
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: mobile_manipulator
+num_arms: 1
+dof_per_arm: 7
+gripper_type: parallel_jaw
+has_mobile_base: true
+action_space: mixed
+action_frame: delta
+rotation_representation: euler_xyz
+action_dim: 13
+fps: 3.0
+fps_variable: false
+num_camera_views: 1
+camera_views:
+- head
+has_camera_calibration: false
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 700
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 118.93
+expected_num_episodes: 87212
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: https://storage.googleapis.com/gresearch/rt-1-data-release/dataset_info.json
+    (bucket verified reachable; contains LICENSE.txt, README.txt, dataset_info.json)
+  license: https://storage.googleapis.com/gresearch/rt-1-data-release/LICENSE.txt
+    (Creative Commons Attribution 4.0 International)
+  raw_format: https://storage.googleapis.com/gresearch/rt-1-data-release/README.txt
+    (states data conforms to the RLDS library format, loaded via tfds.builder_from_directory)
+  collection_method: arXiv:2212.06817 Appendix C.2 ('Demonstrations are collected
+    with direct line-of-sight between operator and robot using 2 virtual reality remotes')
+  embodiment_class: arXiv:2212.06817 Section 4 ('mobile manipulators from Everyday
+    Robots ... a 7 degree-of-freedom arm, a two-fingered gripper, and a mobile base')
+  num_arms: arXiv:2212.06817 Section 4
+  dof_per_arm: arXiv:2212.06817 Section 4 ('7 degree-of-freedom arm')
+  gripper_type: arXiv:2212.06817 Section 4 ('a two-fingered gripper')
+  has_mobile_base: arXiv:2212.06817 Section 4
+  action_space: https://www.tensorflow.org/datasets/catalog/fractal20220817_data feature
+    structure (action dict mixes world_vector/rotation_delta eef terms with base_displacement
+    terms and a discrete terminate_episode mode) plus arXiv:2212.06817 Section 5.1
+  action_frame: 'https://www.tensorflow.org/datasets/catalog/fractal20220817_data
+    (''world_vector: commanded end-effector displacement'', ''rotation_delta: rpy
+    commanded orientation displacement'') and arXiv:2212.06817 Appendix C.2 (''3D
+    position and rotational displacements of the remote are mapped to 6d displacements
+    of the robot tool'')'
+  rotation_representation: arXiv:2212.06817 Section 5.1 / Appendix C.2 (arm action
+    includes explicit roll, pitch, yaw components)
+  action_dim: 'gs://gresearch/rt-1-data-release README.txt action FeaturesDict: world_vector(3)+rotation_delta(3)+gripper_closedness_action(1)+base_displacement_vector(2)+base_displacement_vertical_rotation(1)+terminate_episode(3)=13'
+  fps: arXiv:2212.06817 Section 4 ('RT-1 performs closed-loop control and commands
+    actions at 3 Hz')
+  fps_variable: arXiv:2212.06817 Section 4 (fixed 3 Hz control rate, no mention of
+    variable rate)
+  num_camera_views: gs://gresearch/rt-1-data-release README.txt observation FeaturesDict
+    has a single 'image' field, shape (256, 320, 3)
+  camera_views: Inferred as head-mounted from the robot images in arXiv:2212.06817
+    Fig. 2(d) and https://robotics-transformer1.github.io/ (single fixed RGB camera
+    on the Everyday Robots torso/head, not a wrist camera); paper text does not use
+    an explicit mount-location label, so confidence is moderate
+  has_camera_calibration: gs://gresearch/rt-1-data-release README.txt observation
+    FeaturesDict lists no camera intrinsics/extrinsics fields
+  depth_coverage: gs://gresearch/rt-1-data-release README.txt observation FeaturesDict
+    contains only an RGB 'image' field, no depth field
+  has_language_instruction: gs://gresearch/rt-1-data-release README.txt observation
+    FeaturesDict includes 'natural_language_instruction' (string) and 'natural_language_embedding'
+  num_task_types: arXiv:2212.06817 Section 4 ('over 130k individual demonstrations
+    constituting over 700 distinct task instructions')
+  urdf_available: No public URDF for the Everyday Robots arm/base was found on https://robotics-transformer1.github.io/,
+    https://github.com/google-research/robotics_transformer, or the GCS data-release
+    bucket; Everyday Robots was a proprietary/internal Alphabet robot and the company
+    shut down in 2023
+  urdf_source: Same as urdf_available - not found in dataset repo, manufacturer site,
+    or community repos
+  expected_size_gb: 'https://storage.googleapis.com/gresearch/rt-1-data-release/dataset_info.json
+    (train split numBytes=118929634288 = 118.93 GB); cross-checked against https://www.tensorflow.org/datasets/catalog/fractal20220817_data
+    (''Dataset size: 111.38 GiB'', a slightly different TFDS repackaging of the same
+    release)'
+  expected_num_episodes: 'https://storage.googleapis.com/gresearch/rt-1-data-release/dataset_info.json
+    (sum of train split shardLengths = 87212); matches https://www.tensorflow.org/datasets/catalog/fractal20220817_data
+    (''train: 87,212'' examples). Note: arXiv:2212.06817 Section 4 reports the full
+    internal training set as ''over 130k'' demonstrations, but only 87,212 episodes
+    are present in the public gs://gresearch/rt-1-data-release bucket.'
+suggested_new_enum_values:
+  robot_platform: everyday_robots_arm - The RT-1 dataset was collected with Google/Everyday
+    Robots' proprietary 7-DoF mobile-manipulator arm (2-fingered parallel gripper
+    on a wheeled mobile base), described in arXiv:2212.06817 Section 4 and https://robotics-transformer1.github.io/.
+    No existing robot_platform enum value (franka_panda, ur5, ur5e, agilex_aloha,
+    agilex_cobot_magic, xarm7, kinova_gen3, sawyer, widowx, viperx, agibot_g1, tien_kung,
+    arx5, unitree_g1) corresponds to this platform, so it is left blank here rather
+    than forced into a wrong match.

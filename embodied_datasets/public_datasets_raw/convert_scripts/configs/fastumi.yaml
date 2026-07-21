@@ -1,0 +1,149 @@
+id: fastumi
+name: FastUMI
+source_url: https://huggingface.co/IPEC-COMMUNITY/FastUMI-Data
+license: MIT
+raw_format: HDF5
+release_type: fixed_episode_dataset
+collection_method: umi
+secondary_collection_methods: []
+embodiment_class: single_arm
+robot_platform: other
+num_arms: 1
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: eef_pose
+action_frame: absolute
+rotation_representation: quaternion
+state_dim: 7
+action_dim: 7
+fps: 60.0
+fps_variable: false
+num_camera_views: 1
+camera_views:
+- wrist
+has_camera_calibration: false
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: false
+num_task_types: 22
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 2372.24
+expected_num_episodes: 10000
+review_status: pending_human_review
+field_sources:
+  source_url: https://huggingface.co/IPEC-COMMUNITY/FastUMI-Data (stub-provided, confirmed
+    live dataset page).
+  license: 'HF API https://huggingface.co/api/datasets/IPEC-COMMUNITY/FastUMI-Data
+    -> tags include ''license:mit'' and cardData.license=''mit''; also GitHub README.md
+    (YdingTeam/FastUMI_Data) badge and ''License'' section: ''This project is licensed
+    under the MIT License.'''
+  raw_format: 'GitHub YdingTeam/FastUMI_Data README.md section 4.2 ''Data Structure'':
+    dataset is distributed as per-episode ''episode_<idx>.hdf5'' files with observations/images,
+    observations/qpos and action HDF5 datasets.'
+  collection_method: 'arXiv:2409.19499 abstract/Sec I: Fast-UMI is ''a substantial
+    redesign of the Universal Manipulation Interface (UMI) system'' -- a handheld-gripper,
+    interface-mediated data collection method; per task instructions UMI-style datasets
+    use collection_method: umi.'
+  embodiment_class: arXiv:2409.19499 Sec II 'Robot-Mounted Device Design' and Fig
+    5 demo (single robotic arm grasping a cup and placing it in a sink, policy trained
+    with ACT); GitHub data_collection.py config['device_settings']['robot_type'] is
+    a single configurable robot arm, not bimanual/humanoid/mobile. Kept consistent
+    with sibling config umi_datasets.yaml, which classifies the same UMI-style handheld/robot-arm
+    embodiment as single_arm.
+  robot_platform: 'arXiv:2409.19499 Sec II ''Decoupled Design Philosophy'': insertable
+    fingertip extensions are compatible with ''five mainstream gripper models, including
+    XArm gripper and robotiq 2f-85 ... This methodology can be adapted for other gripper
+    types as well''; GitHub data_collection.py reads ROBOT_TYPE from config[''device_settings''][''robot_type'']
+    as a user-configurable value, i.e. the system is explicitly hardware/platform-agnostic
+    rather than tied to one fixed robot_platform enum value.'
+  num_arms: 'arXiv:2409.19499 Fig 1/Fig 5 and GitHub README: system records a single
+    handheld gripper trajectory (one end-effector stream per episode); no bimanual/dual-arm
+    setup is described.'
+  gripper_type: 'arXiv:2409.19499 Sec II ''Decoupled Design Philosophy'': fingertip
+    extensions compatible with ''XArm gripper'' and ''robotiq 2f-85'' (robotiq.com/products/adaptive-grippers),
+    both parallel-jaw grippers; the handheld gripper itself is described as having
+    ''two markers at its fingertips to record the gripper''s width'' (a parallel-jaw
+    aperture).'
+  has_mobile_base: 'arXiv:2409.19499 Secs II-III: system consists of a handheld device
+    (human-operated) and a robot-mounted device attached to a stationary robotic arm;
+    no mobile base is described anywhere in the paper or README.'
+  action_space: 'GitHub YdingTeam/FastUMI_Data README.md Sec 4.2: ''action'' HDF5
+    dataset shape (num_timesteps, 7), columns [Pos X, Pos Y, Pos Z, Q_X, Q_Y, Q_Z,
+    Q_W] -- an end-effector pose (position + orientation), i.e. eef_pose.'
+  action_frame: 'GitHub README.md Sec 4.2, ''action'' dataset description: ''Stores
+    action data corresponding to each timestep. In this script, actions mirror the
+    qpos data.'' Since qpos records the directly-observed T265-derived TCP pose at
+    each timestep (not a delta from the previous action), this is an absolute pose
+    representation.'
+  rotation_representation: 'GitHub README.md Sec 4.2: qpos/action columns are [Pos
+    X, Pos Y, Pos Z, Q_X, Q_Y, Q_Z, Q_W] -- a quaternion (Q_X,Q_Y,Q_Z,Q_W) orientation
+    representation.'
+  state_dim: 'GitHub README.md Sec 4.2: observations/qpos dataset shape (num_timesteps,
+    7) = 3 position + 4 quaternion components.'
+  action_dim: 'GitHub README.md Sec 4.2: action dataset shape (num_timesteps, 7),
+    same 7-column layout as qpos (see action_frame source).'
+  fps: 'GitHub raw_githubusercontent.com/YdingTeam/FastUMI_Data/main/data_collection.py
+    comments: ''Video writer parameters for 60 Hz recording'' and ''Callback for video
+    frames (60 Hz expected)'' -- the released GoPro video stream (used to build episode_<idx>.hdf5
+    image frames) is recorded at 60 Hz; note the RealSense T265 pose stream is captured
+    separately at 200 Hz per the same file''s comment ''Callback for trajectory data
+    (e.g., T265 at 200 Hz)'', but qpos/action in the final HDF5 are aligned to the
+    video frame rate.'
+  fps_variable: 'Same data_collection.py source as fps: the GoPro capture is configured
+    for a fixed 60 Hz rather than a variable rate; no adaptive/variable frame-rate
+    logic is present in the collection script.'
+  num_camera_views: 'GitHub README.md Sec 4.2: observations/images/ contains exactly
+    one dataset, named ''front'' (shape num_frames x 1920 x 1080 x 3) -- a single
+    camera stream per episode.'
+  camera_views: GitHub README.md Sec 4.2 names the single camera dataset 'front',
+    but arXiv:2409.19499 Sec II 'Handheld Device Design' clarifies this GoPro is mounted
+    so its viewpoint aligns with the gripper's fingertips ('aligning the camera's
+    viewpoint with the gripper's fingertips') -- i.e. a gripper/fingertip(wrist)-mounted
+    camera, not a robot-front/head-mounted environment camera. Mapped to 'other' for
+    physical accuracy and for consistency with sibling config umi_datasets.yaml, which
+    maps the equivalent single wrist-mounted UMI GoPro to 'other' and proposes a generic
+    'wrist' enum value (see suggested_new_enum_values).
+  has_camera_calibration: 'GitHub README.md Sec 3: config.json stores an ''offset''
+    (T265-to-TCP transform) and ''distances'' (marker_max/marker_min/gripper_max/flange_to_tcp)
+    used for trajectory and gripper-width post-processing, but no camera intrinsic/extrinsic
+    calibration file or field is documented for the GoPro/T265 in the released dataset
+    structure (Sec 4.2).'
+  depth_coverage: 'arXiv:2409.19499 Sec II/III: only a GoPro RGB fisheye camera and
+    a RealSense T265 (used purely for 6-DoF pose tracking, not depth output) are used;
+    no depth channel is recorded or documented in the HDF5 structure (Sec 4.2 lists
+    only RGB ''front'' images).'
+  has_language_instruction: GitHub README.md Sec 4.2 fully enumerates the HDF5 schema
+    (observations/images, observations/qpos, action, attributes/sim) and states.csv/temp_trajectory.csv
+    columns; no language/text-instruction field is present anywhere in the documented
+    data structure.
+  num_task_types: 'HF API https://huggingface.co/api/datasets/IPEC-COMMUNITY/FastUMI-Data
+    siblings list contains 22 distinct task archive names (clean_table, close_ricecooker,
+    cover_beef, fold_towel, hotdog_in_rice_cooker, hotdog_in_roaster, open_container,
+    open_drawer, open_ricecooker, open_roaster, open_suitcase, pick_bear, pick_bread,
+    pick_cup, pick_lid, pick_pen, place_plate, place_pot, pour_coke, rearrange_coke,
+    sweep_trash, unplug_charger), matching arXiv:2409.19499 abstract: ''over 10,000
+    real-world demonstration trajectories spanning 22 everyday tasks.'''
+  urdf_available: GitHub YdingTeam/FastUMI_Data repository file listing and README
+    contain no .urdf files or URDF references; the hardware is a decoupled handheld/gripper-attachment
+    interface (3D-printed fingertip extensions) rather than a full robot description.
+  urdf_source: 'Same evidence as urdf_available: no URDF found in the dataset repo
+    or HF dataset repo.'
+  expected_size_gb: 'HF API https://huggingface.co/api/datasets/IPEC-COMMUNITY/FastUMI-Data
+    field ''usedStorage'': 2372241848227 bytes = 2372.24 GB. Note the dataset card''s
+    own ''size_categories: ["1G < size <10G"]'' tag appears to be a stale/default
+    placeholder and contradicts the much larger actual usedStorage figure, so the
+    API''s measured usedStorage was used instead.'
+  expected_num_episodes: 'arXiv:2409.19499 abstract: ''we have open-sourced a high-quality
+    dataset of over 10,000 real-world demonstration trajectories spanning 22 everyday
+    tasks.'' Recorded as the published approximate/lower-bound figure (10000); exact
+    per-task episode counts were not accessible (HF datasets-server info/size API
+    returned a gated/no-access error for this repo).'
+suggested_new_enum_values:
+  camera_views: '''wrist'' (generic, side-agnostic) -- FastUMI''s sole camera (HDF5
+    key ''front'') is a GoPro mounted so its viewpoint is aligned with the handheld/robot-mounted
+    gripper''s fingertips (arXiv:2409.19499 Sec II), i.e. a gripper/wrist-perspective
+    camera rather than a robot-front or head environment camera. The current CameraView
+    enum has no side-agnostic wrist option (only left_wrist/right_wrist), forcing
+    this single-gripper camera into ''other''. Same gap already noted in sibling config
+    umi_datasets.yaml for the original UMI hardware.'

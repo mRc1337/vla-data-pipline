@@ -1,0 +1,115 @@
+id: aloha_unleashed
+name: ALOHA Unleashed
+source_url: https://aloha-unleashed.github.io/
+license: Unknown
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: dual_arm
+robot_platform: viperx
+num_arms: 2
+dof_per_arm: 6
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: joint_position
+action_frame: absolute
+rotation_representation: none
+state_dim: 14
+action_dim: 14
+fps: 50.0
+fps_variable: false
+num_camera_views: 4
+camera_views:
+- top
+- left_wrist
+- right_wrist
+- other
+- worms_eye
+has_camera_calibration: false
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: false
+num_task_types: 8
+urdf_available: true
+urdf_source: manufacturer_official
+expected_num_episodes: 26241
+review_status: pending_human_review
+field_sources:
+  source_url: https://aloha-unleashed.github.io/ (confirmed current/live project page;
+    also cross-checked against arXiv 2410.13126 which links to it as the project site)
+  license: No public dataset release found (see notes) -- only paper (arXiv:2410.13126)
+    and project page with videos/protocol PDFs exist; no license is attached to any
+    downloadable data because none is published.
+  collection_method: 'Paper text (Sec 3.2 ''Data Collection''): ''ALOHA allows bimanual
+    teleoperation via a puppeteering interface...framework for scalable teleoperation.'''
+  embodiment_class: 'Paper Sec 3 / project page: ''a bimanual parallel-jaw gripper
+    workcell with two 6-DoF arms.'''
+  robot_platform: 'Paper Sec 3.1: ''The policy outputs 12 absolute joint positions,
+    6 for each 6-dof ViperX arm.'' ALOHA 2 arms are Trossen/Interbotix ViperX 300
+    6-DoF, confirmed via https://github.com/google-deepmind/mujoco_menagerie/tree/main/aloha
+    (derived from trossen_vx300s model) and original hardware repo https://github.com/tonyzhaozh/aloha.'
+  num_arms: 'Paper Sec 3: ''two 6-DoF arms'' (bimanual workcell).'
+  dof_per_arm: 'Paper Sec 3.1: ''6-dof ViperX arm.'''
+  gripper_type: 'Project page / paper Sec 3: ''bimanual parallel-jaw gripper workcell.'''
+  has_mobile_base: Paper describes ALOHA 2 as a stationary 'workcell'; no mobile base
+    component is mentioned anywhere in the paper (contrast with 'Mobile ALOHA', a
+    different, unrelated system).
+  action_space: 'Paper Sec 3.1: ''The policy outputs 12 absolute joint positions,
+    6 for each 6-dof ViperX arm, and a continuous value for gripper position for each
+    of the two grippers.'''
+  action_frame: 'Paper Sec 3.1: ''The policy outputs 12 absolute joint positions...'''
+  rotation_representation: Action/state space is pure joint-space (14-dim joint positions
+    + gripper), no Cartesian/orientation representation is used; paper Sec 3.1.
+  state_dim: 'Paper Sec 3.1: proprioceptive state ''consists of the joint positions
+    and gripper values for each of the arms, for a total of 1201 latent feature dimensions''
+    built from a 14-dim state (matches the 14-dim action tensor shape (50,14)).'
+  action_dim: 'Paper Sec 3.1: ''policy outputs a tensor of shape (50, 14)'' i.e. 14-dim
+    action per timestep (12 joint positions + 2 gripper values).'
+  fps: 'Paper Sec 3.1: ''we are able to surpass our target frequency of 50Hz''; action
+    chunk of 50 actions = ''a trajectory spanning 1 second'' implies 50Hz nominal
+    control/recording rate.'
+  fps_variable: 'Inferred from paper Sec 3.1: system is described around a fixed 50Hz
+    target/control rate, not a variable-rate recording scheme.'
+  num_camera_views: 'Paper Sec 3.1: ''multimodal inputs (4 images from different viewpoints...)''
+    and ''Each of the 4 RGB images is resized to 480x640x3...'''
+  camera_views: 'Paper Sec 4.2 mentions ''wrist camera[s]'' (left/right). Exact 4-camera
+    layout confirmed via MuJoCo Menagerie ALOHA 2 model README (https://github.com/google-deepmind/mujoco_menagerie/blob/main/aloha/README.md):
+    ''Added 4 cameras: overhead camera, worms-eye camera and left and right wrist
+    cameras.'' Mapped: overhead->top, left/right wrist->left_wrist/right_wrist, worms-eye
+    (no exact enum match)->other.'
+  has_camera_calibration: 'Paper Sec 4.2: ''Robots in our ALOHA 2 fleet are uncalibrated
+    and may have differences in robot and camera mounting positions.'''
+  depth_coverage: Paper consistently refers only to RGB cameras/images (e.g. '4 RGB
+    images'); no depth sensor is mentioned anywhere in the paper.
+  has_language_instruction: 'Paper Sec 3.1/4.1: a separate policy is trained per task
+    (''We train a separate Diffusion Policy for each task''); no language-conditioning
+    or instruction input is described anywhere in the paper.'
+  num_task_types: 'Paper abstract: ''5 challenging real-world and 3 simulated tasks''
+    = 8 total distinct task types (Shirt, Lace, FingerReplace, GearInsert, RandomKitchen
+    real; SingleInsertion, DoubleInsertion, MugOnPlate simulated).'
+  urdf_available: ALOHA 2's arm is the Trossen/Interbotix ViperX 300 6-DoF, whose
+    URDF/xacro is officially published by Interbotix, e.g. https://github.com/Interbotix/interbotix_ros_manipulators/blob/main/interbotix_ros_xsarms/interbotix_xsarm_descriptions/urdf/vx300s.urdf.xacro.
+    Google DeepMind also documents 'URDF -> MJCF derivation steps' for the ALOHA 2
+    assembly in the MuJoCo Menagerie README.
+  urdf_source: Base arm URDF is published by Interbotix/Trossen Robotics (arm manufacturer),
+    see https://github.com/Interbotix/interbotix_ros_manipulators/tree/main/interbotix_ros_xsarms/interbotix_xsarm_descriptions/urdf.
+  expected_num_episodes: 'Paper Table 1 demonstration counts sum to 8658 (Shirt) +
+    5133 (Lace) + 5247 (FingerReplace) + 4005 (GearInsert) + 3198 (RandomKitchen)
+    = 26241, matching the paper''s own statement (Sec 3.2): ''we collect over 26k
+    episodes for 5 real tasks, on 10 different robots in 2 different buildings over
+    the course of 8 months.'''
+  no_public_release_note: 'Checked project page (https://aloha-unleashed.github.io/),
+    its GitHub source repo (github.com/aloha-unleashed/aloha-unleashed.github.io,
+    which contains only the static site/paper/protocol PDFs), and GitHub search for
+    ''aloha_unleashed''/''aloha-unleashed'' repos: found no dataset download link,
+    no HuggingFace/RLDS/GCS bucket reference, and no code or data release for the
+    ALOHA Unleashed demonstration data itself. Only the paper (arXiv:2410.13126),
+    videos, and task protocol PDFs are public. (The separate open-sourced items are
+    ALOHA 2 *hardware* designs/MuJoCo model at github.com/google-deepmind/mujoco_menagerie,
+    not the Unleashed demonstration dataset.)'
+suggested_new_enum_values:
+  camera_views: Suggest adding 'worms_eye' (a camera looking upward from below/near
+    table height into the workspace) -- the ALOHA 2 rig's 4th camera is explicitly
+    described as a 'worms-eye camera' (distinct from 'top'/'front'/'side'), and 'other'
+    loses that distinction for a camera layout that recurs across many ALOHA-family
+    datasets.

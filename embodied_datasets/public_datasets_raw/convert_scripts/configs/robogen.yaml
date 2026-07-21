@@ -1,0 +1,94 @@
+id: robogen
+name: RoboGen
+source_url: https://robogen-ai.github.io/
+license: Apache-2.0
+raw_format: Custom
+release_type: generation_framework
+collection_method: simulation
+secondary_collection_methods: []
+is_multi_embodiment: true
+embodiment_class: single_arm
+robot_platform: franka_panda
+num_arms: 1
+dof_per_arm: 7
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: eef_pose
+action_frame: delta
+rotation_representation: axis_angle
+action_dim: 7
+fps_variable: true
+num_camera_views: 1
+camera_views:
+- third_person
+has_camera_calibration: false
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: true
+urdf_available: true
+urdf_source: community_repo
+review_status: pending_human_review
+field_sources:
+  license: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/LICENSE (Apache
+    License 2.0)
+  raw_format: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/execute.py
+    (saves env.pkl pickle state dumps, meta_info.json, and .gif renders per run; no
+    RLDS/HDF5/LeRobot/TFRecord export exists)
+  collection_method: https://robogen-ai.github.io/ and arXiv:2311.01455 abstract (tasks,
+    scenes, and skills are proposed and executed entirely inside a PyBullet/Genesis
+    physics simulator via the generative propose-generate-learn pipeline; no teleop
+    or real robot involved)
+  embodiment_class: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/panda.py
+    (fixed-base single-arm manipulator; this value covers the manipulation subset
+    only, see suggested_new_enum_values for the locomotion subset)
+  robot_platform: https://github.com/Genesis-Embodied-AI/RoboGen/tree/main/manipulation
+    (panda.py, sawyer.py, ur5.py robot classes are all supported; franka_panda is
+    the default arm shown in the paper figures/website examples)
+  num_arms: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/panda.py
+    (single right_end_effector arm)
+  dof_per_arm: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/panda.py
+    (right_arm_joint_indices = [0,1,2,3,4,5,6], 7 controllable arm joints)
+  gripper_type: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/panda.py
+    (right_gripper_indices has 2 actuated joints, standard Franka 2-finger parallel
+    gripper)
+  has_mobile_base: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/sim.py
+    (fixed tabletop manipulation setup; no mobile base in the manipulation subset)
+  action_space: 'https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/sim.py
+    (self.action_low/self.action_high are 7-dim: delta end-effector translation+rotation
+    plus a gripper action)'
+  action_frame: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/sim.py
+    (translation_mode default is 'delta-translation')
+  rotation_representation: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/RL/ray_learn.py
+    (rotation_mode default is 'delta-axis-angle-local')
+  action_dim: 'https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/sim.py
+    (7-element action_low/action_high arrays: 3 translation + 3 rotation + 1 gripper)'
+  fps_variable: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/sim.py
+    (physics timestep dt is a user-configurable constructor parameter, default dt=0.01
+    -> 100Hz; there is no single fixed dataset-wide fps since users can change it
+    and GIF exports use a different fps=10)
+  num_camera_views: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/sim.py
+    (setup_camera/setup_camera_rpy configure exactly one fixed external render viewpoint)
+  camera_views: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/sim.py
+    (single fixed external/third-person viewpoint defined by camera_eye/camera_target,
+    not head- or wrist-mounted)
+  has_camera_calibration: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/sim.py
+    (camera pose/FOV are hardcoded constants in code, not exported as per-episode
+    calibration files)
+  depth_coverage: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/manipulation/sim.py
+    (render() returns both rgb img and depth from the same camera every call)
+  has_language_instruction: https://github.com/Genesis-Embodied-AI/RoboGen/tree/main/example_tasks
+    (task_config yaml files contain GPT-4-generated task_name/task_description natural-language
+    fields, e.g. Change_Lamp_Direction example)
+  urdf_available: 'https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/readme.md
+    (Dataset section: a parsed PartNet-Mobility URDF dataset is provided via a Google
+    Drive download link)'
+  urdf_source: https://github.com/Genesis-Embodied-AI/RoboGen/blob/main/readme.md
+    (object URDFs come from PartNet-Mobility, a third-party academic asset collection,
+    plus Objaverse assets; not authored in this repo nor official manufacturer CAD)
+  source_url: https://robogen-ai.github.io/ (verified reachable; matches the official
+    project page linked from arXiv:2311.01455 and the GitHub repo README)
+suggested_new_enum_values:
+  embodiment_class: quadruped -- RoboGen's locomotion module (github.com/Genesis-Embodied-AI/RoboGen/tree/main/locomotion,
+    subfolders a1/ and anymal/) generates skills for legged quadruped robots (Unitree
+    A1, ANYmal), which is not covered by single_arm/dual_arm/humanoid/mobile_manipulator/human_hand.
+    (The locomotion/atlas/ humanoid subset already fits the existing 'humanoid' value.)

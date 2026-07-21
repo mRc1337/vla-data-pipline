@@ -1,6 +1,90 @@
 id: ego4d
 name: Ego4d
-camera_views: []
+source_url: https://ego4d-data.org/
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: egocentric_human
+secondary_collection_methods: []
+embodiment_class: human_hand
+gripper_type: none
+fps: 30.0
+fps_variable: false
+num_camera_views: 1
+camera_views:
+- head
+has_camera_calibration: false
+depth_coverage: partial
+additional_modalities: []
+has_language_instruction: true
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 7100.0
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: Stub had no usable source_url recorded; corrected to the official project
+    homepage https://ego4d-data.org/ (cross-referenced with the GitHub repo https://github.com/facebookresearch/Ego4d
+    and the paper's project-page link https://arxiv.org/abs/2110.07058)
+  raw_format: https://ego4d-data.org/docs/data/videos/ -- canonical videos/clips are
+    custom-normalized MP4 containers (VP9 video + AAC audio) built by a bespoke ffmpeg/PyAV
+    pipeline, accompanied by JSON annotation files; not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord
+  collection_method: 'https://arxiv.org/abs/2110.07058 abstract: ''massive-scale egocentric
+    video dataset ... 3,670 hours of daily-life activity video ... captured by 931
+    unique camera wearers'' via head-mounted/body-worn cameras -- matches egocentric_human
+    directly'
+  embodiment_class: https://arxiv.org/abs/2110.07058 and https://ego4d-data.org/docs/benchmarks/overview/
+    -- this is a human (not robot) egocentric video dataset with no robot embodiment;
+    human_hand is the closest available enum value, noting the dataset spans all first-person
+    daily activity (only one of its 5 benchmarks, 'Hands and Objects', is specifically
+    about hand-object manipulation)
+  gripper_type: Dataset captures bare human hands performing daily activities, not
+    a mechanical gripper -- https://ego4d-data.org/docs/benchmarks/overview/ (Hands
+    and Objects benchmark description)
+  fps: https://ego4d-data.org/docs/data/videos/ -- 'Canonical Videos ... 30FPS' and
+    'Canonical clips ... are at a constant frame rate of 30FPS'
+  fps_variable: https://ego4d-data.org/docs/data/videos/ -- source video components
+    come from varied devices/frame rates, but the distributed canonical videos and
+    canonical clips (the recommended way to consume the dataset) are normalized to
+    a constant 30 FPS
+  num_camera_views: https://arxiv.org/abs/2110.07058 abstract -- video captured per-participant
+    by a single head-mounted/body-worn egocentric camera; a subset of sessions additionally
+    include synchronized multi-camera or stereo rigs, but the primary/canonical form
+    is one egocentric camera per wearer
+  camera_views: https://arxiv.org/abs/2110.07058 -- egocentric (head/body-worn) camera
+    perspective; closest enum value is 'head'
+  has_camera_calibration: https://ego4d-data.org/docs/data/annotation-schemas/ --
+    the published ego4d.json per-video metadata schema (fps, num_frames, codec, resolution,
+    timing fields, device, etc.) contains no camera intrinsics/extrinsics or calibration
+    fields
+  depth_coverage: 'https://arxiv.org/abs/2110.07058 abstract: ''Portions of the video
+    are accompanied by audio, 3D meshes of the environment, eye gaze, stereo, and/or
+    synchronized videos from multiple egocentric cameras'' -- only a subset of sessions
+    have any depth-like 3D/stereo data, i.e. partial coverage, not full per-frame
+    depth across the dataset'
+  has_language_instruction: 'https://ego4d-data.org/docs/ (v2.0 update announcement):
+    ''a wide range of annotations ... 3,600 hrs (and counting) of densely narrated
+    video'' -- most of the dataset has timestamped natural-language narrations describing
+    the camera wearer''s activity'
+  urdf_available: No robot hardware is used or described anywhere in this dataset
+    (purely human egocentric video) -- https://ego4d-data.org/ , https://arxiv.org/abs/2110.07058
+    ; therefore no URDF exists
+  urdf_source: Same as urdf_available -- no robot/URDF applicable to this human-video
+    dataset
+  expected_size_gb: 'https://ego4d-data.org/docs/start-here/ sizing table: ''Full
+    Primary Dataset ~7.1 TB'' (canonical full-scale videos + annotations, the recommended
+    primary download); the page also notes the ''Entire Dataset'' including all raw
+    video components and precomputed features is ''30+ TB'''
+suggested_new_enum_values:
+  license: 'ego4d_custom_research_license -- Ego4D is not released under any standard
+    OSS/CC license. Access requires reviewing and executing Meta''s own ''EGO4D License
+    Agreement'' at ego4d.dev (per https://ego4d-data.org/docs/start-here/: ''Obtaining
+    the dataset or any annotations requires you first review our license agreement
+    and accept the terms ... you will be emailed a set of AWS access credentials when
+    your license agreement is approved''), which is a bespoke, primarily non-commercial
+    academic-research-use data agreement signed as an individual or institution, with
+    credentials expiring every 14 days. This does not match MIT/Apache-2.0/BSD-3-Clause/CC-BY-4.0/CC-BY-NC-4.0/CC0-1.0/GPL-3.0/Proprietary/Unknown,
+    so license was left blank rather than forced to a close-but-wrong value.'
+  embodiment_class: human_egocentric_full_body -- Ego4D's egocentric video covers
+    the camera wearer's whole first-person experience (locomotion, social interaction,
+    environment scanning, tool/object use), not solely hand-object manipulation; 'human_hand'
+    was used as the closest existing value since no broader human-embodiment category
+    exists in the enum.

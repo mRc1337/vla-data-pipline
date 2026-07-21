@@ -1,0 +1,68 @@
+id: grutopia
+name: GRUtopia
+source_url: https://github.com/InternRobotics/InternUtopia
+license: CC-BY-NC-SA-4.0
+raw_format: Custom
+release_type: scene_platform
+collection_method: scene_asset_curation
+secondary_collection_methods: []
+num_camera_views: 1
+camera_views: []
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 3
+expected_size_gb: 80.0
+review_status: pending_human_review
+field_sources:
+  source_url: https://github.com/InternRobotics/InternUtopia README ('[2025-07] Our
+    project has been renamed to InternUtopia.') -- this is the current canonical repo
+    for what the paper (arXiv:2407.10943) originally released at github.com/OpenRobotLab/GRUtopia.
+  raw_format: https://huggingface.co/datasets/InternRobotics/GRScenes README -- scenes
+    are distributed as NVIDIA Omniverse USD files (start_result_raw/navigation/interaction.usd)
+    plus .mdl materials and metadata.json/interactive_obj_list.json, not any of the
+    standard RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord formats.
+  num_camera_views: arXiv:2407.10943 Section 4.1 'Robot Setups' -- each reference
+    benchmark agent (H1 for navigation, AlienGo+Z1 for manipulation) is equipped with
+    exactly one RGB-D camera for perception.
+  depth_coverage: arXiv:2407.10943 Section 4.1/4.2 -- perception camera is explicitly
+    RGB-D ('egocentric RGB-D images'), so the single view carries full depth alongside
+    RGB.
+  has_language_instruction: arXiv:2407.10943 Sections 3.2 and 4 -- task targets are
+    specified in natural language ('non-ambiguous natural language'), GRResidents
+    (LLM-driven NPCs) issues natural-language task assignments, and VLM baselines
+    are prompted with a language instruction alongside the image.
+  num_task_types: 'arXiv:2407.10943 abstract and Section 4 -- GRBench defines three
+    benchmark task types: Object Loco-Navigation, Social Loco-Navigation, and Loco-Manipulation.'
+  expected_size_gb: https://github.com/InternRobotics/InternUtopia README 'Assets'
+    section -- full asset bundle (GRScenes scenes + robots + policy weights) download
+    is ~80GB (a ~500MB minimal set is also offered for install verification).
+suggested_new_enum_values:
+  license: 'CC-BY-NC-SA-4.0 -- The open-sourced GRScenes scene assets are licensed
+    under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 (adds a ShareAlike
+    clause not present in the existing CC-BY-NC-4.0 option), while the InternUtopia
+    simulation-platform code itself is separately MIT-licensed; no single existing
+    enum value covers this split/ShareAlike licensing. Sources: github.com/InternRobotics/InternUtopia
+    README ''License'' section; huggingface.co/datasets/InternRobotics/GRScenes README
+    license header (cc-by-nc-sa-4.0).'
+  collection_method: 'scene_asset_curation -- GRScenes-100''s ~100 curated interactive
+    3D scenes (69 home + 30 commercial) are hand-modeled/artist-authored environments
+    with fine-grained part-level object annotations (some object models extracted
+    from Objaverse via the repo''s extract_objaverse.py tool), not robot demonstration
+    episodes collected via teleoperation, an autonomous policy, human video, or motion-synthesis;
+    none of the existing enum values describe curated static 3D scene-asset creation.
+    Sources: arXiv:2407.10943 Section 3.1 ''GRScenes''; huggingface.co/datasets/InternRobotics/GRScenes
+    README.'
+  embodiment_class: 'multi_embodiment_platform -- InternUtopia''s Robot Control APIs
+    and GRBench simultaneously target humanoid robots (Unitree H1, Unitree G1, Fourier
+    GR-1) for navigation and a mobile_manipulator rig (Unitree AlienGo quadruped base
+    + Unitree Z1 arm) for loco-manipulation, plus other robots (e.g. Franka Panda)
+    in tutorials; no single embodiment_class value applies to the dataset/platform
+    as a whole. Source: arXiv:2407.10943 Sections 3.3 and 4.1; github.com/InternRobotics/InternUtopia
+    README ''New Features''.'
+  robot_platform: 'multi_platform (unitree_h1, fourier_gr1, unitree_aliengo + unitree_z1)
+    -- the paper''s actual benchmarked robots (Unitree H1 for navigation, AlienGo+Z1
+    for manipulation) and other supported robots (Fourier GR-1, Franka Panda) are
+    not represented by a single existing enum value; only unitree_g1 appears in the
+    list but is not the robot used in the paper''s own benchmarks. Source: arXiv:2407.10943
+    Section 3.3 ''Robot Control APIs'' and Section 4.1 ''Robot Setups''.'

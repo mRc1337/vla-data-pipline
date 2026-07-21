@@ -1,7 +1,121 @@
 id: roboset
 name: RoboSet
 source_url: https://robopen.github.io/roboset/
-camera_views: []
+license: MIT
+raw_format: HDF5
+release_type: fixed_episode_dataset
+secondary_collection_methods: []
+embodiment_class: single_arm
+robot_platform: franka_panda
+num_arms: 1
+dof_per_arm: 7
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: joint_position
+rotation_representation: none
+state_dim: 14
+action_dim: 8
+fps: 5.0
+fps_variable: false
+num_camera_views: 4
+camera_views:
+- top
+- side
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 38
+urdf_available: true
+urdf_source: manufacturer_official
+expected_num_episodes: 30050
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  license: 'robopen.github.io/roboset/ page footer states: ''This work is licensed
+    under the MIT-License''; confirmed in github.com/robopen/roboagent README License
+    section (''The RoboAgent code and RoboSet datasets are both licensed under MIT
+    License'').'
+  raw_format: robopen.github.io/roboset/ 'Starting code to load RoboSet in python'
+    snippet uses h5py.File(...); github.com/robopen/roboagent/blob/main/utils.py loads
+    data via h5py from .h5 trial files.
+  embodiment_class: 'arXiv:2309.01918 (RoboAgent paper) Section 4 / Appendix B.1:
+    single fixed-base Franka Emika Panda arm in a table-top kitchen setup, no mobile
+    base described.'
+  robot_platform: 'arXiv:2309.01918 Section 4: ''a Franka Emika Panda arm with a two-finger
+    Robotiq gripper''; github.com/robopen/roboagent README: ''evaluating on Franka
+    Panda arms''.'
+  num_arms: arXiv:2309.01918 describes a single Franka Panda arm throughout the RoboSet/RoboAgent
+    system.
+  dof_per_arm: 'arXiv:2309.01918 Appendix B.1: action space is ''8 (7 joint positions,
+    1 dimension for end-effector open/close)'', i.e. the standard 7-DOF Franka Panda
+    arm.'
+  gripper_type: 'arXiv:2309.01918 Section 4: ''two-finger Robotiq gripper fitted with
+    Festo Adaptive Fingers'' (Robotiq 2F-85/140 is a parallel-jaw gripper). Note:
+    a separate, much larger ~70,000-trajectory autonomous bin-picking release described
+    in the same paper''s Appendix A footnote and on robopen.github.io/roboset/autonomous.html
+    includes some subsets (e.g. Set 13/15/16, ''D''Manus hand'') using a dexterous-hand
+    end-effector instead; that release is not counted in this config''s episode/field
+    values, which describe the core teleop+kinesthetic RoboSet.'
+  has_mobile_base: 'arXiv:2309.01918 Section 4: fixed table-top/kitchen setup with
+    a stationary Franka arm; no mobile base is mentioned anywhere in the paper or
+    project site.'
+  action_space: 'arXiv:2309.01918 Appendix B.1: ''The robot ... is operated with joint
+    position control, with an action space dimension of 8 (7 joint positions, 1 dimension
+    for end-effector open/close)''.'
+  rotation_representation: 'arXiv:2309.01918 Appendix B.1: the 8-dim action space
+    is pure joint-position + gripper; no explicit end-effector orientation/rotation
+    representation is used for actions.'
+  state_dim: 'github.com/robopen/roboagent/blob/main/train.py: hardcoded ''state_dim
+    = 14'' passed into the ACT policy config.'
+  action_dim: arXiv:2309.01918 Appendix B.1 ('action space dimension of 8'); consistent
+    with github.com/robopen/roboagent/blob/main/utils.py, which builds the action
+    vector as np.concatenate([trial['data']['ctrl_arm'], trial['data']['ctrl_ee']]).
+  fps: 'arXiv:2309.01918 Appendix A: ''data was collected using an Oculus Quest 2
+    controller ... at 5Hz''; Appendix B.1: ''The robot is operated at a frequency
+    of 5Hz.'''
+  fps_variable: arXiv:2309.01918 states a single fixed control/collection frequency
+    of 5Hz, with no mention of variable-rate recording.
+  num_camera_views: 'robopen.github.io/roboset/ ''We collected the dataset with 4
+    distinct camera views per frame''; arXiv:2309.01918 Section 4: ''The four Realsense
+    D455 camera views provide complementary perspectives of the workspace''.'
+  camera_views: 'github.com/robopen/roboagent/blob/main/constants.py: CAMERA_NAMES
+    = [''rgb_left'',''rgb_top'',''rgb_right'',''rgb_wrist'']; arXiv:2309.01918 Section
+    4: ''three fixed cameras (top, left, right), and a wrist camera mounted above
+    the end-effector''. The left/right fixed side-facing cameras are mapped to the
+    ''side'' enum value and the top camera to ''top''; the wrist camera does not fit
+    any existing enum option for this single-arm robot (see suggested_new_enum_values).'
+  depth_coverage: 'arXiv:2309.01918 Appendix A: ''MT-ACT dataset consisted of RGB
+    and depth frames from four camera views''; cameras are Realsense D455 RGB-D sensors,
+    so depth is available for all views.'
+  has_language_instruction: 'robopen.github.io/roboset/teleoperation.html: ''Since
+    each task is defined through a language instruction, there could be opportunities
+    for language guided sequencing''; arXiv:2309.01918 uses a language-conditioned
+    policy (MT-ACT) trained on per-task language embeddings.'
+  num_task_types: 'robopen.github.io/roboset/teleoperation.html: ''We have a total
+    of 12 skills, adequately represented across 38 tasks''; arXiv:2309.01918 abstract:
+    ''demonstrate its generalization over 38 tasks''.'
+  urdf_available: github.com/frankarobotics/franka_ros (official 'ROS integration
+    for Franka research robots' repo) ships the franka_description package containing
+    the manufacturer's URDF/xacro model for the Franka Panda arm used in RoboSet.
+  urdf_source: github.com/frankarobotics/franka_ros is maintained by Franka Robotics
+    (the manufacturer), so the URDF is manufacturer-official rather than a community
+    or dataset-repo reproduction.
+  expected_num_episodes: 'robopen.github.io/roboset/teleoperation.html: ''Overall
+    we have 30,050 trajectories in the dataset, out of which 9,500 are collected through
+    teleoperation'' (the remainder, ~20,500, are kinesthetic demonstrations). This
+    is the core kitchen-manipulation RoboSet used to train RoboAgent/MT-ACT; a separate,
+    much larger ~70,000-trajectory autonomous bin-picking collection exists under
+    the same project umbrella (per arXiv:2309.01918 Appendix A footnote and robopen.github.io/roboset/autonomous.html)
+    but is not included in this count because it uses a different task distribution
+    and, for some subsets, a different end-effector.'
+suggested_new_enum_values:
+  collection_method: mixed -- the core RoboSet release combines human teleoperation
+    via an Oculus Quest 2 VR controller (9,500 trajectories) with kinesthetic demonstration
+    playback, i.e. replaying a recorded trajectory into a scene that has been re-arranged
+    between rollouts (~20,500 trajectories); a further, separately-released ~70,000-trajectory
+    portion adds autonomous_policy rollouts. No single existing collection_method
+    value captures this teleop+kinesthetic (+autonomous) blend, and 'kinesthetic'
+    itself has no existing enum value at all.
+  camera_views: wrist -- the dataset includes one RealSense D455 camera mounted above
+    the end-effector of this single-arm robot. The existing left_wrist/right_wrist
+    enum values assume a bimanual setup and do not cleanly describe a single-arm wrist-mounted
+    camera.

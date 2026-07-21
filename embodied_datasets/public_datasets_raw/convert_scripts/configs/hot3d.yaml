@@ -1,0 +1,82 @@
+id: hot3d
+name: HOT3D
+source_url: https://facebookresearch.github.io/hot3d/
+raw_format: VRS
+release_type: fixed_episode_dataset
+collection_method: egocentric_human
+secondary_collection_methods: []
+embodiment_class: human_hand
+gripper_type: none
+fps: 30.0
+fps_variable: false
+camera_views:
+- head
+has_camera_calibration: true
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: false
+num_task_types: 4
+urdf_available: false
+expected_num_episodes: 3832
+review_status: pending_human_review
+field_sources:
+  source_url: https://facebookresearch.github.io/hot3d/ (official project page)
+  collection_method: https://facebookresearch.github.io/hot3d/ — dataset recorded
+    with two head-mounted devices (Project Aria glasses, Quest 3 headset) capturing
+    egocentric multi-view streams of human subjects; no robot involved.
+  embodiment_class: https://facebookresearch.github.io/hot3d/ — ground truth is 3D
+    hand poses/shapes of human hands (UmeTrack/MANO formats), not a robot embodiment.
+  gripper_type: No robot end-effector exists in this dataset (bare human hands only);
+    set to 'none' per onboarding instructions for non-robot datasets.
+  raw_format: https://github.com/facebookresearch/hot3d (README) — full HOT3D dataset
+    is distributed in a VRS-based format (github.com/facebookresearch/vrs); HOT3D-Clips
+    subset is distributed via WebDataset (tar shards) on Hugging Face. Neither VRS
+    nor WebDataset is a listed enum value, so mapped to the generic 'Custom' bucket
+    (see suggested_new_enum_values for more precise labels).
+  fps: https://facebookresearch.github.io/hot3d/ (Dataset properties section) — '1.5M
+    multi-view frames (3.7M+ images) recorded at 30 FPS with Project Aria and Quest
+    3.'
+  fps_variable: Same source as fps — 30 FPS is stated as a fixed capture rate for
+    both devices, no mention of variable frame rate.
+  camera_views: https://facebookresearch.github.io/hot3d/ + https://github.com/facebookresearch/hot3d/blob/main/hot3d/clips/README.md
+    — all image streams originate from head-mounted devices (Aria glasses / Quest
+    3 headset); egocentric head-mounted cameras only, mapped to CameraView.HEAD (no
+    wrist/third-person/top views exist in this dataset).
+  has_camera_calibration: https://github.com/facebookresearch/hot3d/blob/main/hot3d/clips/README.md
+    — each frame ships a `<FRAME-ID>.cameras.json` with per-stream intrinsic calibration
+    (projection_model_type, projection_params) and extrinsics (T_device_from_camera,
+    T_world_from_camera).
+  depth_coverage: https://facebookresearch.github.io/hot3d/ — no dedicated depth-camera
+    stream is provided for either device; Aria recordings additionally include sparse
+    3D SLAM point clouds (not dense depth maps), which is a distinct modality, so
+    mapped to DepthCoverage.NONE rather than partial/full depth-map coverage.
+  has_language_instruction: https://facebookresearch.github.io/hot3d/ and https://github.com/facebookresearch/hot3d
+    — no natural-language task/instruction annotations are described anywhere on the
+    project page, paper abstract, or toolkit README; only 3D pose/shape ground truth
+    is provided.
+  num_task_types: https://facebookresearch.github.io/hot3d/ (Dataset properties section,
+    '19 subjects, 4 everyday scenarios') — recordings cover simple pick-up/observe/put-down
+    interactions plus kitchen, office, and living-room scenarios (4 scenario categories
+    total).
+  urdf_available: No robot embodiment is present in this dataset, so no URDF applies.
+  expected_num_episodes: 'https://github.com/facebookresearch/hot3d/blob/main/hot3d/clips/README.md
+    — ''There are 3832 clips in total, 2804 clips extracted from the training split
+    and 1028 from the test split of HOT3D.'' Note: this counts the curated HOT3D-Clips
+    (150-frame / 5s clips); the full VRS-format dataset is instead organized as longer
+    (~2 minute) per-subject recordings whose exact current count was not confirmed
+    from a live, non-stale source (an HTML comment on the project page mentioning
+    ''425 recordings'' appears to be superseded/commented-out and was not used).'
+suggested_new_enum_values:
+  license: 'Dataset license is a custom multi-part CC agreement per https://www.projectaria.com/datasets/hot3d/license/:
+    Sequence data (images/poses from Aria & Quest devices, excluding hand annotations)
+    is CC BY-SA 4.0; Hand annotations are CC BY-NC-SA 4.0; 3D object models are CC
+    BY-SA 4.0 with an added no-resale clause. None of the existing LicenseEnum values
+    (CC-BY-4.0, CC-BY-NC-4.0, etc.) include the ShareAlike (SA) clause, and the license
+    is split across data subtypes rather than being a single uniform grant, so this
+    field is left blank rather than forced into an approximate value. Suggest adding
+    CC-BY-SA-4.0 and CC-BY-NC-SA-4.0 enum members, and/or a MIXED/CUSTOM value for
+    datasets with per-component licensing.'
+  raw_format: Suggest adding 'VRS' (Meta's VRS sensor-data container format, https://github.com/facebookresearch/vrs,
+    used for the full HOT3D release) and 'WebDataset' (tar-shard format, used for
+    the HOT3D-Clips release on Hugging Face) as dedicated RawFormat enum values for
+    more precise labeling than the current 'Custom' fallback.

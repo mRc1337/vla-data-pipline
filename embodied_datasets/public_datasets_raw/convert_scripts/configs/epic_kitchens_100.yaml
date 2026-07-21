@@ -1,6 +1,77 @@
 id: epic_kitchens_100
 name: EPIC-KITCHENS-100
-camera_views: []
+source_url: https://epic-kitchens.github.io/
+license: CC-BY-NC-4.0
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: egocentric_human
+secondary_collection_methods: []
+embodiment_class: human_hand
+fps: 50.0
+fps_variable: true
+num_camera_views: 1
+camera_views:
+- head
+has_camera_calibration: false
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 1850.0
+expected_num_episodes: 700
 review_status: pending_human_review
-field_sources: {}
+field_sources:
+  source_url: https://epic-kitchens.github.io/ (official project homepage, verified
+    via curl; stub had no source_url recorded)
+  license: 'https://epic-kitchens.github.io/2026 footer: ''All datasets and benchmarks
+    on this page are copyright by us and published under the Creative Commons Attribution-NonCommercial
+    4.0 International License.'' Note: the paper''s Data Release Statement (arXiv:2006.13256,
+    Sec.5 Conclusion) separately says raw video/frame sequences at the Bristol data
+    repository are released under the UK ''Non-Commercial Government Licence for public
+    sector information'', which is closely equivalent in effect (non-commercial, attribution)
+    to CC-BY-NC-4.0 but not textually identical; CC-BY-NC-4.0 is used here as the
+    closest fitting enum value and matches the site-wide license statement.'
+  raw_format: https://github.com/epic-kitchens/epic-kitchens-download-scripts - dataset
+    is distributed as raw MP4 videos plus tarred RGB/optical-flow frame folders, GoPro
+    metadata, and custom CSV/pickle annotation files; not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord.
+  collection_method: 'arXiv:2006.13256 abstract and Sec.2 ''Data Collection'': egocentric
+    footage captured with participant-worn head-mounted GoPro cameras during unscripted
+    daily kitchen activity (egocentric_human).'
+  embodiment_class: 'arXiv:2006.13256 Sec.2/Fig.1: dataset captures human hand-object
+    interactions from a human wearer''s point of view; no robot embodiment involved
+    (human_hand).'
+  fps: 'arXiv:2006.13256 Appendix B ''Camera Settings for Collection'': ''Head mounted
+    GoPro Hero 7 was used for data collection filming at 50fps for video stabilisation.'''
+  fps_variable: 'arXiv:2006.13256 Appendix B: the 50fps choice for the newly-collected
+    extension videos was made specifically to avoid the lighting flicker issue present
+    in the original EPIC-KITCHENS-55 (2018) footage [1], implying the original 54.6h
+    subset used a different capture frame rate than the 45.4h extension subset (Table
+    1 in the paper reports both subsets separately).'
+  num_camera_views: 'arXiv:2006.13256 Sec.2 and https://epic-kitchens.github.io/2026
+    characteristics list: single head-mounted camera per recording.'
+  camera_views: 'https://epic-kitchens.github.io/2026 ''Characteristics: ... Head-mounted
+    camera''; arXiv:2006.13256 Sec.2 describes a head-mounted GoPro Hero7 Black.'
+  has_camera_calibration: No intrinsics/extrinsics are published with EPIC-KITCHENS-100
+    itself; camera pose/calibration was only later derived by the separate EPIC-Fields
+    project (https://epic-kitchens.github.io/epic-fields/site), confirming the base
+    dataset ships without calibration.
+  depth_coverage: 'https://epic-kitchens.github.io/2026 and arXiv:2006.13256: dataset
+    consists of RGB video (plus derived optical flow and audio); no depth sensor was
+    used.'
+  has_language_instruction: 'arXiv:2006.13256 Sec.2 ''Narrator''/''Pause-and-Talk''
+    pipeline and https://epic-kitchens.github.io/2026 stats (''Multi-language narrations'',
+    ''20K unique narrations''): every action segment has an associated free-form language
+    narration/caption.'
+  urdf_available: Dataset records human hands/egocentric video, not a robot platform,
+    so no URDF exists for it (confirmed via arXiv:2006.13256 and project homepage,
+    which describe no robot hardware).
+  urdf_source: Same reasoning as urdf_available - no robot embodiment, so no URDF
+    source applies.
+  expected_size_gb: 'https://epic-kitchens.github.io/2026 Download section: Extended
+    sequences +RGB/Flow frames+IMU ''740GB zipped'' at Data.Bris, Original sequences
+    +RGB/Flow frames ''1.1TB zipped'' at Data.Bris, Automatic annotations (masks/hands/objects)
+    ''10GB''; sum ≈ 1850GB total downloadable size.'
+  expected_num_episodes: 'arXiv:2006.13256 Table 1 ''Overall'' row and https://epic-kitchens.github.io/2026
+    stats: 700 variable-length videos.'
 suggested_new_enum_values: {}

@@ -1,7 +1,90 @@
 id: roboomni
 name: RoboOmni
-source_url: OpenMOSS-团队/OmniAction ·Hugging Face 上的数据集
+source_url: https://huggingface.co/datasets/OpenMOSS-Team/OmniAction
+license: CC-BY-NC-4.0
+raw_format: RLDS
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: single_arm
+num_arms: 1
+has_mobile_base: false
+action_space: eef_pose
+action_frame: delta
+rotation_representation: euler_xyz
+action_dim: 7
 camera_views: []
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 112
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 2710.9
+expected_num_episodes: 141162
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: HF dataset search API https://huggingface.co/api/datasets?search=OmniAction
+    resolved OpenMOSS-Team/OmniAction as the actual repo (stub had a pasted page title,
+    not a URL); dataset README also mirrors this at https://huggingface.co/datasets/fnlp/OmniAction
+    and https://huggingface.co/datasets/OpenMOSS-Team/OmniAction
+  license: 'HF dataset card metadata (license: cc-by-nc-4.0) at https://huggingface.co/datasets/OpenMOSS-Team/OmniAction'
+  raw_format: 'Dataset README states ''Format: RLDS (Reinforcement Learning Datasets
+    standard)''; repo file listing confirms .tfrecord shards (RLDS is stored as TFRecord)
+    at https://huggingface.co/datasets/OpenMOSS-Team/OmniAction'
+  collection_method: 'Paper (arXiv:2510.23763) Sec. 3.2 ''Textual Scripting'': trajectories
+    are sampled from existing Open-X-Embodiment subsets (Bridge/WidowX, Fractal, Jaco
+    Play), which were originally collected via human teleoperation; OmniAction overlays
+    synthesized dialogue/audio on these teleop trajectories rather than collecting
+    new robot motions.'
+  embodiment_class: 'Paper Sec. 3.2/4.1: all three source Open-X subsets (Bridge-WidowX,
+    Fractal/Google-robot, Jaco Play) are single-arm manipulators; action vector a_t
+    is a single 7-D end-effector control (no bimanual or humanoid coordination described).'
+  num_arms: Same as embodiment_class basis - each source subset controls exactly one
+    arm.
+  action_space: 'Paper Sec. 3.1: ''a_t denotes the delta control vector of the end-effector''
+    -> eef_pose control, confirmed by Fig.4 notation Δx, Δθ, ΔGrip (arXiv:2510.23763).'
+  action_frame: 'Paper Sec. 3.1 explicitly: ''a_t denotes the delta control vector
+    of the end-effector'' (arXiv:2510.23763).'
+  rotation_representation: Paper Fig. 4 action notation 'Δx, Δθ, ΔGrip' (delta position
+    + delta orientation angles + gripper) is consistent with the standard Open-X Embodiment
+    7-D action convention (dx,dy,dz,d-roll,d-pitch,d-yaw,gripper) used by the underlying
+    Bridge/Fractal/Jaco Play subsets; arXiv:2510.23763 Sec 3.1.
+  action_dim: 'Paper Sec. 3.1: ''a_t ∈ R^7'' and Sec 4.1: ''FAST+ ... a continuous
+    action vector a_t ∈ R^7 (e.g., 7-DoF control)'' (arXiv:2510.23763).'
+  has_mobile_base: No mobile-base action dimension appears anywhere in the described
+    7-D action vector (Δx, Δθ, ΔGrip) across any of the three source subsets; arXiv:2510.23763
+    Sec 3.1/4.1.
+  has_language_instruction: 'Paper Sec 3.1: each sample is a triplet (C, I, A) where
+    C is a multi-turn conversation (user turns as audio, assistant turns as text)
+    that ultimately drives the action; instructions/dialogue are core to every episode.
+    arXiv:2510.23763.'
+  num_task_types: 'Paper Sec 3.1/Fig. 11: OmniAction ''spans 112 skills (e.g., pick-place,
+    open/close) and 748 objects'' - taken as the count of distinct manipulation task/skill
+    types. arXiv:2510.23763.'
+  urdf_available: No URDF or robot-description files appear in the HF dataset repo
+    file listing (only README.md, .gitattributes, and per-subset .tfrecord shards)
+    at https://huggingface.co/api/datasets/OpenMOSS-Team/OmniAction?full=true.
+  urdf_source: Same as urdf_available - no URDF files found in the dataset repo.
+  expected_num_episodes: 'Paper Sec 3.1/App A: ''OmniAction comprises 141,162 multimodal
+    episodes'' (also stated as ''we filter out a subset of 74,645 base trajectories,
+    which are then expanded into 141,162 multimodal episodes''). arXiv:2510.23763.'
+  expected_size_gb: HF Hub API https://huggingface.co/api/datasets/OpenMOSS-Team/OmniAction?full=true
+    field 'usedStorage' = 2,710,899,824,323 bytes ~= 2710.9 GB (decimal). This is
+    total repo storage (audio+video+tfrecords across all subsets), used as a proxy
+    for dataset size.
+suggested_new_enum_values:
+  robot_platform: 'OmniAction re-purposes trajectories from three distinct Open-X-Embodiment
+    robot platforms (WidowX/Bridge, Google-robot/Fractal aka RT-1 robot, and Kinova
+    Jaco/Jaco Play) mixed together in one dataset. None of these exactly match a single
+    existing enum value (''widowx'' only covers one of the three, and there is no
+    ''google_robot''/''kinova_jaco'' option), so no single robot_platform value accurately
+    represents the whole dataset. Proposal: add ''google_robot'' and ''kinova_jaco''
+    as robot_platform options, plus a ''mixed'' value for datasets that combine multiple
+    source-dataset embodiments like this one, rather than forcing ''other'' which
+    loses the multi-embodiment detail.'
+  gripper_type: The action vector's gripper term (ΔGrip) is a single scalar per source
+    subset, but the three underlying platforms use different physical end-effectors
+    (WidowX parallel-jaw gripper, Google-robot/RT-1 two-finger gripper, Kinova Jaco's
+    factory 3-finger hand) - could not confirm a single uniform gripper_type across
+    the whole mixed dataset from available sources, so left this field blank rather
+    than guessing.

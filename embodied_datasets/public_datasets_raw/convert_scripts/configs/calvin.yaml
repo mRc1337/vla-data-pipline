@@ -1,7 +1,95 @@
 id: calvin
 name: CALVIN
 source_url: https://github.com/mees/calvin
-camera_views: []
+license: MIT
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: single_arm
+robot_platform: franka_panda
+num_arms: 1
+dof_per_arm: 7
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: eef_pose
+action_frame: both
+rotation_representation: euler_xyz
+state_dim: 15
+action_dim: 7
+fps: 30.0
+fps_variable: false
+num_camera_views: 2
+camera_views:
+- third_person
+- other
+has_camera_calibration: true
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 34
+urdf_available: true
+urdf_source: dataset_repo
+expected_size_gb: 656.0
+expected_num_episodes: 20000
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  license: https://github.com/mees/calvin (README MIT license badge)
+  raw_format: https://github.com/mees/calvin/blob/main/dataset/README.md (per-timestep
+    numpy files, custom keys)
+  collection_method: 'arXiv:2112.03227 sec. III-B.1: ''...four environments with a
+    HTC Vive VR headset...'' (human teleoperated play data)'
+  embodiment_class: 'arXiv:2112.03227 sec. III-A: single 7-DOF Franka Emika Panda
+    arm on a fixed desk'
+  robot_platform: 'arXiv:2112.03227 sec. III-A: ''a 7-DOF Franka Emika Panda robot
+    arm with a parallel gripper'''
+  num_arms: arXiv:2112.03227 sec. III-A (single arm environment)
+  dof_per_arm: 'arXiv:2112.03227 sec. III-A: ''7-DOF Franka Emika Panda robot arm'''
+  gripper_type: 'arXiv:2112.03227 sec. III-A: ''...robot arm with a parallel gripper'''
+  has_mobile_base: 'arXiv:2112.03227 sec. III-A: arm mounted at a fixed desk, no mobile
+    base described'
+  action_space: 'https://github.com/mees/calvin/blob/main/dataset/README.md#actions:
+    ''actions''/''rel_actions'' keys are TCP (end-effector) position+orientation+gripper,
+    i.e. eef pose'
+  action_frame: 'https://github.com/mees/calvin/blob/main/dataset/README.md#actions:
+    dataset stores both absolute (''actions'') and relative (''rel_actions'') TCP
+    pose per frame'
+  rotation_representation: 'https://github.com/mees/calvin/blob/main/dataset/README.md#actions:
+    ''tcp orientation (3): euler angles x,y,z'''
+  state_dim: 'https://github.com/mees/calvin/blob/main/dataset/README.md#state-observation:
+    ''robot_obs'' shape (15,) = EE pos(3)+EE orient(3)+gripper width(1)+joint positions(7)+gripper
+    action(1)'
+  action_dim: 'https://github.com/mees/calvin/blob/main/dataset/README.md#actions:
+    ''actions'' shape (7,) = TCP pos(3)+orientation(3)+gripper(1)'
+  fps: 'arXiv:2112.03227 sec. III: ''sending continuous actions to the robot at 30hz'''
+  fps_variable: 'arXiv:2112.03227 sec. III: fixed 30hz control loop, no mention of
+    variable rate'
+  num_camera_views: 'arXiv:2112.03227 Fig. 2 / dataset README camera observations:
+    static camera + gripper camera (2 RGB-D views, excluding the separate tactile
+    sensor)'
+  camera_views: 'arXiv:2112.03227 Fig. 2: fixed ''static'' camera mapped to third_person;
+    wrist-mounted ''gripper'' camera mapped to other (single-arm robot, no left/right
+    distinction — see suggested_new_enum_values)'
+  has_camera_calibration: 'https://github.com/mees/calvin_env/blob/main/conf/cameras/cameras/gripper.yaml
+    and static.yaml: simulator defines exact camera intrinsics (fov, near/far, resolution)
+    and mount pose'
+  depth_coverage: 'https://github.com/mees/calvin/blob/main/dataset/README.md#camera-observations:
+    depth_static and depth_gripper are recorded for every frame alongside RGB'
+  has_language_instruction: 'arXiv:2112.03227 abstract/sec. III-B.2: ''~24 hours teleoperated
+    unstructured play data together with 20K language directives'''
+  num_task_types: 'arXiv:2112.03227 sec. III-A.2 and Fig. 6: ''We define 34 specific
+    tasks'''
+  urdf_available: 'https://github.com/mees/calvin_env/tree/main/data/franka_panda:
+    panda.urdf (and variants) shipped in the calvin_env submodule'
+  urdf_source: https://github.com/mees/calvin_env/tree/main/data/franka_panda (URDF
+    bundled directly in the dataset's own env repo)
+  expected_size_gb: 'https://github.com/mees/calvin/blob/main/dataset/README.md#download:
+    task_D_D=166GB, task_ABC_D=517GB, task_ABCD_D=656GB (largest/full split reported)'
+  expected_num_episodes: 'arXiv:2112.03227 abstract/sec III-B.2 and README: ''20K
+    language directives'' used as proxy for number of language-annotated episodes
+    (raw play data is ~2.4M unsegmented interaction steps, not natively episodic)'
+suggested_new_enum_values:
+  camera_views: wrist (generic, non-handed) - CALVIN is a single-arm robot with one
+    gripper-mounted camera; the existing left_wrist/right_wrist options force an incorrect
+    handedness label onto a robot that has no left/right arm distinction, so 'other'
+    was used instead as a stand-in.

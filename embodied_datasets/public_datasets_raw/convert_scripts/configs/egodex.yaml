@@ -1,0 +1,81 @@
+id: egodex
+name: EgoDex
+source_url: https://arxiv.org/abs/2505.11709
+license: CC-BY-NC-ND-4.0
+raw_format: HDF5
+release_type: fixed_episode_dataset
+collection_method: egocentric_human
+secondary_collection_methods: []
+embodiment_class: human_hand
+num_arms: 2
+has_mobile_base: false
+action_space: mixed
+action_frame: absolute
+rotation_representation: rotation_6d
+action_dim: 48
+fps: 30.0
+fps_variable: false
+num_camera_views: 1
+camera_views:
+- head
+has_camera_calibration: true
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 194
+expected_size_gb: 2000.0
+expected_num_episodes: 338000
+review_status: pending_human_review
+field_sources:
+  raw_format: 'GitHub apple/ml-egodex README, ''Dataset Structure'': each episode
+    is a paired .hdf5 (pose/camera annotations) + .mp4 (video) file'
+  collection_method: 'arXiv 2505.11709 abstract: ''we use Apple Vision Pro to collect
+    EgoDex...'' -- egocentric human video, no robot involved'
+  embodiment_class: 'arXiv 2505.11709: dataset provides 3D SE(3) pose tracking of
+    human head/arms/hand joints via ARKit on Apple Vision Pro; no robot embodiment
+    present'
+  num_arms: 'arXiv 2505.11709 Sec 4.1: action dimensionality is defined as ''2 hands
+    x (3 + 6 + 3x5 fingertips) = 48'', i.e. bimanual (both hands) tracked per episode'
+  has_mobile_base: 'arXiv 2505.11709 Sec 3: dataset ''consists entirely of active
+    tabletop manipulation'' in a stationary setting, no mobile base'
+  action_space: 'arXiv 2505.11709 Sec 4.1 ''Action Representation'': action = 3D position
+    of each wrist + 6D orientation of each wrist + 3D position of each fingertip --
+    a mix of position and orientation components, not a single joint-angle or single
+    eef-pose vector'
+  action_frame: 'arXiv 2505.11709 Sec 4.1: ''All poses are represented in the camera
+    frame'' at each timestep t (absolute pose, not a delta relative to previous frame)'
+  rotation_representation: 'arXiv 2505.11709 Sec 4.1: ''the 6D orientation of each
+    wrist (as suggested by [Zhou et al., continuity of rotation representations])''
+    -- 6D rotation used for the wrist-orientation component of the action'
+  action_dim: 'arXiv 2505.11709 Sec 4.1: ''each action has a total dimensionality
+    of 2 hands x (3 + 6 + (3 x 5 fingertips)) = 48'''
+  fps: 'arXiv 2505.11709 Sec 3.3 modalities: ''Egocentric RGB video with 1920x1080
+    resolution at 30 Hz frequency''; GitHub README: ''30 Hz 1080p egocentric video'''
+  fps_variable: 'arXiv 2505.11709 Sec 3.3: video, pose, and camera intrinsics/extrinsics
+    are all captured at a fixed 30 Hz; no mention of variable frame rate'
+  num_camera_views: 'arXiv 2505.11709 Sec 3.3 + GitHub README: dataset delivers one
+    synthesized head-mounted egocentric RGB video per episode (Apple Vision Pro),
+    despite multiple physical cameras being used internally for SLAM/tracking'
+  camera_views: Same as num_camera_views -- single head-mounted egocentric viewpoint
+    (Apple Vision Pro)
+  has_camera_calibration: 'GitHub apple/ml-egodex README ''Dataset Structure'': HDF5
+    contains camera/intrinsic (3x3 intrinsics, constant per file) and transforms/camera
+    (per-frame SE(3) extrinsics)'
+  depth_coverage: No depth modality is listed in arXiv 2505.11709 Sec 3.3 modalities
+    (RGB video, camera intrinsics/extrinsics, 3D joint pose, confidences, language
+    annotation) or in the GitHub README HDF5 structure
+  has_language_instruction: 'arXiv 2505.11709 Sec 3.3: ''Natural language annotation
+    of the manipulation''; GitHub README: HDF5 attrs f.attrs[''llm_description'']
+    / ''llm_description2'''
+  num_task_types: 'arXiv 2505.11709 abstract and Sec 3.1: ''194 different tabletop
+    tasks'' / ''contains 829 hours ... with 338000 episodes across 194 tasks'''
+  expected_size_gb: 'arXiv 2505.11709 Sec 3.1: ''The full dataset takes 2.0 TB of
+    storage on disk'' (compressed download zips on GitHub README sum to ~1.7 TB across
+    train/test/extra splits)'
+  expected_num_episodes: 'arXiv 2505.11709 Sec 3.1: ''The EgoDex dataset contains
+    829 hours of 1080p, 30 Hz egocentric video with 338000 episodes across 194 tasks'''
+suggested_new_enum_values:
+  license: CC-BY-NC-ND-4.0 -- arXiv 2505.11709 states 'the dataset is publicly available
+    under a CC-by-NC-ND license' and GitHub apple/ml-egodex README says 'The dataset
+    is available under CC-by-NC-ND terms.' This adds a No-Derivatives clause not covered
+    by the existing CC-BY-NC-4.0 enum value, so it was left blank rather than mis-mapped.

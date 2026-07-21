@@ -1,6 +1,8 @@
 """Pydantic models for the VLA dataset registry and per-dataset onboarding
 config. Field names and enum values must stay in sync with
-docs/superpowers/specs/2026-07-08-vla-data-pipeline-design.md sections 5.1-5.3.
+docs/superpowers/specs/2026-07-08-vla-data-pipeline-design.md sections 5.1-5.3
+and docs/superpowers/specs/2026-07-10-registry-schema-refinement-design.md
+sections 3-4.
 """
 from __future__ import annotations
 
@@ -66,6 +68,8 @@ class LicenseEnum(str, Enum):
     BSD_3_CLAUSE = "BSD-3-Clause"
     CC_BY_4_0 = "CC-BY-4.0"
     CC_BY_NC_4_0 = "CC-BY-NC-4.0"
+    CC_BY_NC_SA_4_0 = "CC-BY-NC-SA-4.0"
+    CC_BY_NC_ND_4_0 = "CC-BY-NC-ND-4.0"
     CC0_1_0 = "CC0-1.0"
     GPL_3_0 = "GPL-3.0"
     PROPRIETARY = "Proprietary"
@@ -79,6 +83,7 @@ class RawFormat(str, Enum):
     ROS_BAG = "ROS_bag"
     MCAP = "MCAP"
     TFRECORD = "TFRecord"
+    VRS = "VRS"
     CUSTOM = "Custom"
 
 
@@ -89,6 +94,8 @@ class CollectionMethod(str, Enum):
     EGOCENTRIC_HUMAN = "egocentric_human"
     SIMULATION = "simulation"
     HUMAN_TO_ROBOT_SYNTHESIS = "human_to_robot_synthesis"
+    AR_HAPTIC_GUIDED = "ar_haptic_guided_synthesis"
+    SCENE_ASSET_CURATION = "scene_asset_curation"
 
 
 class EmbodimentClass(str, Enum):
@@ -97,6 +104,7 @@ class EmbodimentClass(str, Enum):
     HUMANOID = "humanoid"
     MOBILE_MANIPULATOR = "mobile_manipulator"
     HUMAN_HAND = "human_hand"
+    QUADRUPED = "quadruped"
 
 
 class RobotPlatform(str, Enum):
@@ -114,12 +122,18 @@ class RobotPlatform(str, Enum):
     TIEN_KUNG = "tien_kung"
     ARX5 = "arx5"
     UNITREE_G1 = "unitree_g1"
+    UNITREE_H1 = "unitree_h1"
+    FOURIER_GR1 = "fourier_gr1"
+    FLEXIV_RIZON4 = "flexiv_rizon4"
+    GALAXEA_R1_LITE = "galaxea_r1_lite"
+    TOYOTA_ELEY = "toyota_eley"
     OTHER = "other"
 
 
 class GripperType(str, Enum):
     PARALLEL_JAW = "parallel_jaw"
     DEXTEROUS_HAND = "dexterous_hand"
+    THREE_JAW = "three_jaw"
     SUCTION = "suction"
     NONE = "none"
     UNKNOWN = "unknown"
@@ -138,6 +152,8 @@ class ActionFrame(str, Enum):
     DELTA = "delta"
     ABSOLUTE = "absolute"
     BOTH = "both"
+    RELATIVE_TRAJECTORY = "relative_trajectory"
+    MIXED_DELTA_ABSOLUTE = "mixed_delta_absolute"
     UNKNOWN = "unknown"
 
 
@@ -156,6 +172,9 @@ class CameraView(str, Enum):
     HEAD = "head"
     LEFT_WRIST = "left_wrist"
     RIGHT_WRIST = "right_wrist"
+    WRIST = "wrist"
+    BODY_WORN = "body_worn"
+    WORMS_EYE = "worms_eye"
     TOP = "top"
     FRONT = "front"
     SIDE = "side"
@@ -180,20 +199,47 @@ class ReviewStatus(str, Enum):
     CONFIRMED = "confirmed"
 
 
+class ReleaseType(str, Enum):
+    FIXED_EPISODE_DATASET = "fixed_episode_dataset"
+    GENERATION_FRAMEWORK = "generation_framework"
+    SCENE_PLATFORM = "scene_platform"
+    RL_BENCHMARK_ENV = "rl_benchmark_env"
+
+
+class HandPoseRepresentation(str, Enum):
+    MANO = "mano"
+    KEYPOINTS_3D = "keypoints_3d"
+    JOINT_ANGLES = "joint_angles"
+    NONE = "none"
+
+
+class SensorModality(str, Enum):
+    FORCE_TORQUE = "force_torque"
+    TACTILE = "tactile"
+    AUDIO = "audio"
+    EYE_GAZE = "eye_gaze"
+
+
 class DatasetConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
     name: str
     source_url: Optional[str] = None
+    paper_url: Optional[str] = None
     license: Optional[LicenseEnum] = None
     raw_format: Optional[RawFormat] = None
+    release_type: Optional[ReleaseType] = None
     collection_method: Optional[CollectionMethod] = None
+    secondary_collection_methods: List[CollectionMethod] = Field(default_factory=list)
+    is_multi_embodiment: Optional[bool] = None
     embodiment_class: Optional[EmbodimentClass] = None
     robot_platform: Optional[RobotPlatform] = None
     num_arms: Optional[int] = Field(default=None, ge=0, le=2)
     dof_per_arm: Optional[int] = None
+    dof_per_hand: Optional[int] = None
     gripper_type: Optional[GripperType] = None
+    hand_pose_representation: Optional[HandPoseRepresentation] = None
     has_mobile_base: Optional[bool] = None
     action_space: Optional[ActionSpace] = None
     action_frame: Optional[ActionFrame] = None
@@ -204,14 +250,20 @@ class DatasetConfig(BaseModel):
     fps_variable: Optional[bool] = None
     num_camera_views: Optional[int] = None
     camera_views: List[CameraView] = Field(default_factory=list)
+    has_synchronized_multiview_rig: Optional[bool] = None
     has_camera_calibration: Optional[bool] = None
     depth_coverage: Optional[DepthCoverage] = None
+    additional_modalities: List[SensorModality] = Field(default_factory=list)
     has_language_instruction: Optional[bool] = None
     num_task_types: Optional[int] = None
     urdf_available: Optional[bool] = None
     urdf_source: Optional[UrdfSource] = None
     expected_size_gb: Optional[float] = None
     expected_num_episodes: Optional[int] = None
+    expected_duration_hours: Optional[float] = None
+    num_subjects: Optional[int] = None
+    num_scenes: Optional[int] = None
+    num_objects: Optional[int] = None
     review_status: ReviewStatus = ReviewStatus.PENDING_HUMAN_REVIEW
     field_sources: Dict[str, str] = Field(default_factory=dict)
     suggested_new_enum_values: Dict[str, str] = Field(default_factory=dict)

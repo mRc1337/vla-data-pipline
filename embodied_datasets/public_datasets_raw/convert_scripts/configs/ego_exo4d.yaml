@@ -1,6 +1,58 @@
 id: ego_exo4d
 name: Ego-Exo4D
-camera_views: []
+source_url: https://ego-exo4d-data.org/
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: egocentric_human
+secondary_collection_methods: []
+embodiment_class: human_hand
+fps_variable: true
+camera_views:
+- head
+- third_person
+has_camera_calibration: true
+depth_coverage: partial
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 8
+expected_num_episodes: 5035
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: https://ego-exo4d-data.org/ (official project homepage; stub had no
+    source_url, added the verified homepage)
+  raw_format: https://docs.ego-exo4d-data.org/data/takes/ and https://docs.ego-exo4d-data.org/overview/
+    - data is distributed as MP4 (GoPro) + Aria VRS files, a Meta-proprietary sensor-record
+    format, plus CSV/JSON metadata; does not match RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord
+    so classified as Custom
+  collection_method: https://ego-exo4d-data.org/ and https://docs.ego-exo4d-data.org/overview/
+    - participants wear Aria egocentric glasses while performing skilled activities,
+    filmed simultaneously by 4-5 stationary exocentric GoPro cameras; matches the
+    'egocentric_human' enum value directly
+  embodiment_class: https://docs.ego-exo4d-data.org/overview/ - this is human video
+    capture (camera wearer's hands/body), not a robot; closest enum value is human_hand
+    (dataset also provides 3D hand-joint annotations, consistent with this classification)
+  fps_variable: 'https://docs.ego-exo4d-data.org/overview/ - ''Video: 4k@60FPS (MP4)
+    for GoPro devices and 1404x1404@30FPS (VRS) for Aria devices'' - frame rate differs
+    by camera type, so left `fps` blank rather than pick one value'
+  camera_views: https://docs.ego-exo4d-data.org/overview/ and https://ego-exo4d-data.org/
+    - one head-mounted Aria egocentric camera (head) plus 4-5 stationary third-person
+    GoPro cameras (third_person) per take
+  has_camera_calibration: https://docs.ego-exo4d-data.org/overview/ - 'Calibrated
+    camera parameters (intrinsics) for all cameras (in VRS file)' and '3D camera poses
+    (trajectories/extrinsic parameters) for all cameras' via Aria MPS
+  depth_coverage: https://docs.ego-exo4d-data.org/overview/ - dataset provides only
+    'Sparse 3D point clouds of static environment' via Aria MPS, not dense per-frame
+    depth maps, so classified as partial rather than full
+  has_language_instruction: 'https://docs.ego-exo4d-data.org/overview/ and arXiv:2311.18259
+    abstract - multiple paired language descriptions per take: expert commentary,
+    atomic action text descriptions, and participant narrate-and-act narrations'
+  num_task_types: 'https://ego-exo4d-data.org/ (SCENARIOS section) and https://docs.ego-exo4d-data.org/overview/
+    - 8 scenario/task categories: Cooking, Music, Soccer, Health, Basketball, Dance,
+    Bike Repair, Rock Climbing/Bouldering'
+  expected_num_episodes: https://ego-exo4d-data.org/ ('5035 (# takes)') and https://docs.ego-exo4d-data.org/
+    intro page ('5035 takes') - number of takes (episodes) in the released dataset
+suggested_new_enum_values:
+  license: Ego4D-EULA (custom Meta/Ego4D license agreement, signed per-institution
+    via ego4d.dev/request/ego-exo4d; per https://docs.ego-exo4d-data.org/getting-started/
+    it covers both research and commercial use with restrictions on redistribution,
+    and is free but requires signature/approval - does not map to MIT/Apache/BSD/CC-*/GPL/Proprietary/Unknown)

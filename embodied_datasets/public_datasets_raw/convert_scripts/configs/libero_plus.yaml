@@ -1,7 +1,128 @@
 id: libero_plus
 name: LIBERO-plus
-source_url: Sylvest/LIBERO-plus · Datasets at Hugging Face
-camera_views: []
+source_url: https://huggingface.co/datasets/Sylvest/LIBERO-plus
+license: MIT
+raw_format: RLDS
+release_type: fixed_episode_dataset
+collection_method: simulation
+secondary_collection_methods: []
+embodiment_class: single_arm
+robot_platform: franka_panda
+num_arms: 1
+dof_per_arm: 7
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: eef_pose
+action_frame: delta
+rotation_representation: axis_angle
+state_dim: 8
+action_dim: 7
+fps: 20.0
+fps_variable: false
+num_camera_views: 2
+camera_views:
+- front
+- other
+has_camera_calibration: true
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 40
+urdf_available: true
+urdf_source: manufacturer_official
+expected_size_gb: 75.5
+expected_num_episodes: 14347
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: Stub's title-text hint 'Sylvest/LIBERO-plus · Datasets at Hugging Face'
+    resolves to https://huggingface.co/datasets/Sylvest/LIBERO-plus, confirmed live
+    via https://huggingface.co/api/datasets/Sylvest/LIBERO-plus
+  license: 'https://huggingface.co/api/datasets/Sylvest/LIBERO-plus (cardData.license:
+    ''mit''); same license:mit tag on the sibling repos Sylvest/libero_plus_rlds and
+    Sylvest/libero_plus_lerobot'
+  raw_format: 'arXiv:2510.13626 Appendix D.5 ''Storage Format'': ''All trajectories
+    are stored in the rlds format, consistent with standard practices for robotics
+    datasets and ensuring compatibility with existing training pipelines.'' (an additional
+    LeRobot-format mirror, Sylvest/libero_plus_lerobot, is also officially released
+    for convenience, per the GitHub README''s ''LerobotDataset'' link)'
+  collection_method: 'arXiv:2510.13626 Appendix D.2-D.3: the generalized training
+    trajectories were produced by an automated generalization pipeline that replays
+    the original LIBERO dataset''s (state, action) pairs inside newly generated/perturbed
+    simulated environments and keeps only the successful rollouts -- fully automated
+    in-simulation data generation, not live human teleoperation for this derived dataset'
+  embodiment_class: 'https://github.com/Lifelong-Robot-Learning/LIBERO/blob/master/libero/libero/envs/env_wrapper.py:
+    ControlEnv default ''robots=["Panda"]'' (single arm), inherited unmodified by
+    LIBERO-plus (drop-in replacement for LIBERO)'
+  robot_platform: 'https://huggingface.co/datasets/Sylvest/libero_plus_lerobot meta/info.json:
+    ''robot_type'': ''panda''; corroborated by LIBERO''s env_wrapper.py ''robots=["Panda"]'''
+  num_arms: 'https://github.com/Lifelong-Robot-Learning/LIBERO/blob/master/libero/libero/envs/env_wrapper.py:
+    single-robot list ''robots=["Panda"]'''
+  dof_per_arm: Franka Emika Panda is a 7-DOF manipulator arm (manufacturer spec),
+    used unmodified by LIBERO/LIBERO-plus's robosuite-based simulation
+  gripper_type: robosuite's default Panda gripper ('PandaGripper', used by LIBERO's
+    ControlEnv default gripper_types='default') is a 2-finger parallel-jaw gripper
+  has_mobile_base: LIBERO/LIBERO-plus's Panda arm is a fixed-base tabletop manipulator
+    in the robosuite/MuJoCo simulation (env_wrapper.py has no base/mobility component)
+  action_space: 'https://github.com/Lifelong-Robot-Learning/LIBERO/blob/master/libero/libero/envs/env_wrapper.py:
+    ControlEnv default ''controller="OSC_POSE"'' (robosuite Operational Space Control
+    over end-effector pose)'
+  action_frame: 'https://raw.githubusercontent.com/ARISE-Initiative/robosuite/master/robosuite/controllers/config/robots/default_panda.json:
+    OSC_POSE arm controller config has ''input_type'': ''delta'''
+  rotation_representation: 'https://raw.githubusercontent.com/ARISE-Initiative/robosuite/master/robosuite/controllers/parts/arm/osc.py:
+    ''delta (np.array): Desired relative change in orientation, in axis-angle form
+    [ax, ay, az]'''
+  state_dim: 'https://huggingface.co/datasets/Sylvest/libero_plus_lerobot meta/info.json:
+    feature ''observation.state'' shape [8]'
+  action_dim: 'https://huggingface.co/datasets/Sylvest/libero_plus_lerobot meta/info.json:
+    feature ''action'' shape [7]; matches arXiv:2510.13626 Appendix D.1 ''the 7-dimensional
+    robot actions'''
+  fps: 'https://huggingface.co/datasets/Sylvest/libero_plus_lerobot meta/info.json:
+    ''fps'': 20 (also each video feature''s ''video.fps'': 20); matches LIBERO env_wrapper.py
+    default ''control_freq=20'''
+  fps_variable: LIBERO env_wrapper.py hardcodes a single 'control_freq=20' simulation
+    control rate; lerobot info.json reports a single constant fps=20 across all episodes/videos
+  num_camera_views: 'https://github.com/Lifelong-Robot-Learning/LIBERO/blob/master/libero/libero/envs/env_wrapper.py:
+    default ''camera_names=["agentview", "robot0_eye_in_hand"]'' (2 views); matches
+    meta/info.json features ''observation.images.front'' and ''observation.images.wrist'''
+  camera_views: agentview (fixed, forward-facing third-person camera, released as
+    'observation.images.front' in the LeRobot mirror) mapped to front; robot0_eye_in_hand
+    (wrist-mounted camera, released as 'observation.images.wrist') mapped to other
+    because Panda is a single, non-handed arm and the enum only offers left_wrist/right_wrist
+    -- see suggested_new_enum_values (same convention as configs/calvin.yaml, configs/dobb_e.yaml)
+  has_camera_calibration: Both cameras are simulated (robosuite/MuJoCo) with fixed,
+    exactly-known intrinsics (fovy) and extrinsics (mount pose in the arena/robot
+    XML), so ground-truth calibration is inherently available, matching the convention
+    used for other MuJoCo-simulated benchmarks (e.g. configs/calvin.yaml)
+  depth_coverage: 'https://github.com/Lifelong-Robot-Learning/LIBERO/blob/master/libero/libero/envs/env_wrapper.py:
+    default ''camera_depths=False''; https://huggingface.co/datasets/Sylvest/libero_plus_lerobot
+    meta/info.json only lists RGB video features (observation.images.front/wrist),
+    no depth feature'
+  has_language_instruction: https://huggingface.co/datasets/Sylvest/LIBERO-plus README
+    ('LLM-Based Language Rewrites' perturbation dimension) and arXiv:2510.13626 Sec
+    2.1/Appendix A.6 'Language Instructions'; each LIBERO BDDL task defines a 'language_instruction'
+    field (env_wrapper.py problem_info['language_instruction'])
+  num_task_types: 'arXiv:2510.13626 Appendix C.1: ''We began with the 40 evaluation
+    tasks from LIBERO''; matches https://huggingface.co/datasets/Sylvest/libero_plus_lerobot
+    meta/info.json ''total_tasks'': 40'
+  urdf_available: https://github.com/frankaemika/franka_ros (develop branch) ships
+    franka_description/robots/panda/panda.urdf.xacro for the Franka Panda arm used
+    by LIBERO/LIBERO-plus
+  urdf_source: https://github.com/frankaemika/franka_ros -- official manufacturer
+    (Franka Emika/Franka Robotics) repository; LIBERO/robosuite itself ships MJCF
+    (not URDF) robot models, so the canonical URDF source is the manufacturer's own
+    repo
+  expected_size_gb: 'https://huggingface.co/api/datasets/Sylvest/libero_plus_rlds:
+    three LFS parts (libero_plus_mixdata.z01 + .z02 + .zip) totaling 75,544,257,300
+    bytes ~= 75.5 GB for the official RLDS-format generalized training dataset'
+  expected_num_episodes: 'https://huggingface.co/datasets/Sylvest/libero_plus_lerobot
+    meta/info.json: ''total_episodes'': 14347, ''total_frames'': 2238036 (the concrete,
+    machine-readable episode count for the released LeRobot-format training corpus);
+    note arXiv:2510.13626 Appendix D.1/D.3 gives a rounded qualitative figure of ''over
+    20,000'' successful trajectories collected/filtered across all generalization
+    variants before final curation'
+suggested_new_enum_values:
+  camera_views: wrist (generic, non-handed) - LIBERO/LIBERO-plus's Franka Panda is
+    a single, non-handed arm with one wrist-mounted camera (robot0_eye_in_hand); the
+    existing left_wrist/right_wrist options force an incorrect handedness label, so
+    'other' was used instead as a stand-in (same gap noted in configs/calvin.yaml
+    and configs/dobb_e.yaml).

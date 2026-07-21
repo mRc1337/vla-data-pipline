@@ -1,0 +1,106 @@
+id: arcap
+name: ARCap
+source_url: https://huggingface.co/datasets/Ericcsr/ARCap
+license: CC-BY-4.0
+raw_format: HDF5
+release_type: fixed_episode_dataset
+collection_method: ar_haptic_guided_synthesis
+secondary_collection_methods: []
+embodiment_class: single_arm
+robot_platform: franka_panda
+num_arms: 1
+dof_per_arm: 7
+gripper_type: dexterous_hand
+has_mobile_base: false
+action_space: mixed
+action_frame: absolute
+rotation_representation: quaternion
+num_camera_views: 1
+camera_views:
+- head
+has_camera_calibration: true
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: false
+num_task_types: 4
+urdf_available: true
+urdf_source: dataset_repo
+expected_size_gb: 103.8
+review_status: pending_human_review
+field_sources:
+  license: HF datasets API https://huggingface.co/api/datasets/Ericcsr/ARCap -> cardData.license=cc-by-4.0
+  raw_format: 'HF file listing shows assemble_arcap.hdf5, clutter_arcap.hdf5, clutter_arcap_users.hdf5,
+    open_bottle_arcap.hdf5, wild_arcap.hdf5; paper arXiv:2410.08464 Sec III-B: ''all
+    data for a single task will be stored in one hdf5 file'''
+  collection_method: 'arXiv:2410.08464 abstract/Sec II: portable AR-headset + haptic-glove
+    system, no physical robot present during collection, outputs directly robot-executable
+    trajectories; paper explicitly places itself in the lineage of UMI (cites arXiv:2402.10329,
+    ''Universal Manipulation Interface: In-The-Wild Robot Teaching Without In-The-Wild
+    Robots''). Closest existing enum value is ''umi'' (portable, robot-absent, directly-transferable
+    trajectories); this is a judgment call since ARCap uses AR/haptic-glove IK retargeting
+    rather than a handheld mechanical gripper mimic -- see suggested_new_enum_values.'
+  embodiment_class: 'arXiv:2410.08464 Sec III-A/IV-A: each collection targets a single
+    Franka Panda arm with one end-effector (Leap Hand or Fin-ray gripper). Note: project
+    website (stanford-tml.github.io/ARCap) also shows a ''cross embodiment bimanual
+    manipulation'' demo video, but the 5 HF-released hdf5 files (assemble/clutter/open_bottle/wild)
+    correspond to single-arm task collections.'
+  robot_platform: 'arXiv:2410.08464 Sec IV-A: ''We used two Franka Panda arms in our
+    experiment, one attached with a Leap hand and another one attached with a Fin-ray
+    gripper''; GitHub Ericcsr/ARCap data_processing/assets/franka_arm URDFs'
+  num_arms: arXiv:2410.08464 Sec IV-A experimental setup describes single-arm data
+    collection per task/end-effector
+  dof_per_arm: Franka Panda is a standard 7-DOF arm (robot_platform identity); not
+    restated as an explicit DOF count in the paper text found
+  gripper_type: 'arXiv:2410.08464 Sec III-A: two interchangeable end-effectors --
+    ''Leap Hand, a fully actuated, four-finger dexterous hand'' and ''the Fin-ray
+    gripper, a compliant parallel-jaw-like gripper''. The majority of released HF
+    files (clutter, clutter_users, open_bottle, wild) correspond to dexterous-hand
+    tasks per the paper''s task descriptions, while ''assemble'' (Lego) uses the Fin-ray
+    parallel-jaw gripper -- dexterous_hand chosen as dominant value; dataset actually
+    spans both gripper types across task files.'
+  has_mobile_base: No mention of a mobile base anywhere in the paper, GitHub repo,
+    or HF card; system is a fixed-base Franka Panda arm setup
+  action_space: 'arXiv:2410.08464 Sec III-B: ''ARCap records the following data: ...
+    Joint angle for the virtual robot solved by IK ... Headset pose in the world frame
+    ... Virtual robot pose in the world frame'' -- both joint angles and end-effector/wrist
+    poses are recorded per frame'
+  action_frame: 'arXiv:2410.08464 Sec III-B: recorded joint angles and poses are instantaneous
+    absolute robot/wrist states used directly for replay, not delta commands'
+  rotation_representation: GitHub Ericcsr/ARCap data_processing/convert_data_with_robot.py
+    uses scipy.spatial.transform.Rotation.from_quat/.as_quat() for wrist_orn (quaternion
+    [x,y,z,w])
+  num_camera_views: 'arXiv:2410.08464 Sec III-A: ''A RealSense D435 camera is mounted
+    on top of the headset using a 3D-printed bracket to capture 3D visual information''
+    -- single camera'
+  camera_views: 'Same as num_camera_views source: the single RGB-D camera is mounted
+    on the AR headset worn by the human demonstrator (egocentric/head-mounted viewpoint)'
+  has_camera_calibration: 'arXiv:2410.08464 Sec III-B and Fig. 5: explicit ''AR-based
+    Camera Calibration'' procedure where users align the virtual robot base with the
+    actual robot base to compute camera-to-robot transform'
+  depth_coverage: RealSense D435 RGB-D camera is the sole sensor and provides depth/point-cloud
+    data over the captured scene region (arXiv:2410.08464 Sec III-B)
+  has_language_instruction: No language/task-instruction annotation is mentioned in
+    the paper, the (empty) HF README, or the GitHub repo; data is organized per task-type
+    hdf5 file rather than per-episode text instructions
+  num_task_types: 'HF file listing: assemble_arcap.hdf5, clutter_arcap.hdf5, clutter_arcap_users.hdf5,
+    open_bottle_arcap.hdf5, wild_arcap.hdf5 -> 4 distinct tasks (Lego assembly, cluttered
+    pick-and-place, bottle opening, in-the-wild); clutter_arcap_users.hdf5 is the
+    20-user user-study replicate of the same clutter task, not a distinct 5th task
+    type'
+  urdf_available: GitHub Ericcsr/ARCap repo, data_processing/assets/ contains franka_arm,
+    franka_leap, leap_hand, gripper URDF folders plus quest3.urdf
+  urdf_source: URDFs are bundled directly in the GitHub repo (https://github.com/Ericcsr/ARCap)
+    linked from the HF dataset card / paper code release
+  expected_size_gb: HF datasets API https://huggingface.co/api/datasets/Ericcsr/ARCap
+    -> usedStorage=111452967384 bytes = 103.8 GB
+suggested_new_enum_values:
+  collection_method: 'Consider adding a value such as ''ar_haptic_guided_synthesis''
+    to CollectionMethod for systems like ARCap: a portable AR headset + haptic/motion-capture
+    glove that retargets human hand/wrist motion to a virtual robot via real-time
+    IK, giving live visual/haptic feedback on kinematic feasibility and collisions,
+    and records the resulting robot-joint-space trajectory directly -- with no physical
+    robot present and no mechanical device shaped like the robot''s own end-effector.
+    This is distinct from ''umi'' (a handheld mechanical mimic of the actual gripper)
+    and from ''human_to_robot_synthesis'' (typically post-hoc retargeting from passive
+    human video). ARCap was mapped to ''umi'' above as the closest existing fit, but
+    a reviewer may prefer a dedicated category.'

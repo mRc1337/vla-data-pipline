@@ -1,7 +1,114 @@
 id: bridgedata_v2
 name: BridgeData V2
-source_url: https://rail.eecs.berkeley.edu/datasets/bridge_release/data/
-camera_views: []
+source_url: https://rail-berkeley.github.io/bridgedata/
+license: CC-BY-4.0
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: single_arm
+robot_platform: widowx
+num_arms: 1
+dof_per_arm: 6
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: eef_pose
+action_frame: delta
+rotation_representation: euler_xyz
+state_dim: 7
+action_dim: 7
+fps: 5.0
+fps_variable: false
+num_camera_views: 4
+camera_views:
+- third_person
+- other
+depth_coverage: partial
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 13
+urdf_available: true
+urdf_source: manufacturer_official
+expected_size_gb: 441.0
+expected_num_episodes: 60096
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: https://rail-berkeley.github.io/bridgedata/ (official project homepage
+    with paper/code/data links; stub's URL pointed at the raw file index page https://rail.eecs.berkeley.edu/datasets/bridge_release/data/,
+    which is real but less informative, so corrected to the project homepage)
+  license: https://rail-berkeley.github.io/bridgedata/ - 'All data is provided under
+    the Creative Commons Attribution 4.0 International License'
+  raw_format: 'https://github.com/rail-berkeley/bridge_data_v2 (README ''Data'' section):
+    raw release is JPEG/PNG images plus pkl files in a project-specific directory
+    layout (a TFDS/RLDS-converted mirror is offered separately, but the primary raw
+    distribution is this custom JPEG+pkl format)'
+  collection_method: 'https://rail-berkeley.github.io/bridgedata/ - ''we collect demonstrations
+    by teleoperating the robot with a VR controller''; homepage dataset-composition
+    stats: 50,365 teleoperated demonstrations vs 9,731 rollouts from a scripted pick-and-place
+    policy (83.8% teleop / 16.2% scripted-autonomous mix; ''teleop'' used as the dominant
+    collection method since the enum has no ''mixed'' option)'
+  embodiment_class: 'https://rail-berkeley.github.io/bridgedata/ (System Setup): single
+    fixed-base WidowX 250 arm, no mobile base'
+  robot_platform: 'https://rail-berkeley.github.io/bridgedata/ (System Setup): ''All
+    the data was collected on a WidowX 250 6DOF robot arm.'''
+  num_arms: 'https://rail-berkeley.github.io/bridgedata/ (System Setup): single WidowX
+    250 arm'
+  dof_per_arm: 'https://rail-berkeley.github.io/bridgedata/ (System Setup): ''WidowX
+    250 6DOF robot arm'''
+  gripper_type: https://github.com/Interbotix/interbotix_ros_manipulators (WidowX
+    250 default end effector is a two-finger parallel-jaw gripper) corroborated by
+    demo videos on https://rail-berkeley.github.io/bridgedata/
+  has_mobile_base: 'https://rail-berkeley.github.io/bridgedata/ (System Setup): arm
+    mounted at a fixed base, no mobile base mentioned'
+  action_space: 'https://github.com/octo-models/octo/blob/main/octo/data/oxe/oxe_dataset_configs.py
+    (''bridge_dataset'': action_encoding: ActionEncoding.EEF_POS); TFDS catalog https://www.tensorflow.org/datasets/catalog/bridge
+    shows steps/action Tensor shape (7,)'
+  action_frame: https://github.com/octo-models/octo/blob/main/octo/data/oxe/oxe_standardization_transforms.py
+    (bridge_dataset_transform calls relabel_actions to recompute the action as the
+    delta between consecutive end-effector poses); consistent with community documentation
+    describing BridgeData actions as delta end-effector pose + gripper
+  rotation_representation: 'https://github.com/octo-models/octo/blob/main/octo/data/oxe/oxe_dataset_configs.py
+    (''bridge_dataset'': proprio_encoding: ProprioEncoding.POS_EULER)'
+  state_dim: https://www.tensorflow.org/datasets/catalog/bridge - steps/observation/state
+    Tensor shape (7,) float32
+  action_dim: https://www.tensorflow.org/datasets/catalog/bridge - steps/action Tensor
+    shape (7,) float32 (xyz + euler rpy + gripper)
+  fps: 'https://rail-berkeley.github.io/bridgedata/ (System Setup): ''The control
+    frequency is 5 Hz'''
+  fps_variable: 'https://rail-berkeley.github.io/bridgedata/ (System Setup): single
+    fixed 5 Hz control frequency stated, no mention of variable rate'
+  num_camera_views: 'https://rail-berkeley.github.io/bridgedata/ (System Setup / camera-views
+    breakdown): ''a RGBD camera ... fixed in an over-the-shoulder view, two RGB cameras
+    with poses that are randomized ..., and RGB camera attached to the robot''s wrist''
+    = 4 physical camera streams in the full hardware setup (majority of trajectories
+    only include the primary over-the-shoulder view since the other 3 were added later)'
+  camera_views: 'https://rail-berkeley.github.io/bridgedata/ (System Setup): fixed
+    ''over-the-shoulder'' camera mapped to third_person; the 2 randomized-pose cameras
+    and the wrist-mounted camera have no fixed/handed viewpoint category in the enum
+    (WidowX is a single, non-handed arm, so left_wrist/right_wrist would be misleading)
+    and are mapped to ''other'' - see suggested_new_enum_values'
+  depth_coverage: 'https://rail-berkeley.github.io/bridgedata/ (System Setup): ''Depth,
+    when present, is from the same perspective as the primary fixed camera'' - depth
+    is only available for a subset of trajectories/cameras, not full coverage'
+  has_language_instruction: https://rail-berkeley.github.io/bridgedata/ - 'Each trajectory
+    is labeled with a natural language instruction corresponding to the task the robot
+    is performing.'
+  num_task_types: 'https://rail-berkeley.github.io/bridgedata/ (Dataset Composition):
+    ''24 environments, 13 skills'''
+  urdf_available: https://github.com/Interbotix/interbotix_ros_manipulators - Trossen
+    Robotics' official ROS package ships WidowX 250 URDF/xacro description files
+  urdf_source: https://github.com/Interbotix/interbotix_ros_manipulators (Interbotix/Trossen
+    Robotics is the WidowX manufacturer; URDF is published in their own official manipulators
+    repo, not the BridgeData V2 repo itself)
+  expected_size_gb: 'https://rail.eecs.berkeley.edu/datasets/bridge_release/data/
+    (directory listing): demos_8_17.zip = 411G, scripted_6_18.zip = 30G, total raw
+    release ~441 GB'
+  expected_num_episodes: 'https://rail-berkeley.github.io/bridgedata/ and https://arxiv.org/abs/2308.12952
+    abstract: ''60,096 trajectories collected across 24 environments'' (50,365 teleop
+    + 9,731 scripted)'
+suggested_new_enum_values:
+  camera_views: wrist (generic, non-handed) - BridgeData V2's WidowX 250 is a single,
+    non-handed arm with one wrist-mounted camera plus two randomized-pose third-party
+    cameras; the existing left_wrist/right_wrist options force an incorrect handedness
+    label onto a single-arm setup, so 'other' was used as a stand-in for both the
+    wrist camera and the randomized cameras.

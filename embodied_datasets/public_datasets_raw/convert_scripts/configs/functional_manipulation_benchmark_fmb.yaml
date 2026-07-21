@@ -1,0 +1,131 @@
+id: functional_manipulation_benchmark_fmb
+name: Functional Manipulation Benchmark (FMB)
+source_url: https://functional-manipulation-benchmark.github.io/
+license: CC-BY-4.0
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: single_arm
+robot_platform: franka_panda
+num_arms: 1
+dof_per_arm: 7
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: eef_pose
+action_frame: delta
+rotation_representation: euler_xyz
+action_dim: 7
+fps: 10.0
+fps_variable: false
+num_camera_views: 4
+camera_views:
+- side
+- wrist
+has_camera_calibration: true
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: false
+num_task_types: 2
+urdf_available: true
+urdf_source: manufacturer_official
+expected_size_gb: 778.0
+expected_num_episodes: 22550
+review_status: pending_human_review
+field_sources:
+  source_url: Verified reachable; project homepage title/authors match recorded name
+    'Functional Manipulation Benchmark (FMB)' -- https://functional-manipulation-benchmark.github.io/
+  license: 'Site footer: ''All data is provided under the Creative Commons Attribution
+    4.0 International License.'' (same statement on homepage and dataset page); HF
+    dataset card also lists License: cc-by-4.0 -- https://functional-manipulation-benchmark.github.io/dataset/index.html
+    and https://huggingface.co/datasets/charlesxu0124/functional-manipulation-benchmark'
+  raw_format: 'Dataset page ''Data Format'' section: each zip contains a folder of
+    trajectories, each trajectory saved as a single .npy file containing a dict of
+    numpy arrays (obs/side_1, obs/tcp_pose, action, primitive, object_info, ...) --
+    not RLDS/HDF5/LeRobot as distributed -- https://functional-manipulation-benchmark.github.io/dataset/index.html'
+  collection_method: 'Paper Sec. 3.5 ''Robotic System and Data Collection'': ''To
+    tele-operate the robot, we use a SpaceMouse to command 6 DoF end-effector twist
+    at 10 Hz, which is then tracked by a low-level impedance controller running at
+    1K Hz.'' -- arXiv:2401.08553'
+  embodiment_class: 'Paper Sec. 3.5 and homepage: single Franka Panda arm (''We collected
+    a total of 22,550 trajectories ... on a Franka Panda arm'') -- https://functional-manipulation-benchmark.github.io/
+    and arXiv:2401.08553'
+  robot_platform: 'Homepage: ''We collected a total of 22,550 trajectories across
+    two different tasks on a Franka Panda arm.''; Paper Sec. 3.5: ''We use a Franka
+    Panda robot to collect our dataset'' -- https://functional-manipulation-benchmark.github.io/
+    and arXiv:2401.08553'
+  num_arms: 'Single Franka Panda robot described throughout homepage, dataset page,
+    and paper Sec. 3.5 (Fig. 8: ''a standard Franka arm equipped with four cameras'')
+    -- no second arm mentioned anywhere -- https://functional-manipulation-benchmark.github.io/'
+  dof_per_arm: 'Dataset page Data Format: obs/q is a (N, 7) numpy array of joint positions
+    and obs/dq is (N, 7) joint velocities, i.e. 7-DoF Franka Panda arm -- https://functional-manipulation-benchmark.github.io/dataset/index.html'
+  gripper_type: 'Dataset page: obs/gripper_pose is a binary (N,) array (0=open, 1=closed);
+    robot_infra README --gripper_dist flag sets Franka parallel-jaw gripper opening
+    distance -- https://functional-manipulation-benchmark.github.io/dataset/index.html
+    and https://github.com/rail-berkeley/fmb/blob/main/robot_infra/README.md'
+  has_mobile_base: Fixed-base Franka Panda arm on a tabletop workspace throughout
+    paper Fig. 8 and homepage videos; no mobile base component described -- arXiv:2401.08553
+    (Fig. 8) and https://functional-manipulation-benchmark.github.io/
+  action_space: 'Dataset page: ''action a (N, 7) numpy array of the commanded cartesian
+    action (XYZ, RPY, gripper)''; paper line: ''7DoF actions'' -- end-effector Cartesian
+    pose/twist command, not joint control -- https://functional-manipulation-benchmark.github.io/dataset/index.html
+    and arXiv:2401.08553'
+  action_frame: 'Paper Sec. 3.5: SpaceMouse commands a 6 DoF end-effector ''twist''
+    (velocity/delta command) at 10 Hz tracked by a low-level impedance controller,
+    i.e. incremental/delta commands rather than absolute target poses -- arXiv:2401.08553'
+  rotation_representation: 'Dataset page: action array rotation component is expressed
+    as RPY (roll-pitch-yaw), i.e. XYZ Euler angles -- https://functional-manipulation-benchmark.github.io/dataset/index.html'
+  action_dim: 'Dataset page: ''action a (N, 7) numpy array of the commanded cartesian
+    action (XYZ, RPY, gripper)''; paper explicitly states ''7DoF actions'' -- https://functional-manipulation-benchmark.github.io/dataset/index.html
+    and arXiv:2401.08553'
+  fps: 'Paper Sec. 3.5: SpaceMouse commands are issued at 10 Hz (''command 6 DoF end-effector
+    twist at 10 Hz''); this is the demonstration/action logging rate (separate from
+    the 1 KHz low-level impedance controller) -- arXiv:2401.08553'
+  fps_variable: Paper Sec. 3.5 describes a single fixed 10 Hz teleoperation command
+    rate for all demonstrations, no mention of variable-rate logging -- arXiv:2401.08553
+  num_camera_views: 'Paper Sec. 3.5: ''we have four Intel RealSense D405 cameras,
+    two of which are mounted on the robot end-effector, and the rest are placed on
+    each side of the bin''; dataset page lists exactly 4 camera keys (side_1, side_2,
+    wrist_1, wrist_2) -- arXiv:2401.08553 and https://functional-manipulation-benchmark.github.io/dataset/index.html'
+  camera_views: Dataset page keys obs/side_1, obs/side_2 (bin-side third-person-style
+    cameras) map to 'side'; obs/wrist_1, obs/wrist_2 (two cameras mounted on the single
+    arm's end-effector) have no exact enum match (see suggested_new_enum_values) and
+    are recorded here as 'other' -- https://functional-manipulation-benchmark.github.io/dataset/index.html
+  has_camera_calibration: 'Paper Sec. 3.5: ''we also provide calibrated camera intrinsics.
+    This calibration allows for the conversion of depth images into point clouds'';
+    dataset page provides downloadable intrinsics files for all 4 cameras -- arXiv:2401.08553
+    and https://functional-manipulation-benchmark.github.io/dataset/index.html'
+  depth_coverage: 'Paper Sec. 3.5: ''We simultaneously capture RGB and depth images
+    from these cameras'' (all four); dataset page lists a *_depth array for every
+    one of the 4 camera keys (side_1_depth, side_2_depth, wrist_1_depth, wrist_2_depth)
+    -- full depth coverage across all views -- arXiv:2401.08553 and https://functional-manipulation-benchmark.github.io/dataset/index.html'
+  has_language_instruction: Dataset page 'Data Format' / HF dataset card 'Dataset
+    Structure' enumerate every key stored per trajectory (obs/*, action, primitive,
+    object_id/object_info) -- there is no natural-language instruction field; task/skill
+    is only identified via categorical primitive and object_info labels -- https://functional-manipulation-benchmark.github.io/dataset/index.html
+    and https://huggingface.co/datasets/charlesxu0124/functional-manipulation-benchmark
+  num_task_types: 'Paper explicitly names two top-level tasks: Sec. 3.3 ''Single-Object
+    Multi-Stage Manipulation Tasks'' and Sec. 3.4 ''Multi-Object Multi-Stage Manipulation
+    Tasks''; homepage ''Dataset Overview'' likewise presents exactly these two tasks
+    -- arXiv:2401.08553 and https://functional-manipulation-benchmark.github.io/'
+  urdf_available: 'robot_infra README: robot is a standard Franka Emika Panda (or
+    FR3) controlled via libfranka/franka_ros >= 0.8.0, the official Franka Emika ROS
+    stack which ships the manufacturer''s franka_description URDF/xacro package for
+    these arms -- https://github.com/rail-berkeley/fmb/blob/main/robot_infra/README.md'
+  urdf_source: 'Same as above: franka_ros/franka_description is the manufacturer (Franka
+    Emika)-maintained official package, not bundled directly in the FMB repo itself
+    (no .urdf/.xacro files found in rail-berkeley/fmb repo tree) -- https://github.com/rail-berkeley/fmb/blob/main/robot_infra/README.md'
+  expected_size_gb: 'Dataset page download links: Single-Object Multi-Stage Full Dataset
+    (545GB) + Multi-Object Assembly 1 (86GB) + Assembly 2 (77GB) + Assembly 3 (70GB)
+    = 778GB total -- https://functional-manipulation-benchmark.github.io/dataset/index.html'
+  expected_num_episodes: 'Paper Sec. 3.5 and Table 1: ''the 22,550 demonstration trajectories
+    that we collected and released as part of the benchmark'' (Table 1 subtotal column
+    also sums to 22,550); homepage and HF dataset card state the same figure -- arXiv:2401.08553
+    and https://functional-manipulation-benchmark.github.io/'
+suggested_new_enum_values:
+  camera_views: wrist -- FMB mounts two of its four cameras directly on the single
+    Franka arm's end-effector (obs/wrist_1, obs/wrist_2 in the dataset page's Data
+    Format section). The existing enum only offers left_wrist/right_wrist, which presume
+    a bimanual robot with per-arm wrist cameras; for this single-arm robot there is
+    no left/right arm distinction, so a generic 'wrist' value would be more accurate
+    than forcing left_wrist/right_wrist or the catch-all 'other'.

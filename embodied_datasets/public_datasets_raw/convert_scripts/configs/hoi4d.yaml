@@ -1,0 +1,68 @@
+id: hoi4d
+name: HOI4D
+source_url: https://hoi4d.github.io/
+license: CC-BY-NC-4.0
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: egocentric_human
+secondary_collection_methods: []
+embodiment_class: human_hand
+gripper_type: none
+rotation_representation: axis_angle
+fps: 15.0
+fps_variable: false
+num_camera_views: 1
+camera_views:
+- head
+has_camera_calibration: true
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 54
+urdf_available: false
+urdf_source: not_found
+expected_num_episodes: 4000
+review_status: pending_human_review
+field_sources:
+  license: 'https://hoi4d.github.io/ (footer: ''HOI4D is licensed under CC BY-NC 4.0'')'
+  raw_format: 'https://github.com/leolyliu/HOI4D-Instructions README ''Data Organization''
+    section: custom per-sequence folder tree of align_rgb/image.mp4, align_depth/depth_video.avi,
+    objpose/*.json, action/color.json, 3Dseg/*.pcd, 2Dseg/mask (not RLDS/HDF5/LeRobot)'
+  collection_method: 'HOI4D CVPR2022 paper (arXiv:2203.01577) Sec 3.1 ''Hardware Setup
+    and Data Collection'': participants wear a head-mounted helmet rig (Kinect v2
+    + Intel RealSense D455 RGB-D sensors) while performing tasks egocentrically; no
+    robot involved'
+  embodiment_class: 'HOI4D paper Sec 3.4 ''Hand Pose Annotation'': 3D hand pose annotated
+    via MANO parametric hand model from RGB-D frames of human participants; no robot
+    arm/gripper present'
+  gripper_type: Inferred from paper Sec 3.4 (MANO bare-hand model) and Sec 3.1 (human
+    participants, no robot/gripper hardware) -- interaction is via bare human hand
+  fps: 'HOI4D paper Sec 4 ''Dataset Statistics'': ''Each video is captured at 15fps
+    for 20 seconds. As a result, HOI4D contains 2.4M frames in total.'''
+  fps_variable: Same as fps source -- fixed 15fps capture rate stated for all videos,
+    no mention of variable frame rate
+  num_camera_views: 'HOI4D paper Fig. 2 / Sec 3.1: single head-mounted egocentric
+    viewpoint (two RGB-D sensor models -- Kinect v2 and RealSense D455 -- are used
+    across the dataset, but each captures the same single egocentric head viewpoint)'
+  camera_views: 'HOI4D paper Sec 3.1 Fig. 2: ''we build up a simple head-mounted data
+    capturing suite consists of a bicycle helmet, a Kinect v2 RGB-D sensor, and an
+    Intel RealSense D455 RGB-D sensor'''
+  has_camera_calibration: 'HOI4D paper Sec 3.1: ''Two RGB-D sensors are pre-calibrated
+    and synchronized before the data capturing process''; project page also provides
+    a ''Camera Parameters'' download'
+  depth_coverage: 'HOI4D paper abstract: ''HOI4D consists of 2.4M RGB-D egocentric
+    video frames'' -- RGB-D captured for every frame'
+  has_language_instruction: 'https://github.com/leolyliu/HOI4D-Instructions definitions/task/task_definitions.csv:
+    54 short natural-language task descriptions (e.g. ''Put it in the drawer'', ''Pour
+    water into a mug'') mapped per-sequence via the Task ID (T*) in the folder path'
+  num_task_types: 'HOI4D paper Sec 4 ''Dataset Statistics'': ''We have defined 54
+    tasks across all 16 categories'''
+  rotation_representation: 'https://github.com/leolyliu/HOI4D-Instructions README
+    ''Human Hand Pose'' section / paper Sec 3.4: hand pose poseCoeff = 3 global rotation
+    + 45 MANO pose parameters, i.e. axis-angle (rotation vector) representation'
+  urdf_available: No robot is present in HOI4D (egocentric human-hand dataset); only
+    human MANO hand model and scanned object CAD meshes are provided, no robot URDF
+  urdf_source: Same as urdf_available -- no robot / no URDF exists for this dataset
+  expected_num_episodes: 'HOI4D paper abstract: ''HOI4D consists of ... 4000 sequences
+    collected by 9 participants'''
+suggested_new_enum_values: {}

@@ -1,6 +1,119 @@
 id: umi_datasets
 name: UMI datasets
-camera_views: []
+source_url: https://umi-gripper.github.io
+license: MIT
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: umi
+secondary_collection_methods: []
+embodiment_class: single_arm
+robot_platform: other
+num_arms: 1
+gripper_type: parallel_jaw
+has_mobile_base: false
+action_space: eef_pose
+rotation_representation: rotation_6d
+state_dim: 10
+action_dim: 10
+fps: 59.94
+fps_variable: true
+num_camera_views: 1
+camera_views:
+- other
+has_camera_calibration: true
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: false
+num_task_types: 4
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 18.0
+expected_num_episodes: 1400
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: https://umi-gripper.github.io (official UMI project page linked from
+    paper and GitHub README; original stub had no source_url)
+  license: 'https://github.com/real-stanford/universal_manipulation_interface README.md,
+    section ''License'': ''This repository is released under the MIT license.'''
+  raw_format: 'https://github.com/real-stanford/universal_manipulation_interface README.md:
+    processed data is distributed as ''dataset.zarr.zip'' (Zarr store), which is not
+    one of RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord, hence classified as Custom.'
+  collection_method: 'arXiv:2402.10329 abstract and Sec III.A: UMI employs hand-held
+    grippers as the sole data collection interface (dedicated ''umi'' collection method).'
+  embodiment_class: 'arXiv:2402.10329 Sec V-A and Fig 8(c): the publicly released
+    ''cup_in_the_wild'' zarr dataset and its primary Diffusion Policy task config
+    (diffusion_policy/config/task/umi.yaml) are single-arm (one camera0_rgb / one
+    robot0_eef_pos stream); paper Fig 1 and README note UMI additionally supports
+    bimanual (2-arm) tasks in other experiments.'
+  robot_platform: 'arXiv:2402.10329 Fig 8(c) (''Ours (Franka)'', ''Ours (UR5e)'')
+    and GitHub README (''Setup UR5 with teach pendant'', ''If you are using Franka...'',
+    ARX X5 via umi-arx repo): policies are deployed across multiple robot arms (UR5/UR5e,
+    Franka Panda, ARX X5), not one fixed platform.'
+  num_arms: 'arXiv:2402.10329 Sec V-A (cup arrangement/dish-washing/tossing experiments
+    are single-arm); README: ''our system supports up to 2 arms'' for bimanual tasks
+    such as cloth folding.'
+  gripper_type: 'arXiv:2402.10329 Sec III.A: ''a trigger-activated, handheld 3D printed
+    parallel jaw gripper with soft fingers''; GitHub README deployment setup uses
+    a WSG50 parallel-jaw gripper.'
+  has_mobile_base: 'arXiv:2402.10329 Sec III (PD2.2) and Fig 10(a): deployment robots
+    are stationary arms (base can be manually repositioned between episodes, but the
+    system is not a mobile-base robot).'
+  action_space: 'arXiv:2402.10329 Sec III.B / Fig 5: ''UMI policy takes in a sequence
+    of synchronized observations ... and outputs a sequence of desired relative EE
+    pose and gripper width as action.'''
+  rotation_representation: 'GitHub real-stanford/universal_manipulation_interface
+    diffusion_policy/config/task/umi.yaml: action and robot0_eef_rot_axis_angle both
+    specify ''rotation_rep: rotation_6d''.'
+  state_dim: 'GitHub diffusion_policy/config/task/umi.yaml shape_meta.obs: robot0_eef_pos
+    shape [3] + robot0_eef_rot_axis_angle shape [6] (rotation_6d) + robot0_gripper_width
+    shape [1] = 10.'
+  action_dim: 'GitHub diffusion_policy/config/task/umi.yaml shape_meta.action: shape
+    [10], rotation_rep rotation_6d (3 position + 6 rotation + 1 gripper width).'
+  fps: 'GitHub diffusion_policy/config/task/umi.yaml: ''dataset_frequeny: 0 #59.94''
+    (GoPro native capture rate ~59.94 fps).'
+  fps_variable: 'arXiv:2402.10329 Fig 5(a): camera/gripper/robot observation streams
+    are captured at different native rates (e.g. ~10Hz downsampled camera, 30Hz gripper,
+    125Hz robot) and camera obs are ''temporally down-sampled ... to the desired frequency
+    (often 10-20Hz)'', which itself varies by task''s obs_down_sample_steps config.'
+  num_camera_views: 'arXiv:2402.10329 Sec III.A: ''mounted with a GoPro camera as
+    the only sensor and recording device'' (one wrist-mounted camera per gripper).'
+  camera_views: 'arXiv:2402.10329 Sec III.A / Fig 2: single wrist-mounted GoPro on
+    the gripper; no third-person/head/top camera is used. Mapped to ''other'' since
+    the enum has no side-agnostic generic wrist-camera option (see suggested_new_enum_values).'
+  has_camera_calibration: 'GitHub repo: example/calibration/gopro_intrinsics_2_7k.json
+    (GoPro intrinsics) and scripts/calibrate_uvc_camera_latency.py, scripts/calibrate_slam_tag.py,
+    scripts_slam_pipeline/05_run_calibrations.py.'
+  depth_coverage: 'arXiv:2402.10329 Sec III.A (HD3): depth is only implicitly inferred
+    via side mirrors + monocular SLAM (''implicit stereo''); no explicit depth channel
+    is recorded, only RGB video from a single GoPro.'
+  has_language_instruction: GitHub diffusion_policy/config/task/umi.yaml shape_meta.obs
+    lists only camera0_rgb / robot0_eef_pos / robot0_eef_rot_axis_angle / robot0_gripper_width;
+    no language/instruction field is present in the dataset schema.
+  num_task_types: 'arXiv:2402.10329 Sec V Capability Experiments: 4 tasks studied
+    (Cup Arrangement, Dynamic Tossing, Bimanual Cloth Folding, Dish Washing).'
+  urdf_available: 'https://github.com/real-stanford/universal_manipulation_interface
+    repo tree: no URDF exists for the UMI gripper hardware itself; the only *.urdf
+    files in the repo belong to unrelated legacy simulation assets (diffusion_policy/env/block_pushing,
+    kitchen sim).'
+  urdf_source: 'Same as urdf_available: no UMI-gripper URDF found in the dataset/GitHub
+    repo.'
+  expected_size_gb: 'curl HEAD on https://real.stanford.edu/umi/data/zarr_datasets/cup_in_the_wild.zarr.zip
+    reports Content-Length: 17989829476 bytes (~18.0 GB), the publicly released processed
+    in-the-wild cup-arrangement dataset.'
+  expected_num_episodes: 'arXiv:2402.10329 Sec VI (In-the-Wild Generalization Experiments):
+    ''Within 12 person-hours, 3 demonstrators collected 1400 demonstrations for the
+    cup arrangement task across 30 diverse physical locations.'' This is the dataset
+    released as cup_in_the_wild.zarr.zip.'
+suggested_new_enum_values:
+  action_frame: '''relative_trajectory'' -- arXiv:2402.10329 Fig 6 explicitly distinguishes
+    UMI''s action representation from both ''delta'' and ''absolute'': ''Relative
+    trajectory, used by UMI, is a sequence of end-effector (EE) poses relative to
+    the SAME current EE pose for each inference step. In contrast, Delta action represents
+    each action step relative to its immediate previous action, therefore accumulates
+    error.'' Forcing this into ''delta'' would misrepresent a design point the paper
+    treats as a key contribution, so the field is left blank instead.'
+  camera_views: '''wrist'' (generic, side-agnostic) -- UMI''s core hardware design
+    uses exactly one wrist-mounted GoPro per gripper (arXiv:2402.10329 Sec III.A,
+    Fig 2), which for a single-gripper/single-arm task is neither inherently ''left_wrist''
+    nor ''right_wrist''. The current enum forces a left/right choice that doesn''t
+    apply until a second (bimanual) gripper is added.'

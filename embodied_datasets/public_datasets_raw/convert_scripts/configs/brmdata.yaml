@@ -1,6 +1,107 @@
 id: brmdata
 name: BRMData
-camera_views: []
+source_url: https://embodiedrobot.github.io/
+license: MIT
+raw_format: HDF5
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: mobile_manipulator
+robot_platform: arx5
+num_arms: 2
+dof_per_arm: 7
+gripper_type: parallel_jaw
+has_mobile_base: true
+action_space: joint_position
+action_frame: absolute
+rotation_representation: none
+state_dim: 14
+action_dim: 14
+fps: 60.0
+fps_variable: true
+num_camera_views: 3
+camera_views:
+- third_person
+- left_wrist
+- right_wrist
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: false
+num_task_types: 10
+expected_num_episodes: 500
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: Stub had no usable source_url; corrected to official project homepage
+    https://embodiedrobot.github.io/ (linked from arXiv abstract https://arxiv.org/abs/2405.18860
+    and GitHub repo https://github.com/Louis-ZhangLe/BRMData)
+  license: GitHub README https://raw.githubusercontent.com/Louis-ZhangLe/BRMData/main/README.md
+    ('The BRMData datasets are both licensed under MIT License') and paper Appendix
+    A (Licensing)
+  raw_format: GitHub source https://github.com/Louis-ZhangLe/BRMData/blob/main/collect_data/collect_data.py
+    uses `import h5py` and writes `dataset_path + '.hdf5'`; paper Appendix C 'Data
+    Formats' shows the per-episode observation/action schema matching this HDF5 layout
+  collection_method: 'Paper arXiv:2405.18860 Section 3.1 ''Data Collection Setup'':
+    Leader-1/Leader-2 arms are ''designated for teleoperation by human experts'',
+    with actions synchronously replicated to Follower-1/Follower-2 arms; each task
+    performed by three human experts'
+  embodiment_class: 'Paper Section 3.1: platform has two follower manipulation arms
+    (Follower-1, Follower-2) mounted on an AGV with a two-wheel differential Tracer
+    mobile base -> bimanual arms + mobile base'
+  robot_platform: 'Paper Section 3.1: ''the data collection hardware platform for
+    BRMData comprises 4 ARX-5 robot arms, each equipped with 7 joints and a parallel
+    gripper'''
+  num_arms: 'Paper Section 3.1: Follower-1 and Follower-2 are the two manipulation
+    (follower) arms performing tasks; Leader-1/Leader-2 are teleop input arms, not
+    counted as manipulation arms'
+  dof_per_arm: Paper Section 3.1 ('each equipped with 7 joints') and Appendix C data
+    schema where qpos/action are 14-dim, split 7 per arm (indices 0-7 left arm, 7-14
+    right arm)
+  gripper_type: 'Paper Section 3.1: arms ''equipped with 7 joints and a parallel gripper'''
+  has_mobile_base: 'Paper Section 3.1: ''The platform includes an automated guided
+    vehicle equipped with a two-wheel differential Tracer mobile base for providing
+    essential mobility.'' Also Table 1 lists Garbage Recycle / High Five as ''Movable''
+    mobile-manipulation tasks, and Appendix C schema includes a base_action(2) field'
+  action_space: 'Paper Appendix C ''Data Formats'': dataset records ''joint positions
+    and efforts for 14 joints'' with qpos/action arrays of shape (14,), i.e. joint-space
+    control'
+  action_frame: 'Paper Appendix C schema: action array holds target joint positions
+    (qpos-like), consistent with ALOHA/ACT-style absolute joint-position targets rather
+    than deltas'
+  rotation_representation: 'Paper Appendix C: state/action are joint positions (qpos,
+    14-dim), not end-effector Cartesian poses, so no explicit rotation representation
+    is used'
+  state_dim: 'Paper Appendix C ''Data Formats'' code listing: qpos shape (14,) # 0-7:left
+    arm, 7-14: right arm'
+  action_dim: 'Paper Appendix C ''Data Formats'' code listing: action shape (14,)
+    # 0-7:left arm, 7-14: right arm (a separate base_action(2) exists for the mobile
+    base and is not counted here)'
+  fps: 'Paper Section 3.2.3 ''Cross-Sensor'': for most manipulation tasks, Intel Realsense
+    D435 cameras capture data at 60Hz; only Bottle Pick and Bottle Handoff use Orbbec
+    Dabai cameras at 30Hz'
+  fps_variable: 'Paper Section 3.2.3: two different camera frequencies are used across
+    tasks (30Hz for Bottle Pick/Bottle Handoff via Orbbec Dabai, 60Hz for the rest
+    via Realsense D435)'
+  num_camera_views: 'Paper Appendix C schema lists three camera keys: cam_high, cam_left_wrist,
+    cam_right_wrist (each with RGB and matching depth image)'
+  camera_views: 'Paper Section 3.1/Figure 3 and Appendix C: cam_high = centrally mounted
+    fixed ''middle'' camera (third_person), cam_left_wrist and cam_right_wrist = wrist-mounted
+    RGBD cameras on the left/right follower arms'
+  has_language_instruction: Paper Appendix C 'Data Formats' JSON schema only lists
+    images/images_depth/qpos/qvel/effort/action/base_action per episode step; no language/instruction
+    field is present in the released data format
+  depth_coverage: 'Paper Appendix C schema: images_depth is provided for all three
+    cameras (cam_high, cam_left_wrist, cam_right_wrist), matching the RGB views 1:1'
+  num_task_types: 'Paper Table 1 ''Key attribute analysis of robot manipulation tasks
+    across BRMData'' lists exactly 10 tasks: Bottle Pick, Single Fruit Pick, Plate
+    Place, Fruit Handover, Bottle Handoff, Cup Place, Multi Fruit Pick, Wine Wipe,
+    Garbage Recycle, High Five'
+  expected_num_episodes: 'Paper Section 3.1 ''Data Collection Protocol'': ''each manipulation
+    task within the dataset includes the collection of 50 action trajectories'' across
+    the 10 tasks in Table 1 (50 x 10 = 500); note project homepage https://embodiedrobot.github.io/
+    mentions a 2024/08 update adding 5 further tasks not covered by this count'
+suggested_new_enum_values:
+  robot_platform_mobile_base: 'The Tracer AGV two-wheel differential mobile base (from
+    AgileX) underlying the platform has no dedicated enum value; ''robot_platform:
+    arx5'' only captures the manipulator arms, not the mobile base component. Consider
+    adding an ''agilex_tracer'' or generic ''mobile_base'' enum value if the schema
+    wants to separately capture base hardware.'

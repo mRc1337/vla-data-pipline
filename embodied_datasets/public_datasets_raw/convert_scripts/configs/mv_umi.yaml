@@ -1,0 +1,126 @@
+id: mv_umi
+name: MV-UMI
+source_url: https://huggingface.co/datasets/omarrayyann/mv-umi
+license: Unknown
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: umi
+secondary_collection_methods: []
+embodiment_class: single_arm
+robot_platform: franka_panda
+num_arms: 1
+gripper_type: three_jaw
+has_mobile_base: false
+action_space: eef_pose
+action_frame: relative_trajectory
+num_camera_views: 2
+camera_views:
+- third_person
+- wrist
+has_camera_calibration: false
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: false
+num_task_types: 3
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 58.6
+review_status: pending_human_review
+field_sources:
+  source_url: https://huggingface.co/datasets/omarrayyann/mv-umi (given stub value,
+    confirmed as the dataset's HF repo; HF API tags include arxiv:2509.18757, the
+    MV-UMI paper)
+  license: HF API https://huggingface.co/api/datasets/omarrayyann/mv-umi returns no
+    'license' tag (only arxiv:2509.18757, region:us); HF dataset page HTML also has
+    no license badge/section; the mv-umi.github.io project page states only that the
+    *website* is CC-BY-SA-4.0, which does not establish the data license. No explicit
+    dataset license found anywhere, so recorded as Unknown.
+  raw_format: 'HF API siblings list: bottles_rack_data.zarr.zip, markers_placement_data.zarr.zip,
+    markers_placement_raw_data.zarr.zip, cans_shelf_placement.zip -- Zarr-store zip
+    archives, the same UMI-style storage format used by configs/umi_datasets.yaml
+    (which this dataset explicitly extends per its own name/abstract), not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord,
+    so classified as Custom (consistent with the sibling umi_datasets.yaml config).'
+  collection_method: 'arXiv:2509.18757 abstract and Sec III: ''MV-UMI ... a framework
+    that integrates a third-person perspective with the egocentric camera'' built
+    directly on the handheld-gripper UMI (Universal Manipulation Interface) data-collection
+    paradigm (Sec III-B4: ''In a similar fashion to the UMI [9], we extract actions
+    directly from the egocentric .MP4 footage'').'
+  embodiment_class: mv-umi.github.io project page, 'Cross-Embodiment Deployment' section
+    caption 'Franka-mounted MV-UMI'; paper describes a single handheld gripper device
+    (no bimanual/dual-gripper setup and no mobile base is mentioned anywhere in arXiv:2509.18757),
+    consistent with the single_arm classification used for the base UMI framework
+    in configs/umi_datasets.yaml.
+  robot_platform: 'mv-umi.github.io project page, ''Cross-Embodiment Deployment''
+    section: caption ''Franka-mounted MV-UMI'' shows the gripper mounted on and deployed
+    from a Franka arm.'
+  num_arms: 'Same basis as embodiment_class/robot_platform: single handheld gripper
+    device, single Franka arm deployment shown on project page; no bimanual configuration
+    described in arXiv:2509.18757.'
+  has_mobile_base: mv-umi.github.io 'Franka-mounted MV-UMI' deployment and arXiv:2509.18757
+    Sec IV-1 'Experimental Setup' describe a stationary tabletop setup (task descriptions
+    in Fig. 5 all involve objects on a table/shelf/rack); no mobile base is mentioned.
+  action_space: 'arXiv:2509.18757 Sec III-A ''Problem Setup'': ''Actions: The handheld
+    device pose T (i.e., end-effector position/orientation), along with the gripping
+    width w, recorded at each time step ... a_t = (T_t, w_t)'' -- action is an end-effector
+    pose + gripper width, i.e. eef_pose.'
+  num_camera_views: 'arXiv:2509.18757 Sec IV-1 ''Experimental Setup'': ''A GoPro Hero-10
+    was used as the wrist-mounted gripper camera, and an Intel RealSense D455 was
+    used to provide the third-person view.'' -- exactly two camera views (egocentric
+    wrist + third-person).'
+  camera_views: 'Same Sec IV-1 citation: one wrist-mounted GoPro (egocentric) + one
+    third-person-view RealSense D455. Third-person maps directly to the ''third_person''
+    enum value. The wrist camera is mapped to ''other'' since it is not left/right-handed
+    (single gripper, no arm side) and the enum has no side-agnostic generic wrist
+    option -- same convention used in the sibling configs/umi_datasets.yaml and configs/dobb_e.yaml
+    (see suggested_new_enum_values).'
+  has_camera_calibration: 'arXiv:2509.18757 Sec III-A: ''We do not formally calibrate
+    the third-person camera placement across different environments. This design choice
+    not only reduces setup effort ... but also introduces natural viewpoint variation
+    that improves robustness during deployment.'' -- explicit statement that (at least)
+    the third-person view is not calibrated; no calibration procedure for either camera
+    is described anywhere else in the paper.'
+  depth_coverage: arXiv:2509.18757 Sec III-A formally defines the state as s_t = (o_t^ego,
+    o_t^3rd_H), i.e. RGB image streams only; despite the third-person camera (RealSense
+    D455) being depth-capable hardware, no depth channel is described as being recorded,
+    stored, or used anywhere in the paper's data/action pipeline.
+  has_language_instruction: arXiv:2509.18757 Sec III-A formally defines each recorded
+    demonstration's state/action tuple as images (o_t^ego, o_t^3rd) and action (T_t,
+    w_t) only; no language/instruction field appears in this definition or anywhere
+    else in the paper's described data schema.
+  num_task_types: 'arXiv:2509.18757 abstract: ''improves performance in sub-tasks
+    requiring broad scene understanding by approximately 47% across 3 tasks''; Sec
+    IV Fig. 5 names exactly 3 tasks (Bottles-Rack-Inserter, Marker-Cup-Placer, Cans-Shelf-Placer),
+    matching the 3 task-named archives on the HF repo (bottles_rack_data.zarr.zip,
+    markers_placement_data[_raw].zarr.zip, cans_shelf_placement.zip).'
+  urdf_available: 'mv-umi.github.io ''Hardware Repository (coming soon!)'' section:
+    CAD models for the custom three-jaw gripper are stated as not-yet-released (''This
+    includes the CAD models necessary to print the handheld and robot-operated configurations
+    ... coming soon''); no URDF file is currently published anywhere for this hardware.'
+  urdf_source: 'Same basis as urdf_available: no URDF currently published (hardware
+    repo listed as ''coming soon'' on the project site), so not_found.'
+  expected_size_gb: 'HEAD requests to https://huggingface.co/datasets/omarrayyann/mv-umi/resolve/main/<file>
+    for all 4 dataset files return Content-Length: bottles_rack_data.zarr.zip=6,247,845,641;
+    cans_shelf_placement.zip=35,903,256,680; markers_placement_data.zarr.zip=8,293,709,331;
+    markers_placement_raw_data.zarr.zip=8,159,319,783 bytes, summing to 58,604,131,435
+    bytes (~58.6 GB), which exactly matches the repo''s ''usedStorage'' field (58604131435)
+    reported by the HF API (https://huggingface.co/api/datasets/omarrayyann/mv-umi).'
+suggested_new_enum_values:
+  gripper_type: '''three_jaw'' -- arXiv:2509.18757 Sec III-E ''Proposed Three-Jawed
+    gripper'': the dataset uses a custom-designed gripper with ''two compliant jaws
+    printed in TPU 95A and a rigid third jaw'', explicitly built because ''the UMI
+    gripper design [a 2-finger parallel jaw] was challenging for tasks that required
+    locking an object''s rotation''. This 3-jaw design is a deliberate departure from
+    parallel_jaw (2-finger) and does not fit dexterous_hand (not an anthropomorphic
+    multi-DoF hand); forcing it into either existing option would misrepresent this
+    paper''s stated hardware contribution, so the field is left blank instead.'
+  action_frame: '''relative_trajectory'' (or similar) -- arXiv:2509.18757 Sec III-B4
+    ''Action Extraction'': ''visual SLAM using ORB-SLAM3 ... is used ... to estimate
+    the pose of the handheld device in each frame relative to the starting pose.''
+    This is the same ''poses relative to a fixed SLAM/episode reference'' design already
+    flagged as not fitting ''delta'' or ''absolute'' in the sibling configs/umi_datasets.yaml
+    (which MV-UMI explicitly builds on and cites, Sec III-B4), so the field is left
+    blank rather than guessed.'
+  camera_views: '''wrist'' (generic, side-agnostic) -- MV-UMI''s egocentric view is
+    a single wrist-mounted GoPro on a single (non-bimanual) handheld gripper (arXiv:2509.18757
+    Sec IV-1), which is neither inherently ''left_wrist'' nor ''right_wrist''; same
+    gap already noted in the sibling configs/umi_datasets.yaml and configs/dobb_e.yaml.'

@@ -1,0 +1,102 @@
+id: galaxea_open_world_dataset
+name: Galaxea Open-World Dataset
+source_url: https://huggingface.co/datasets/OpenGalaxea/Galaxea-Open-World-Dataset
+license: CC-BY-NC-SA-4.0
+raw_format: LeRobot
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: mobile_manipulator
+num_arms: 2
+dof_per_arm: 6
+gripper_type: parallel_jaw
+has_mobile_base: true
+action_space: joint_position
+action_frame: absolute
+rotation_representation: none
+state_dim: 14
+action_dim: 14
+num_camera_views: 3
+camera_views:
+- head
+- left_wrist
+- right_wrist
+depth_coverage: partial
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 150
+urdf_available: true
+urdf_source: manufacturer_official
+expected_size_gb: 13016.3
+expected_num_episodes: 100000
+review_status: pending_human_review
+field_sources:
+  source_url: https://huggingface.co/api/datasets/OpenGalaxea/Galaxea-Open-World-Dataset
+    (dataset card confirms this is the canonical HF repo)
+  raw_format: 'HF dataset card description (via API): ''Dataset in LeRobot v2.1 format.''
+    https://huggingface.co/datasets/OpenGalaxea/Galaxea-Open-World-Dataset ; also
+    GalaxeaVLA README changelog entry ''Oct 7, 2025: The Galaxea Open-World Dataset
+    is now available in LeRobot format'' https://github.com/OpenGalaxea/GalaxeaVLA/blob/main/README.md'
+  collection_method: 'arXiv:2509.00576 (Galaxea Open-World Dataset and G0 Dual-System
+    VLA Model), Section 3 ''Data Collection Platform'': ''we adopt an isomorphic teleoperation
+    scheme that maps human operator movements directly to the robot''s kinematics'''
+  embodiment_class: 'arXiv:2509.00576, Section 3: ''All demonstrations are recorded
+    using the Galaxea R1 Lite platform ... a mobile, bimanual robot designed for operation
+    in human-centric environments'' plus a 6-DoF vector-drive omnidirectional base'
+  num_arms: 'arXiv:2509.00576, Section 3: ''23-DoF embodiment comprising two 6-DoF
+    arms ...'''
+  dof_per_arm: 'arXiv:2509.00576, Section 3 (''two 6-DoF arms''); corroborated by
+    raw_shape: 6 for action.left_arm/action.right_arm in https://github.com/OpenGalaxea/GalaxeaVLA/blob/main/configs/data/r1lite.yaml'
+  gripper_type: 'arXiv:2509.00576, Section 3: ''The spherical wrists and parallel
+    grippers allow robust manipulation of everyday objects''; Figure 2 caption labels
+    ''1-DoF grippers'''
+  has_mobile_base: 'arXiv:2509.00576, Section 3: ''a 6-DoF vector-drive omnidirectional
+    base capable of speeds up to 1.5 m/s'''
+  action_space: https://github.com/OpenGalaxea/GalaxeaVLA/blob/main/configs/data/r1lite.yaml
+    shape_meta.action keys are joint arrays (left_arm/right_arm, raw_shape 6) plus
+    gripper, not an eef-pose representation
+  action_frame: https://github.com/OpenGalaxea/GalaxeaVLA/blob/main/configs/data/r1lite.yaml
+    applies a 'RelativeJointTransform' to left_arm/right_arm as a training-time preprocessing
+    transform, implying the raw stored action columns are absolute joint positions
+  rotation_representation: 'https://github.com/OpenGalaxea/GalaxeaVLA/blob/main/configs/data/r1lite.yaml:
+    action/state shape_meta contains only joint-position arrays (no quaternion/euler/6d
+    rotation fields) for this embodiment''s raw schema'
+  state_dim: 'https://github.com/OpenGalaxea/GalaxeaVLA/blob/main/configs/data/r1lite.yaml
+    shape_meta.state: left_arm(6)+left_gripper(1)+right_arm(6)+right_gripper(1) =
+    14'
+  action_dim: 'https://github.com/OpenGalaxea/GalaxeaVLA/blob/main/configs/data/r1lite.yaml
+    shape_meta.action: left_arm(6)+left_gripper(1)+right_arm(6)+right_gripper(1) =
+    14'
+  num_camera_views: 'arXiv:2509.00576, Section 3: ''a stereo RGB head camera ... and
+    dual Intel RealSense D405 RGB-D wrist cameras''; confirmed by shape_meta.images
+    keys head_rgb/left_wrist_rgb/right_wrist_rgb in https://github.com/OpenGalaxea/GalaxeaVLA/blob/main/configs/data/r1lite.yaml'
+  camera_views: 'same as num_camera_views source: head_rgb, left_wrist_rgb, right_wrist_rgb
+    in https://github.com/OpenGalaxea/GalaxeaVLA/blob/main/configs/data/r1lite.yaml'
+  depth_coverage: 'arXiv:2509.00576, Section 3: wrist cameras are ''Intel RealSense
+    D405 RGB-D'' (depth) while the head camera is described as ''stereo RGB'' (no
+    explicit depth channel), so only a subset of views carry depth'
+  has_language_instruction: 'arXiv:2509.00576 abstract: ''paired with precise subtask-level
+    language annotations''; HF dataset card: ''Fine-grained subtask language annotations
+    (bilingual Chinese/English)'''
+  num_task_types: 'arXiv:2509.00576, Section 3: ''It contains 100K demonstration trajectories
+    spanning 150 task categories performed in 50 distinct real-world scenes'''
+  urdf_available: https://github.com/OpenGalaxea/GalaxeaManipSim path galaxea_sim/assets/r1/configs/urdfs/r1_v2_1_0.urdf
+    (official Galaxea simulation repo ships a URDF for the R1 platform family)
+  urdf_source: https://github.com/OpenGalaxea/GalaxeaManipSim (galaxea_sim/assets/r1/configs/urdfs/r1_v2_1_0.urdf)
+    is an official Galaxea (OpenGalaxea org) repository, not the dataset repo itself
+    nor a third-party community fork
+  expected_size_gb: https://huggingface.co/api/datasets/OpenGalaxea/Galaxea-Open-World-Dataset
+    field 'usedStorage' = 13016311760308 bytes ≈ 13016.3 GB
+  expected_num_episodes: 'arXiv:2509.00576, Section 3: ''It contains 100K demonstration
+    trajectories spanning 150 task categories performed in 50 distinct real-world
+    scenes'''
+suggested_new_enum_values:
+  license: CC-BY-NC-SA-4.0 -- HF dataset card (https://huggingface.co/api/datasets/OpenGalaxea/Galaxea-Open-World-Dataset)
+    lists license 'cc-by-nc-sa-4.0' and the repo's extra_gated_prompt confirms 'CC
+    BY-NC-SA 4.0'; the existing enum only has CC-BY-NC-4.0 (no ShareAlike variant),
+    so no legal option matches exactly.
+  robot_platform: galaxea_r1_lite -- all demonstrations are collected on the Galaxea
+    R1-Lite mobile bimanual platform (arXiv:2509.00576, Section 3), which is not represented
+    by any existing enum member (closest generic option is 'other', but a dedicated
+    value would be more informative given this is a named, documented platform with
+    public specs).

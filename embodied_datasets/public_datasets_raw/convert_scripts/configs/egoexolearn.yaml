@@ -1,6 +1,96 @@
 id: egoexolearn
 name: EgoExoLearn
-camera_views: []
+source_url: https://egoexolearn.github.io/
+license: MIT
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: egocentric_human
+secondary_collection_methods: []
+embodiment_class: human_hand
+gripper_type: none
+fps: 25.0
+fps_variable: false
+camera_views:
+- head
+- third_person
+has_camera_calibration: false
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 8
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 142.0
+expected_num_episodes: 432
 review_status: pending_human_review
-field_sources: {}
+field_sources:
+  source_url: Stub's source_url field was empty; corrected to the official project
+    homepage https://egoexolearn.github.io/ (linked from the GitHub repo README badge
+    https://github.com/OpenGVLab/EgoExoLearn, verified HTTP 200)
+  license: 'https://github.com/OpenGVLab/EgoExoLearn/blob/main/LICENSE (MIT License,
+    code+data repo) and https://huggingface.co/datasets/hyf015/EgoExoLearn dataset
+    card metadata (license: mit tag) - no separate non-commercial/custom terms of
+    use were found on the HF card or GitHub repo'
+  raw_format: 'https://github.com/OpenGVLab/EgoExoLearn README (Data access section:
+    ''Videos (320p, mp4)'' via Google Drive/BaiduYun/HuggingFace) plus JSON/text annotation
+    files in ./annotations/ - custom directory of MP4 videos + JSON/CSV annotations
+    + .npy gaze arrays, not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord'
+  collection_method: arXiv:2403.16182 (HTML) Section 3.1 'Data collection procedure'
+    - participants wear Pupil Invisible Glasses (head-mounted egocentric camera) and
+    record themselves performing tasks while following pre-existing exocentric demonstration
+    videos; matches 'egocentric_human' directly
+  embodiment_class: arXiv:2403.16182 abstract and Section 3 - this is a human video
+    dataset (camera wearer's hands/body performing procedural tasks), not a robot;
+    no hand-pose/MANO/skeleton annotations are provided (checked and not found in
+    paper), so 'human_hand' is used as the closest available enum value, consistent
+    with how ego4d.yaml/ego_exo4d.yaml classify comparable egocentric-human datasets
+  gripper_type: Dataset captures bare human hands performing daily/lab tasks with
+    no mechanical end-effector and no hand-pose/MANO annotation pipeline (verified
+    absent from the paper); 'none' applies, consistent with ego4d.yaml/egoallo.yaml
+    precedent for human-only capture with no gripper hardware
+  fps: 'arXiv:2403.16182 (HTML) Section 3 preprocessing note: ''All videos are converted
+    to a constant frame rate of 25fps to ensure uniformity and consistency in our
+    dataset'''
+  fps_variable: Same source as fps - videos are explicitly normalized/converted to
+    a single constant frame rate (25fps) across the whole released dataset, so fps_variable
+    is false
+  camera_views: 'arXiv:2403.16182 Section 3.1 - egocentric videos are recorded via
+    a head-mounted Pupil Invisible Glasses camera (head); exocentric demonstration
+    videos are third-person videos (curated from YouTube for daily tasks, or filmed
+    by senior lab members for lab tasks) (third_person). Note: the two views are NOT
+    time-synchronized/simultaneous per the paper title ''Asynchronous Ego- and Exo-centric
+    View'''
+  has_camera_calibration: arXiv:2403.16182 Section 3.1/S7 - the only calibration described
+    is *gaze* calibration for the Pupil Invisible eye-tracker ('complete the gaze
+    calibration', 'redo the gaze calibration'); no camera intrinsics/extrinsics are
+    published, and exocentric demonstration videos are largely third-party YouTube
+    footage with no controlled camera setup, so has_camera_calibration is false
+  depth_coverage: 'No depth sensor or depth data is mentioned anywhere in arXiv:2403.16182
+    or the GitHub README (only RGB video + gaze + language annotations) - depth_coverage:
+    none'
+  has_language_instruction: arXiv:2403.16182 Section 3.2 'Annotation' - dataset provides
+    coarse-level (39 categories, 41.2 annotations/video avg) and fine-level (95 verb
+    / 254 noun categories) manually-annotated, timestamped natural-language descriptions
+    per video segment
+  num_task_types: arXiv:2403.16182 Section 3.1/S7.4 - 'Our dataset is collected for
+    5 types of daily tasks and three types of specialized laboratory tasks' and 'Table
+    LABEL:tab:tasks shows the names of the 8 tasks' (5 daily + 3 lab = 8 total task
+    types)
+  urdf_available: No robot hardware of any kind is used or described in this dataset
+    (purely human video + gaze + language) - arXiv:2403.16182, https://github.com/OpenGVLab/EgoExoLearn
+    - therefore no URDF exists
+  urdf_source: Same basis as urdf_available - no robot/URDF applicable to this human-video
+    dataset
+  expected_size_gb: 'https://huggingface.co/datasets/hyf015/EgoExoLearn (Files and
+    versions page, repo ''file size: 142 GB''); per the GitHub README this HuggingFace
+    mirror hosts the full-size original videos (''The original size videos can now
+    be found at the huggingface repo'')'
+  expected_num_episodes: 'arXiv:2403.16182 (HTML) Section 3.1: ''EgoExoLearn contains
+    432 egocentric videos totaling 96.5 hours and 315 demonstration videos spanning
+    23.5 hours.'' Used the 432 egocentric task-execution videos as the episode count
+    (each is one participant''s continuous attempt at performing a task); the dataset
+    additionally includes 315 separate exocentric reference/demonstration videos (curated
+    from YouTube or filmed by lab members) which are not counted as episodes since
+    they are reference material rather than task-execution recordings - a reviewer
+    may prefer the combined total of 747 videos instead'
 suggested_new_enum_values: {}

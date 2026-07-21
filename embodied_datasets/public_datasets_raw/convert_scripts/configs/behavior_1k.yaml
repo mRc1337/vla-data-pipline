@@ -1,6 +1,88 @@
 id: behavior_1k
 name: BEHAVIOR-1K
-camera_views: []
+source_url: https://behavior.stanford.edu/
+license: MIT
+raw_format: LeRobot
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: mobile_manipulator
+robot_platform: other
+num_arms: 2
+dof_per_arm: 7
+gripper_type: parallel_jaw
+has_mobile_base: true
+action_space: joint_position
+state_dim: 61
+action_dim: 23
+fps: 30.0
+fps_variable: false
+num_camera_views: 3
+camera_views:
+- head
+- left_wrist
+- right_wrist
+has_camera_calibration: true
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 100
+expected_size_gb: 3270.0
+expected_num_episodes: 20000
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: https://github.com/StanfordVL/BEHAVIOR-1K (official repo README; stub
+    had no usable source_url, corrected to project homepage/GitHub)
+  license: 'https://huggingface.co/datasets/behavior-1k/2026-challenge-demos (README:
+    ''license: mit'')'
+  raw_format: https://huggingface.co/datasets/behavior-1k/2026-challenge-demos/resolve/main/meta/info.json
+    (codebase_version v3.0, LeRobotDataset v3 layout); https://behavior.stanford.edu/challenge/dataset.html
+  collection_method: 'https://behavior.stanford.edu/challenge/index.html and docs/challenge/dataset.md:
+    ''20,000 human teleoperation demos'' collected with JoyLo whole-body teleoperation
+    interface'
+  embodiment_class: 'https://raw.githubusercontent.com/StanfordVL/BEHAVIOR-1K/main/docs/omnigibson/robots.md
+    (R1Pro: holonomic mobile base + bimanual arms) and docs/challenge/evaluation.md
+    (''default R1Pro robot'')'
+  robot_platform: same robots.md / evaluation.md sources; R1Pro is BEHAVIOR-1K's own
+    OmniGibson-native robot, not in the given enum list, so mapped to 'other' (see
+    suggested_new_enum_values)
+  num_arms: 'docs/omnigibson/robots.md R1Pro description: ''x2 6/7-DOF arm'' (R1Pro
+    variant uses 7-DOF arms)'
+  dof_per_arm: 'docs/omnigibson/robots.md: R1Pro composed of holonomic base, 4-DOF
+    torso, x2 7-DOF arm, x2 2-DOF parallel jaw grippers'
+  gripper_type: 'docs/omnigibson/robots.md: R1Pro ''2-DOF parallel jaw grippers'''
+  has_mobile_base: 'docs/omnigibson/robots.md: R1Pro has a holonomic (x,y,rz) mobile
+    base'
+  action_space: 'https://huggingface.co/datasets/behavior-1k/2026-challenge-demos/resolve/main/meta/info.json:
+    action shape [23] = base(3)+torso(4)+arms(2x7=14)+grippers(2), matching per-joint
+    control per docs/omnigibson/robots.md controller list (Base/Torso/Arm/Gripper
+    joint controllers)'
+  state_dim: 'meta/info.json: observation.state shape [61]'
+  action_dim: 'meta/info.json: action shape [23]'
+  fps: 'meta/info.json: ''fps'': 30'
+  fps_variable: 'meta/info.json: single fixed fps value (30) for all videos/features'
+  num_camera_views: 'meta/info.json: three camera streams (zed_link_camera_0 = head,
+    left_realsense_link_camera_0, right_realsense_link_camera_0 = wrists)'
+  camera_views: 'meta/info.json feature names: observation.rgb.zed_link_camera_0 (720x720,
+    head), observation.rgb.left_realsense_link_camera_0 / right_realsense_link_camera_0
+    (480x480, wrists); also docs/challenge/dataset.md resolution table'
+  has_camera_calibration: 'meta/info.json: observation.robot2cam_pose.<camera> (7-dim
+    pose) provided for every camera'
+  depth_coverage: 'docs/challenge/dataset.md: dataset includes RGB and Depth (depth_linear)
+    modalities for all camera views; meta/info.json has observation.depth_linear.*
+    for every camera'
+  has_language_instruction: 'docs/challenge/dataset.md: ''annotations'' folder contains
+    ''Language annotations for each episode'''
+  num_task_types: 'docs/challenge/dataset.md Dataset Statistics table: Total Tasks
+    = 100'
+  expected_size_gb: 'docs/challenge/dataset.md: ''2026-challenge-demos ... is 3.27
+    TB in total'' (LeRobot format release)'
+  expected_num_episodes: 'docs/challenge/dataset.md Dataset Statistics table: Total
+    Trajectories = 20,000'
+suggested_new_enum_values:
+  robot_platform: r1pro - BEHAVIOR-1K's default embodiment for its public demonstration
+    dataset (and the 2026 Challenge) is 'R1Pro', a custom bimanual (2x7-DOF arm),
+    holonomic-mobile-base manipulator native to OmniGibson/BEHAVIOR-1K. It does not
+    match any manufacturer-specific platform in the current enum, so 'other' was used
+    as a fallback; a dedicated 'r1pro' value would let this and future BEHAVIOR-1K-derived
+    configs be identified precisely.

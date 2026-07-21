@@ -1,0 +1,102 @@
+id: vitra
+name: VITRA
+source_url: https://microsoft.github.io/VITRA/
+license: MIT
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: egocentric_human
+secondary_collection_methods: []
+embodiment_class: human_hand
+num_arms: 2
+has_mobile_base: false
+action_space: mixed
+action_frame: absolute
+rotation_representation: euler_xyz
+state_dim: 122
+action_dim: 102
+fps_variable: true
+num_camera_views: 1
+camera_views:
+- head
+has_camera_calibration: true
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+expected_size_gb: 100.0
+expected_num_episodes: 1222918
+review_status: pending_human_review
+field_sources:
+  license: 'https://github.com/microsoft/VITRA (LICENSE.txt: MIT license) and https://huggingface.co/datasets/VITRA-VLA/VITRA-1M
+    dataset card (license: mit)'
+  raw_format: https://github.com/microsoft/VITRA/blob/main/data/data.md section 4
+    'Metadata Structure' -- episodes stored as individual .npy dict files (Custom
+    format; not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord)
+  collection_method: 'https://microsoft.github.io/VITRA/ abstract and https://github.com/microsoft/VITRA/blob/main/data/data.md
+    section 2 -- dataset is built from ''in-the-wild'' egocentric human videos (Ego4D,
+    Epic-Kitchens, EgoExo4D, Something-Something V2) with an automated hand-pose/segmentation
+    pipeline; hand motion is kept in human-hand (MANO) parameterization rather than
+    retargeted to a specific robot''s kinematics, so egocentric_human fits better
+    than human_to_robot_synthesis. (Note: a separate companion dataset, VITRA-TeleData,
+    contains real robot teleoperation data collected with a Realman 7-DoF arm + XHand
+    dexterous hand -- see https://github.com/microsoft/VITRA/blob/main/data/teleoperate_data.md
+    -- but this is not the primary ''VITRA'' dataset described at the source_url.)'
+  embodiment_class: https://microsoft.github.io/VITRA/ ('Treating human hand as dexterous
+    robot end-effector') and https://github.com/microsoft/VITRA/blob/main/data/data.md
+    section 4 (per-episode 'left'/'right' MANO hand pose dicts)
+  num_arms: https://github.com/microsoft/VITRA/blob/main/readme.md section 2 and https://github.com/microsoft/VITRA/blob/main/data/data.md
+    section 4 -- each episode records both left-hand and right-hand 3D pose/state
+    (masked per-hand validity), i.e. bimanual
+  has_mobile_base: Egocentric video capture via head-worn/handheld camera (Ego4D/Epic-Kitchens/EgoExo4D/SSv2
+    source videos); no mobile base involved, per https://github.com/microsoft/VITRA/blob/main/data/data.md
+  action_space: https://github.com/microsoft/VITRA/blob/main/readme.md section 2 and
+    3.2 -- state/action vectors combine wrist EEF pose (translation + global rotation)
+    with per-joint hand_pose angles, i.e. a mixed eef_pose + joint_position representation
+  action_frame: https://github.com/microsoft/VITRA/blob/main/data/data.md section
+    4 -- metadata stores 'transl_worldspace'/'transl_camspace' and 'global_orient_worldspace'/'global_orient_camspace'
+    as per-frame absolute poses (no delta fields defined)
+  rotation_representation: 'https://github.com/microsoft/VITRA/blob/main/readme.md
+    section 2 code comments: ''global_orient: Global rotation as Euler angles (xyz,
+    in radians)'' for the state/action vectors used by the released model; note the
+    raw per-episode metadata (data/data.md) stores hand rotations as 3x3 matrices
+    which are converted to Euler xyz for the documented state/action representation'
+  state_dim: 'https://github.com/microsoft/VITRA/blob/main/readme.md section 2 code
+    comments -- ''State vector structure (total dimension: 122)'': left hand [51]
+    + beta_left [10] + right hand [51] + beta_right [10]'
+  action_dim: https://github.com/microsoft/VITRA/blob/main/readme.md section 2 code
+    (`norm_action = norm_action[0, :,:102]`) -- unpadded human action is 102-dim (51
+    per hand x 2, no beta/shape params)
+  fps_variable: https://github.com/microsoft/VITRA/blob/main/data/data.md section
+    2 -- source videos are drawn from four heterogeneous datasets (Ego4D, Epic-Kitchens,
+    EgoExo4D, Something-Something V2) with different native camera hardware/capture
+    rates; exact fps not stated by VITRA docs so fps left blank
+  num_camera_views: https://github.com/microsoft/VITRA/blob/main/data/data.md -- each
+    episode metadata carries a single 'intrinsics'/'extrinsics' camera trajectory
+    (one egocentric camera per episode)
+  camera_views: Source videos are egocentric (head-worn/body-worn) footage from Ego4D,
+    Epic-Kitchens, EgoExo4D (ego stream), and Something-Something V2, per https://github.com/microsoft/VITRA/blob/main/data/data.md
+    section 2
+  has_camera_calibration: https://github.com/microsoft/VITRA/blob/main/data/data.md
+    sections 3-4 -- per-episode 'extrinsics' (Tx4x4) and 'intrinsics' (3x3) provided,
+    plus a downloadable camera_intrinsics_root for Ego4D/EgoExo4D
+  depth_coverage: No depth modality is listed anywhere in the VITRA metadata schema
+    (https://github.com/microsoft/VITRA/blob/main/data/data.md section 4) or dataset
+    card
+  has_language_instruction: https://github.com/microsoft/VITRA/blob/main/data/data.md
+    section 4 ('text', 'text_rephrase' per-hand language description fields) and https://microsoft.github.io/VITRA/
+    example captions (e.g. 'Pick up the wooden sticks')
+  expected_size_gb: 'https://github.com/microsoft/VITRA/blob/main/data/data.md section
+    2: ''The total size of all metadata is approximately 100 GB.'' (metadata/annotations
+    only -- raw source videos must be obtained separately from Ego4D/Epic-Kitchens/EgoExo4D/SSv2
+    due to licensing and are not included in this figure)'
+  expected_num_episodes: 'https://github.com/microsoft/VITRA/blob/main/readme.md section
+    ''Pretrained Models and Datesets'' table: ego4d_cooking_and_cleaning 454,244 +
+    ego4d_other 494,439 + epic 154,464 + egoexo4d 67,053 + ssv2 52,718 = Total 1,222,918
+    episodes'
+suggested_new_enum_values:
+  robot_platform: VITRA's companion fine-tuning dataset (VITRA-TeleData, https://github.com/microsoft/VITRA/blob/main/data/teleoperate_data.md)
+    uses a 'Realman Arm' (7-DoF, URDF at https://github.com/RealManRobot/rm_models/tree/main/RM75/urdf/RM75-6F)
+    fitted with an 'XHand' 12-DoF dexterous hand. Neither the Realman arm nor XHand
+    appears in the current RobotPlatform enum. Not applied to this config since the
+    primary VITRA dataset (VITRA-1M, this entry) is egocentric human-hand data with
+    no specific target robot; this would be relevant if VITRA-TeleData is onboarded
+    as its own dataset entry.

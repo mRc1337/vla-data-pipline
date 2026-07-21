@@ -1,0 +1,88 @@
+id: dexmimicgen
+name: DexMimicGen
+source_url: https://dexmimicgen.github.io/
+license: CC-BY-4.0
+raw_format: HDF5
+release_type: fixed_episode_dataset
+collection_method: simulation
+secondary_collection_methods: []
+num_arms: 2
+has_mobile_base: false
+action_space: mixed
+action_frame: both
+fps: 20.0
+fps_variable: false
+num_camera_views: 3
+camera_views:
+- third_person
+- left_wrist
+- right_wrist
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: false
+num_task_types: 9
+urdf_available: true
+urdf_source: community_repo
+expected_size_gb: 59.9
+expected_num_episodes: 21000
+review_status: pending_human_review
+field_sources:
+  license: 'https://github.com/NVlabs/dexmimicgen README.md License section: code
+    under NVIDIA Source Code License, datasets under CC-BY 4.0'
+  raw_format: 'https://github.com/NVlabs/dexmimicgen README.md: datasets distributed
+    as .hdf5 files (robomimic/MimicGen HDF5 format), played back via scripts/playback_datasets.py'
+  collection_method: 'arXiv:2410.24185 abstract and Sec. V ''System Design'': DexMimicGen
+    automatically synthesizes large amounts of trajectories via object-centric transformation
+    and replay in physics simulation (MuJoCo/robosuite), starting from a handful of
+    human teleoperated demos'
+  num_arms: 'arXiv:2410.24185 title and Sec. V: ''bimanual dexterous manipulation''
+    across all 3 embodiments (two Panda arms, or GR-1''s two arms)'
+  has_mobile_base: 'arXiv:2410.24185 Sec. V ''System Design'': fixed-base bimanual
+    Panda arms and a stationary tabletop GR-1 humanoid setup; no mobile base described
+    in any of the 9 tasks'
+  action_space: 'arXiv:2410.24185 Sec. III ''Prerequisites'' (Assumption A1): action
+    consists of an end-effector pose command plus a hand/gripper actuation command
+    (1-D for parallel-jaw, 6-D joint command for dexterous hand)'
+  action_frame: 'https://github.com/NVlabs/dexmimicgen/blob/main/scripts/generate_training_config.py:
+    panda_action_config uses rel_pos/rel_rot_axis_angle (delta) action keys; humanoid_action_config
+    uses abs_pos/abs_rot_6d (absolute) action keys -> dataset uses both'
+  fps: 'https://github.com/NVlabs/dexmimicgen/blob/main/dexmimicgen/environments/*.py:
+    control_freq=20 set identically in all 9 task environment files (threading, transport,
+    box_cleanup, lift_tray, pouring, can_sort, drawer_cleanup, three_piece_assembly,
+    coffee)'
+  fps_variable: same control_freq=20 constant across all 9 environment files, see
+    fps source
+  num_camera_views: 'https://github.com/NVlabs/dexmimicgen/blob/main/scripts/generate_training_config.py:
+    image_keys for most tasks = [agentview/frontview, robot eye-in-hand left, robot
+    eye-in-hand right] (3 views); TwoArmTransport additionally logs 2 shouldercamera
+    views'
+  camera_views: same generate_training_config.py image_keys lists (agentview/frontview
+    -> third_person; robotX_eye_in_hand / robot0_eye_in_left_hand / robot0_eye_in_right_hand
+    -> left_wrist/right_wrist)
+  depth_coverage: 'https://github.com/NVlabs/dexmimicgen/blob/main/dexmimicgen/environments/*.py:
+    camera_depths=False set as default in all task environment configs'
+  has_language_instruction: 'https://github.com/NVlabs/dexmimicgen/blob/main/scripts/generate_training_config.py:
+    observation key lists (image_keys/low_dim_keys) contain no language field; paper''s
+    BC/BC-RNN/Diffusion Policy training setup (Sec. VI) uses only image + low-dim
+    state, no language conditioning'
+  num_task_types: 'arXiv:2410.24185 Sec. V and Conclusion: ''a collection of nine
+    simulation environments across three embodiments'' (Threading, Piece Assembly,
+    Transport, Box Cleanup, Drawer Cleanup, Tray Lift, Pouring, Coffee, Can Sorting)'
+  urdf_available: https://github.com/ARISE-Initiative/robosuite/tree/main/robosuite/models/assets/robots
+    contains a 'gr1' model directory plus native Franka Panda support; DexMimicGen
+    builds directly on robosuite for all simulation environments
+  urdf_source: same robosuite robots asset directory as above -- models ship in the
+    robosuite community simulation-framework repo (ARISE-Initiative/robosuite), not
+    in dexmimicgen's own repo nor an official manufacturer release
+  expected_size_gb: https://huggingface.co/datasets/MimicGen/dexmimicgen_datasets/tree/main
+    dataset repo total size listed as 59.9 GB
+  expected_num_episodes: 'arXiv:2410.24185 abstract: ''We generate 21K demos across
+    these tasks from just 60 source human demos'''
+  source_url_confirmation: 'https://github.com/NVlabs/dexmimicgen README.md ''Website:
+    https://dexmimicgen.github.io'' -- confirms stub source_url is correct, no change
+    needed'
+suggested_new_enum_values:
+  robot_platform: fourier_gr1 -- 3 of the 9 tasks (Coffee, Pouring, Can Sorting) plus
+    the real-world deployment use the Fourier GR-1 humanoid with Inspire dexterous
+    hands (arXiv:2410.24185 Sec. VI-D 'Hardware Setup'); this platform is not covered
+    by the existing humanoid options (agibot_g1, tien_kung, arx5, unitree_g1)

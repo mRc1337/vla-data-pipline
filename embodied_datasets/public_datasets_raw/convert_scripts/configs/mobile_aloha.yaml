@@ -1,0 +1,101 @@
+id: mobile_aloha
+name: Mobile ALOHA
+source_url: https://mobile-aloha.github.io/
+license: MIT
+raw_format: HDF5
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+embodiment_class: mobile_manipulator
+robot_platform: viperx
+num_arms: 2
+dof_per_arm: 7
+gripper_type: parallel_jaw
+has_mobile_base: true
+action_space: mixed
+action_frame: absolute
+rotation_representation: none
+state_dim: 16
+action_dim: 16
+fps: 50.0
+fps_variable: false
+num_camera_views: 3
+camera_views:
+- top
+- left_wrist
+- right_wrist
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 6
+urdf_available: true
+urdf_source: manufacturer_official
+expected_size_gb: 30.0
+expected_num_episodes: 278
+review_status: pending_human_review
+field_sources:
+  license: https://github.com/MarkFzp/mobile-aloha/blob/main/LICENSE (MIT); confirmed
+    also via HF tags e.g. https://huggingface.co/datasets/lerobot/aloha_mobile_wipe_wine
+    (license:mit)
+  raw_format: https://github.com/MarkFzp/mobile-aloha/blob/main/README.md (record_episodes.py
+    'will store a hdf5 file')
+  collection_method: 'arXiv paper abstract, https://arxiv.org/abs/2401.02117: ''low-cost
+    and whole-body teleoperation system for data collection'''
+  embodiment_class: arXiv paper 2401.02117 - bimanual mobile manipulator (two arms
+    + wheeled mobile base)
+  robot_platform: arXiv paper 2401.02117, references [3] 'Viperx 300 6dof' (Trossen/Interbotix
+    ViperX-300 arms used for both master and puppet arms)
+  num_arms: 'arXiv paper 2401.02117, Figure 2/Hardware Details: two ViperX 300 puppet
+    arms (bimanual)'
+  dof_per_arm: 'arXiv paper 2401.02117, hardware table: ''#Dofs 14 (arms) + 2 (base)''
+    => 14/2 arms = 7 DoF per arm (6 joints + 1 gripper), and action text ''aarms ∈
+    R14 which includes two continuous gripper actions'''
+  gripper_type: arXiv paper 2401.02117 and https://github.com/MarkFzp/mobile-aloha
+    README (ViperX 300 parallel-jaw gripper, current-limited gripper motor XM430-W350)
+  has_mobile_base: 'arXiv paper 2401.02117: ''augments the ALOHA system with a mobile
+    base'' (AgileX Tracer base); README Step 4 ''Setup the AgileX Tracer base'''
+  action_space: 'arXiv paper 2401.02117, Sec 3/4: bimanual actions are ''target joint
+    positions aarms ∈ R14'', base actions are ''target base linear and angular velocities
+    abase ∈ R2'' -> heterogeneous/mixed action space'
+  action_frame: 'arXiv paper 2401.02117: actions formulated as ''target joint positions''
+    (absolute targets, not deltas)'
+  rotation_representation: 'arXiv paper 2401.02117: action/state space is joint-space
+    (target joint positions), no explicit end-effector rotation representation used'
+  state_dim: 'arXiv paper 2401.02117: ''14-DoF joint positions of ALOHA with the linear
+    and angular velocity of the mobile base, forming a 16-dimensional action vector'';
+    proprioceptive state mirrors this same 16-dim joint+base representation'
+  action_dim: 'arXiv paper 2401.02117: ''concatenate the 14-DoF joint positions of
+    ALOHA with the linear and angular velocity of the mobile base, forming a 16-dimensional
+    action vector'''
+  fps: 'arXiv paper 2401.02117, hardware section: ''streaming from three Logitech
+    C922x RGB webcams, at 480x640 resolution and 50Hz'''
+  fps_variable: arXiv paper 2401.02117 - fixed 50Hz camera/control rate reported for
+    all cameras and control loop
+  num_camera_views: 'arXiv paper 2401.02117, Figure 2 caption: ''Mobile ALOHA has
+    two wrist cameras and one top camera''; confirmed by aloha_scripts/constants.py
+    camera_names [''cam_high'',''cam_left_wrist'',''cam_right_wrist''] at https://github.com/MarkFzp/mobile-aloha/blob/main/aloha_scripts/constants.py'
+  camera_views: 'arXiv paper 2401.02117 Sec on image observations: ''the top egocentric
+    camera, the left wrist camera, and the right wrist camera. The top camera is stationary
+    with respect to the robot frame'''
+  depth_coverage: 'arXiv paper 2401.02117: cameras specified as ''Logitech C922x RGB
+    webcams'' (RGB-only, no depth sensor mentioned)'
+  has_language_instruction: 'HF LeRobot mirrors (e.g. https://huggingface.co/datasets/lerobot/aloha_mobile_wipe_wine
+    meta/info.json ''total_tasks'': 1) each episode is tagged with a fixed task/language
+    description string'
+  num_task_types: 'Official released LeRobot mirrors under https://huggingface.co/lerobot
+    : aloha_mobile_wipe_wine, aloha_mobile_shrimp, aloha_mobile_wash_pan, aloha_mobile_cabinet,
+    aloha_mobile_chair, aloha_mobile_elevator = 6 distinct tasks with public data
+    (paper describes a 7th task, High Five, for which no public dataset release was
+    found)'
+  urdf_available: Trossen/Interbotix official description package https://github.com/Interbotix/interbotix_ros_manipulators/blob/main/interbotix_ros_xsarms/interbotix_xsarm_descriptions/urdf/vx300s.urdf.xacro
+    provides the ViperX-300(S) arm URDF used by ALOHA/Mobile ALOHA
+  urdf_source: https://github.com/Interbotix/interbotix_ros_manipulators (Interbotix/Trossen
+    Robotics is the arm manufacturer; official xsarm_descriptions repo)
+  expected_size_gb: Sum of 'usedStorage' bytes reported by HF Hub API for the 6 lerobot/aloha_mobile_*
+    dataset mirrors (wipe_wine, shrimp, wash_pan, cabinet, chair, elevator) ~= 30.7
+    GB total (video+parquet re-encoding; original raw HDF5 captures may differ in
+    size)
+  expected_num_episodes: 'Sum of ''total_episodes'' from meta/info.json across the
+    6 lerobot/aloha_mobile_* mirrors: wipe_wine=50, shrimp=18, wash_pan=50, cabinet=85,
+    chair=55, elevator=20 => 278'
+suggested_new_enum_values: {}

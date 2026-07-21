@@ -54,3 +54,39 @@ robot_platform: made_up_robot
 def test_parse_and_validate_agent_output_rejects_non_mapping():
     with pytest.raises(ValueError):
         parse_and_validate_agent_output("- just\n- a\n- list\n")
+
+
+def test_build_onboarding_prompt_includes_new_enum_fields():
+    prompt = build_onboarding_prompt("droid", "DROID", "https://droid-dataset.github.io/")
+    assert "generation_framework" in prompt
+    assert "mano" in prompt
+    assert "force_torque" in prompt
+    assert "three_jaw" in prompt
+
+
+def test_build_onboarding_prompt_includes_new_scalar_field_descriptions():
+    prompt = build_onboarding_prompt("droid", "DROID", "https://droid-dataset.github.io/")
+    assert "dof_per_hand" in prompt
+    assert "expected_duration_hours" in prompt
+    assert "num_subjects" in prompt
+    assert "is_multi_embodiment" in prompt
+    assert "paper_url" in prompt
+
+
+def test_parse_and_validate_agent_output_accepts_new_fields():
+    yaml_text = """
+id: droid
+name: DROID
+release_type: fixed_episode_dataset
+is_multi_embodiment: false
+paper_url: "https://arxiv.org/abs/1234.5678"
+additional_modalities:
+  - force_torque
+hand_pose_representation: joint_angles
+num_subjects: 5
+review_status: pending_human_review
+"""
+    config = parse_and_validate_agent_output(yaml_text)
+    assert config.release_type.value == "fixed_episode_dataset"
+    assert config.additional_modalities[0].value == "force_torque"
+    assert config.hand_pose_representation.value == "joint_angles"

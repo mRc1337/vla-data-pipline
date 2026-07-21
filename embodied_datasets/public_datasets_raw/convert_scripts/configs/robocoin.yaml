@@ -1,7 +1,44 @@
 id: robocoin
 name: RoboCOIN
 source_url: https://huggingface.co/RoboCOIN/datasets
-camera_views: []
+license: Apache-2.0
+raw_format: LeRobot
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+num_arms: 2
+camera_views:
+- head
+- left_wrist
+- right_wrist
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 421
+expected_num_episodes: 180000
 review_status: pending_human_review
-field_sources: {}
+field_sources:
+  license: https://huggingface.co/datasets/RoboCOIN/alpha_bot_2_move_the_table (and
+    other RoboCOIN/* dataset repos all tagged license:apache-2.0 via HF Datasets API
+    https://huggingface.co/api/datasets?author=RoboCOIN)
+  raw_format: 'HF dataset cards state: ''This dataset uses an extended format based
+    on LeRobot and is fully compatible with LeRobot... Codebase Version: v2.1'' (e.g.
+    https://huggingface.co/datasets/RoboCOIN/alpha_bot_2_move_the_table)'
+  collection_method: 'arXiv:2511.17441 (RoboCOIN paper) Table I comparison row: ''RoboCOIN
+    (Ours) ... Human Teleoperation''; Table I also lists per-platform teleoperation
+    methods (isomorphic arm, exoskeleton, VR, motion capture) which are all forms
+    of human teleoperation'
+  num_arms: 'arXiv:2511.17441 Table I: every one of the 15 listed platforms has Arm
+    DoF given as ''2 x N'' (dual-arm), consistent with the paper''s framing as a bimanual
+    manipulation dataset'
+  camera_views: 'arXiv:2511.17441 Table I ''Camera Configuration'' column: every platform
+    includes at minimum ''Head + Wrist''; some platforms add Back, Chest, or Third-Person
+    cameras on top of this baseline (heterogeneous, see notes below)'
+  has_language_instruction: 'arXiv:2511.17441 abstract/intro: ''All data are acquired
+    via human teleoperation... accompanied by detailed language annotations'''
+  num_task_types: 'arXiv:2511.17441 abstract: ''the dataset features 421 bimanual
+    tasks systematically categorized by 39 bimanual collaboration actions and 432
+    objects'''
+  expected_num_episodes: 'arXiv:2511.17441 abstract: ''a large-scale multi-embodiment
+    bimanual manipulation dataset comprising over 180,000 demonstrations collected
+    from 15 distinct robotic platforms'''
 suggested_new_enum_values: {}
