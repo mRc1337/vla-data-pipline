@@ -60,8 +60,32 @@ def save_process_config(config: ProcessConfig, path: Path) -> None:
 
 
 def load_lerobot_episodes(dataset_path: Path) -> List[Episode]:
-    """Read every episode out of a lerobot dataset stored at `dataset_path`."""
+    """Read every episode out of a lerobot dataset stored at `dataset_path`.
+
+    Populates `Episode.language_instruction` from each frame's `"task"` key
+    (verified against the installed lerobot==0.4.4 API: `dataset[i]["task"]`
+    is a plain `str`, identical across every frame of one episode -- this
+    project's own `write_lerobot_episodes` and `tests/fixtures.py`'s
+    `make_synthetic_dataset` both write exactly one task string per frame).
+    That "identical across every frame" assumption is verified, not just
+    trusted: if any frame's task text disagrees with frame 0's, this raises
+    `ValueError` naming the episode and the mismatched frame index rather
+    than silently picking frame 0's text for the whole episode.
+    An episode whose task is the empty string (the fallback
+    `write_lerobot_episodes`/`run_pipeline.py` use when the original
+    `Episode.language_instruction` was `None`) maps back to `None`, not
+    `""`, so callers can use a plain truthiness check.
+
+    Populates `Episode.frames[<feature_key>]` for every feature declared
+    `dtype: "video"` in `dataset.meta.features`. Verified empirically:
+    `dataset[i][<video_key>]` is a decoded `torch.Tensor` of shape `(C, H,
+    W)`, dtype `float32`, values in `[0, 1]` -- not the `(H, W, 3)` uint8
+    `0-255` layout `check3_video_quality.py` operates on, so this function
+    transposes to channel-last and rescales to `uint8` `0-255` before
+    stacking into a `(T, H, W, 3)` array.
+    """
     dataset = LeRobotDataset(repo_id=dataset_path.name, root=dataset_path)
+    video_keys = [key for key, feature in dataset.meta.features.items() if feature.get("dtype") == "video"]
     episodes: List[Episode] = []
     for episode_index in range(dataset.num_episodes):
         episode_meta = dataset.meta.episodes[episode_index]
@@ -71,7 +95,33 @@ def load_lerobot_episodes(dataset_path: Path) -> List[Episode]:
         state = np.stack([row["observation.state"].numpy() for row in rows])
         action = np.stack([row["action"].numpy() for row in rows])
         timestamps = np.array([row["timestamp"].item() for row in rows], dtype=np.float64)
-        episodes.append(Episode(episode_index=episode_index, timestamps=timestamps, state=state, action=action))
+
+        task = rows[0]["task"] if rows else ""
+        for i, row in enumerate(rows):
+            if row["task"] != task:
+                raise ValueError(
+                    f"episode {episode_index} has inconsistent per-frame task text: "
+                    f"frame 0 has {task!r}, frame {i} has {row['task']!r}"
+                )
+        language_instruction = task if task else None
+
+        frames = {}
+        for video_key in video_keys:
+            # (T, C, H, W) float32 in [0, 1] -> (T, H, W, C) uint8 in [0, 255].
+            stacked_chw = np.stack([row[video_key].numpy() for row in rows])
+            stacked_hwc = np.transpose(stacked_chw, (0, 2, 3, 1))
+            frames[video_key] = np.clip(np.round(stacked_hwc * 255.0), 0, 255).astype(np.uint8)
+
+        episodes.append(
+            Episode(
+                episode_index=episode_index,
+                timestamps=timestamps,
+                state=state,
+                action=action,
+                frames=frames,
+                language_instruction=language_instruction,
+            )
+        )
     return episodes
 
 

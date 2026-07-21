@@ -487,6 +487,15 @@ pytest tests/test_run_pipeline.py -v           # 验证 canonical_state 真的�
 断言全部21维都正确落进 `[14:35]` 且 `mask=True`——如果以后又把槎位宽度改窄了，这个测试
 会先崩。
 
+**注意：跑真实（非合成）数据集时需要系统装 `ffmpeg`**（`brew install ffmpeg` 或对应
+平台的包管理器，不是pip依赖）。lerobot 的视频解码器（torchcodec）只检查库能不能
+import，不检查能不能真正dlopen——没装系统ffmpeg时，所有用 `LeRobotDataset.create()`
+构造的合成fixture测试照样全过（因为不涉及真实视频解码），只有读真实数据集的视频轨才会
+在运行时崩。已经用 `lerobot/pusht`（HuggingFace上一个公开的小型v3.0格式数据集，206
+episode/25650帧）验证过完整流程：真实下载、`load_lerobot_episodes` 原样读取、跑通全部
+9个stage/check模块、最终写出的数据集里 `observation.state` 确认是80维、
+`observation.state_canonical_mask` 确认写入且数值位置正确。
+
 ## 当前进度
 
 <!-- AUTO-GENERATED TABLE START -->
