@@ -185,3 +185,116 @@ def test_dataset_config_rejects_invalid_release_type():
 def test_dataset_config_rejects_invalid_modality():
     with pytest.raises(ValidationError):
         DatasetConfig(id="droid", name="DROID", additional_modalities=["smell"])
+
+
+def test_robot_platform_round2_new_members():
+    from common.schema import RobotPlatform
+
+    assert RobotPlatform.FRANKA_FR3.value == "franka_fr3"
+    assert RobotPlatform.XARM6.value == "xarm6"
+    assert RobotPlatform.KUKA_IIWA.value == "kuka_iiwa"
+    assert RobotPlatform.ABB_YUMI.value == "abb_yumi"
+    assert RobotPlatform.HELLO_ROBOT_STRETCH.value == "hello_robot_stretch"
+    assert RobotPlatform.BOSTON_DYNAMICS_SPOT.value == "boston_dynamics_spot"
+    assert RobotPlatform.EVERYDAY_ROBOTS_ARM.value == "everyday_robots_arm"
+    assert RobotPlatform.AGIBOT_G2.value == "agibot_g2"
+    assert RobotPlatform.GALBOT_G1.value == "galbot_g1"
+    assert RobotPlatform.UNITREE_H1_2.value == "unitree_h1_2"
+    assert RobotPlatform.UNITREE_ALIENGO.value == "unitree_aliengo"
+    assert RobotPlatform.UNITREE_A1.value == "unitree_a1"
+    assert RobotPlatform.ANYMAL.value == "anymal"
+    assert RobotPlatform.ATLAS.value == "atlas"
+    assert RobotPlatform.GALAXEA_R1.value == "galaxea_r1"
+    assert RobotPlatform.R1PRO.value == "r1pro"
+    assert RobotPlatform.X1_EVE.value == "1x_eve"
+    assert RobotPlatform.VIRTUAL_AGENT.value == "virtual_agent"
+
+
+def test_collection_method_round2_new_members():
+    from common.schema import CollectionMethod
+
+    assert CollectionMethod.KINESTHETIC.value == "kinesthetic"
+    assert CollectionMethod.SCRIPTED.value == "scripted"
+    assert CollectionMethod.EGO_EXO_HUMAN.value == "ego_exo_human"
+    assert CollectionMethod.MOCAP_MULTIVIEW_HUMAN.value == "mocap_multiview_human"
+    assert (
+        CollectionMethod.SYNTHETIC_MULTIMODAL_AUGMENTATION.value
+        == "synthetic_multimodal_augmentation"
+    )
+
+
+def test_license_round2_new_members():
+    from common.schema import LicenseEnum
+
+    assert LicenseEnum.CC_BY_SA_4_0.value == "CC-BY-SA-4.0"
+    assert LicenseEnum.CDLA_SHARING_1_0.value == "CDLA-Sharing-1.0"
+    assert LicenseEnum.CUSTOM_RESEARCH_EULA.value == "custom_research_eula"
+
+
+def test_embodiment_class_round2_new_members():
+    from common.schema import EmbodimentClass
+
+    assert EmbodimentClass.HUMAN_FULL_BODY.value == "human_full_body"
+    assert EmbodimentClass.HALF_HUMANOID.value == "half_humanoid"
+
+
+def test_gripper_type_round2_new_members():
+    from common.schema import GripperType
+
+    assert GripperType.MIXED.value == "mixed"
+    assert GripperType.CAGE_PINCH.value == "cage_pinch"
+
+
+def test_rotation_representation_round2_new_members():
+    from common.schema import RotationRepresentation
+
+    assert RotationRepresentation.MIXED.value == "mixed"
+    assert RotationRepresentation.SINGLE_AXIS_ANGLE.value == "single_axis_angle"
+
+
+def test_sensor_modality_round2_new_members():
+    from common.schema import SensorModality
+
+    assert SensorModality.IMU.value == "imu"
+    assert SensorModality.SEMANTIC_SEGMENTATION.value == "semantic_segmentation"
+    assert SensorModality.POINT_CLOUD_3D_SCAN.value == "point_cloud_3d_scan"
+
+
+def test_action_space_round2_new_members():
+    from common.schema import ActionSpace
+
+    assert ActionSpace.DISCRETE_SYMBOLIC.value == "discrete_symbolic"
+
+
+def test_camera_view_round2_new_members():
+    from common.schema import CameraView
+
+    assert CameraView.GRIPPER_JAW.value == "gripper_jaw"
+
+
+def test_dataset_config_accepts_round2_enum_values():
+    config = DatasetConfig(
+        id="droid",
+        name="DROID",
+        robot_platform="abb_yumi",
+        collection_method="ego_exo_human",
+        license="custom_research_eula",
+        embodiment_class="half_humanoid",
+        gripper_type="mixed",
+        rotation_representation="single_axis_angle",
+        additional_modalities=["imu", "semantic_segmentation"],
+        action_space="discrete_symbolic",
+        camera_views=["gripper_jaw"],
+    )
+    assert config.robot_platform.value == "abb_yumi"
+    assert config.collection_method.value == "ego_exo_human"
+    assert config.license.value == "custom_research_eula"
+    assert config.embodiment_class.value == "half_humanoid"
+    assert config.gripper_type.value == "mixed"
+    assert config.rotation_representation.value == "single_axis_angle"
+    assert [m.value for m in config.additional_modalities] == [
+        "imu",
+        "semantic_segmentation",
+    ]
+    assert config.action_space.value == "discrete_symbolic"
+    assert config.camera_views[0].value == "gripper_jaw"

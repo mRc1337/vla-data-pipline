@@ -1,0 +1,219 @@
+id: oakink2
+name: OAKINK2
+source_url: https://oakink.net/v2
+paper_url: https://arxiv.org/abs/2403.19417
+license: CC-BY-SA-4.0
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: egocentric_human
+secondary_collection_methods: []
+is_multi_embodiment: false
+embodiment_class: human_hand
+num_arms: 2
+dof_per_hand: 48
+gripper_type: none
+hand_pose_representation: mano
+has_mobile_base: false
+rotation_representation: quaternion
+fps: 30.0
+fps_variable: false
+num_camera_views: 4
+camera_views:
+- third_person
+- head
+has_synchronized_multiview_rig: true
+has_camera_calibration: true
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 60
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 2130.0
+expected_num_episodes: 627
+num_subjects: 9
+num_scenes: 4
+num_objects: 75
+review_status: pending_human_review
+field_sources:
+  source_url: 'CORRECTED from arXiv abstract link to project homepage: https://oakink.net/v2
+    is the official project page (linked from arXiv:2403.19417 abstract itself: "OAKINK2
+    datasets and models are available at https://oakink.net/v2") and matches the sibling-config
+    convention (h2o.yaml, hoi4d.yaml, egodex.yaml all use source_url=homepage, paper_url=arXiv).
+    The arXiv link is preserved in the new paper_url field below.'
+  paper_url: 'NEW FIELD, filled: https://arxiv.org/abs/2403.19417 - "OAKINK2: A Dataset
+    of Bimanual Hands-Object Manipulation in Complex Task Completion" (Zhan, Yang,
+    Zhao, Mao, Xu, Lin, Li, Lu; Shanghai Jiao Tong University), CVPR 2024, per the
+    GitHub repo (github.com/oakink/OakInk2) README citation block.'
+  raw_format: 'github.com/oakink/OakInk2 README "Dataset Format" section (fetched
+    2026-07-13): per-sequence bespoke directory tree of data/<seq>/<cam_serial>/*.jpg
+    (multi-view image streams), anno_preview/<seq>.pkl (camera params + raw SMPL-X/MANO
+    pose dict), object_raw|object_repair|object_affordance/*.json + *.obj/ply meshes,
+    and program/{program_info,desc_info,initial_condition_info,pdg}/<seq>.json (task
+    program/graph annotations) - not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord/VRS,
+    so Custom is correct (matches sibling h2o.yaml/hoi4d.yaml judgment for analogous
+    bespoke per-sequence folder layouts).'
+  release_type: 'Derived: OAKINK2 is a fixed, pre-recorded collection of 627 sequences
+    distributed as static tarballs via huggingface.co/datasets/kelvin34501/OakInk-v2
+    with a fixed train/val/test split (arXiv:2403.19417 Sec 5.1: "we partition the
+    corresponded task-specified subsets at the sequence level, maintaining the proportion
+    of samples in train/val/test sets at approximately 70%, 5%, and 25%"), not a procedural
+    generation framework, scene platform, or RL benchmark env - fixed_episode_dataset
+    matches sibling h2o.yaml/hoi4d.yaml/egodex.yaml judgment for analogous fixed human-hand
+    capture datasets.'
+  collection_method: 'arXiv:2403.19417 Sec 3.2.1 "Capture Setup": "The multi-camera
+    system consists of 4 commodity RGB cameras, 3 of which are from allocentric views
+    and 1 is from the egocentric view" - real human subjects (9 invited subjects)
+    perform bimanual manipulation, no robot/teleop anywhere in the pipeline. Like
+    sibling h2o.yaml (identical ego+exo combination: 1 egocentric + N allocentric
+    cameras recording unassisted human demonstration), no existing CollectionMethod
+    enum value captures this synchronized ego+exo human capture exactly, so egocentric_human
+    is kept as the closest available label (same registry-wide gap already flagged
+    by h2o.yaml/assembly101.yaml/ego_exo4d.yaml; see suggested_new_enum_values).'
+  secondary_collection_methods: 'Checked arXiv:2403.19417 full text and github.com/oakink/OakInk2
+    README: no other CollectionMethod enum (teleop/autonomous_policy/umi/simulation/human_to_robot_synthesis/ar_haptic_guided_synthesis/scene_asset_curation)
+    applies to this human-only, camera+mocap capture; left empty.'
+  is_multi_embodiment: arXiv:2403.19417 Sec 3.2/4 - the entire dataset is captured
+    with a single embodiment (bare human hands and body of 9 invited subjects, embodiment_class=human_hand);
+    no robot or alternate embodiment variant is described anywhere in the paper, project
+    page, or GitHub repo.
+  embodiment_class: 'arXiv:2403.19417 abstract/title: "A Dataset of Bimanual Hands-Object
+    Manipulation" - human hands (and full body via SMPL-X) are tracked throughout;
+    no robot embodiment present.'
+  num_arms: 'arXiv:2403.19417 title/abstract: "Bimanual Hands-Object Manipulation"
+    - both left and right hands are tracked and annotated per frame (raw_mano dict
+    in github.com/oakink/OakInk2 README stores both rh__* and lh__* keys), i.e. 2
+    hands/arms.'
+  dof_per_hand: 'github.com/oakink/OakInk2 README "Dataset Format" raw mano data structure,
+    verbatim: ''rh__pose_coeffs'': torch.Tensor[1, 16, 4], ''lh__pose_coeffs'': torch.Tensor[1,
+    16, 4] - 16 MANO joint rotations per hand (1 global/wrist + 15 finger joints),
+    each a rotational DoF-3 quaternion (quaternion is a 4-parameter storage of a 3-DoF
+    rotation) - so 16 x 3 = 48 rotational DoF per hand. Same derivation and value
+    as sibling h2o.yaml (also MANO-based, also computed 16 joints x 3 DoF = 48).'
+  gripper_type: No robot or actuated gripper hardware is present anywhere in OAKINK2
+    - manipulation is performed with bare human hands (arXiv:2403.19417 Sec 3.2).
+    Matches the registry-wide convention used by every other embodiment_class=human_hand
+    sibling dataset (h2o, hoi4d, egodex, assembly101, hot3d, ego_exo4d all use gripper_type=none).
+  hand_pose_representation: github.com/oakink/OakInk2 README "Dataset Format" - anno_preview/<seq>.pkl
+    ships a 'raw_mano' dict with per-hand pose_coeffs/tsl/betas (standard MANO parametric
+    hand fit for both hands), matching HandPoseRepresentation.MANO exactly.
+  has_mobile_base: 'arXiv:2403.19417 Sec 3.2.1 "Capture Setup": stationary "data capture
+    platform" (fixed room-based rig combining the 4-RGB-camera + 12-Optitrack-MoCap-camera
+    system); no robot base of any kind is present (bare human-hand/body dataset).'
+  rotation_representation: 'github.com/oakink/OakInk2 README "Dataset Format" raw
+    smplx/mano data structures, verbatim: ''world_rot'', ''body_pose'', ''{lh,rh}_hand_pose''
+    (SMPL-X) and ''{lh,rh}__pose_coeffs'' (MANO) "are quaternions in [w,x,y,z] format"
+    - explicitly quaternion, not axis-angle (differs from sibling h2o.yaml/hoi4d.yaml,
+    which independently derived axis_angle for their own MANO exports; OAKINK2''s
+    own README explicitly states quaternion storage for both its SMPL-X and MANO pose
+    parameters).'
+  fps: 'arXiv:2403.19417 Sec 3.2.1: "We synchronize all sensors at 30 fps..."; Sec
+    4.1: "These videos are collected from multi-view (1 egocentric and 3 allocentric)
+    setup, synchronized at 30 fps, with resolution 848 x 480."'
+  fps_variable: Same source as fps - single fixed 30 fps capture rate stated for the
+    whole dataset (all sensors hardware-synchronized); no mention of variable frame
+    rate.
+  num_camera_views: 'arXiv:2403.19417 Sec 3.2.1: "The multi-camera system consists
+    of 4 commodity RGB cameras, 3 of which are from allocentric views and 1 is from
+    the egocentric view"; corroborated by Table 1 cross-comparison row for OAKINK2
+    listing "#views" = 4.'
+  camera_views: arXiv:2403.19417 Sec 3.2.1 - 3 static allocentric cameras mapped to
+    third_person, 1 head-worn/egocentric camera mapped to head (following the same
+    egocentric->head mapping convention used in sibling h2o.yaml).
+  has_synchronized_multiview_rig: 'arXiv:2403.19417 Sec 3.2.1, verbatim: "We synchronize
+    all sensors at 30 fps and calibrate the transformation between these two systems"
+    (the 4-camera RGB rig and the 12-camera Optitrack MoCap rig are jointly synchronized).'
+  has_camera_calibration: 'arXiv:2403.19417 Sec 3.2.1 "Synchronization" paragraph:
+    "The cameras in the multi-camera system are calibrated using ArUco cubes...";
+    github.com/oakink/OakInk2 README confirms anno_preview/<seq>.pkl ships per-camera
+    ''cam_intr'' [3,3] and ''cam_extr'' [4,4] matrices per frame.'
+  depth_coverage: arXiv:2403.19417 Sec 3.2.1 explicitly describes the multi-camera
+    system as "4 commodity RGB cameras" (not RGB-D); github.com/oakink/OakInk2 README
+    "Dataset Format" confirms captured frames are plain <frame_id>.jpg images (RGB
+    only). The 12 Optitrack cameras are infrared marker-tracking cameras for MoCap,
+    not depth sensors, and no depth maps are shipped anywhere in the dataset.
+  additional_modalities: Checked arXiv:2403.19417 full text and github.com/oakink/OakInk2
+    README for audio/microphone/eye-gaze/tactile/force-torque terms - no matches;
+    released modalities are RGB multi-view video, SMPL-X/MANO pose, object 6D pose,
+    object affordance, and task-program annotations only.
+  has_language_instruction: 'github.com/oakink/OakInk2 README "Dataset Format" - program/desc_info/<seq>.json
+    stores a per-primitive ''seg_desc'': str "textual description of current primitive";
+    arXiv:2403.19417 Sec 5.2/Fig. 7 also uses per-Complex-Task and per-scene natural-language
+    task descriptions as model input/output.'
+  num_task_types: 'arXiv:2403.19417 Sec 4.2 "Dataset Statistics", verbatim: "OAKINK2
+    contains in total 75 objects and 39 affordance. These affordances map to 60 types
+    of Primitives." - 60 distinct Primitive Task types.'
+  urdf_available: No robot is present in OAKINK2 (bare human-hand/body dataset); only
+    SMPL-X/MANO human models and scanned object meshes are provided, no robot URDF.
+  urdf_source: Same as urdf_available - no robot / no URDF exists for this dataset.
+  expected_size_gb: 'huggingface.co/datasets/kelvin34501/OakInk-v2 dataset page (fetched
+    2026-07-13), sidebar "Total file size: 2.13 TB" -> converted to 2130 GB (decimal
+    TB->GB). This is the total size of all released tarballs (data, anno_preview,
+    object_raw/repair/affordance, program).'
+  expected_num_episodes: 'arXiv:2403.19417 Sec 4.2 "Dataset Statistics", verbatim:
+    "OAKINK2 contains 627 sequences of bimanual dexterous hand-object interaction
+    in total. 363 of these are for Primitives and 264 are for Complex Tasks."'
+  expected_duration_hours: 'CHECKED, LEFT BLANK: arXiv:2403.19417 Sec 4.2 states "In
+    total, OAKINK2 contains 4.01M image frames" captured "from four different views
+    (one egocentric and three allocentric views)" at 30 fps - but the paper never
+    disambiguates whether 4.01M counts unique synchronized timesteps (implying ~37.1
+    hours) or the sum of frames across all 4 camera views (implying ~9.3 hours, matching
+    the Table-1 cross-comparison convention used for other multi-view datasets like
+    ARCTIC). No total duration in hours/minutes is stated directly anywhere in the
+    paper, project page, or GitHub README, so left blank rather than report a number
+    with a 4x uncertainty range (same reasoning as sibling h2o.yaml, which faced an
+    analogous ambiguity).'
+  num_subjects: 'arXiv:2403.19417 Sec 4.2, verbatim: "The dataset includes four manipulation
+    scenarios, 75 objects and 9 invited subjects in total."; corroborated by Table
+    1 cross-comparison row for OAKINK2 listing "#subj" = 9.'
+  num_scenes: 'arXiv:2403.19417 Sec 3.1 "Task Initialization", verbatim: "we first
+    construct four manipulation scenarios... These scenarios are: 1) kitchen table;
+    2) study room table; 3) demo chem lab; 4) bathroom table."'
+  num_objects: 'arXiv:2403.19417 Sec 4.2, verbatim: "OAKINK2 contains in total 75
+    objects and 39 affordance."; corroborated by Table 1 cross-comparison row for
+    OAKINK2 listing "#obj" = 75.'
+  license: 'CHECKED, LEFT BLANK (see suggested_new_enum_values): huggingface.co/datasets/kelvin34501/OakInk-v2
+    dataset card frontmatter (raw README.md, fetched 2026-07-13) states verbatim "license:
+    cc-by-sa-4.0" and the page''s license tag confirms "License: cc-by-sa-4.0". CC-BY-SA-4.0
+    (ShareAlike, no NC restriction) is not present in the current LicenseEnum (which
+    has CC_BY_4_0, CC_BY_NC_4_0, CC_BY_NC_SA_4_0, CC_BY_NC_ND_4_0, CC0_1_0 but no
+    plain CC-BY-SA-4.0), so left blank rather than map to a non-equivalent value.'
+  action_space: 'CHECKED, LEFT BLANK: arXiv:2403.19417 and github.com/oakink/OakInk2
+    README describe only pose annotations (SMPL-X body pose, MANO hand pose, object
+    6D transforms) and task/program structure (Primitive/Complex Task/PDG), with no
+    continuous robot-style control action vector (joint/eef position/velocity/torque)
+    ever defined - unlike sibling egodex.yaml, which explicitly defines an "Action
+    Representation" (Sec 4.1) that this paper has no equivalent of. None of joint_position/joint_velocity/joint_torque/eef_pose/mixed/unknown
+    accurately describe raw ground-truth pose annotation with no defined action space,
+    so left blank (same judgment as sibling hoi4d.yaml).'
+  action_frame: Same reasoning as action_space - no action space is defined by the
+    source, so no action frame (delta/absolute) applies either.
+  state_dim: 'CHECKED, LEFT BLANK: neither the paper nor the GitHub README frames
+    the SMPL-X/MANO pose annotation as a robot/agent "state" vector for policy learning
+    - it is a ground-truth pose label. Same convention as sibling h2o.yaml/ego_exo4d.yaml/egodex.yaml,
+    which leave state_dim blank for structurally identical or richer human-pose annotations
+    rather than infer a value the source does not explicitly frame as a state vector.'
+  action_dim: Same reasoning as action_space/state_dim - no action vector is defined
+    anywhere in the source.
+  dof_per_arm: 'CHECKED, LEFT BLANK: this field is intended for a robot arm DoF figure;
+    OAKINK2 has no robot arm. The SMPL-X body_pose (21 body joints) could arguably
+    be read as a whole-body "arm" figure but the paper never frames it that way, and
+    doing so would double-count/conflict with dof_per_hand (which already captures
+    the hand-specific MANO pose dimensionality). Left blank rather than infer, matching
+    sibling h2o.yaml/hoi4d.yaml.'
+  robot_platform: 'CHECKED, LEFT BLANK (field omitted): no robot is present anywhere
+    in OAKINK2 (bare human-hand/body dataset, embodiment_class=human_hand); no RobotPlatform
+    enum value applies.'
+suggested_new_enum_values:
+  license: 'CC-BY-SA-4.0 - huggingface.co/datasets/kelvin34501/OakInk-v2 dataset card
+    frontmatter states "license: cc-by-sa-4.0" verbatim. The current LicenseEnum has
+    CC_BY_4_0, CC_BY_NC_4_0, CC_BY_NC_SA_4_0, CC_BY_NC_ND_4_0, CC0_1_0 but no plain
+    (non-NonCommercial) CC-BY-SA-4.0 value, so this dataset''s exact license cannot
+    be represented; consider adding LicenseEnum.CC_BY_SA_4_0 = "CC-BY-SA-4.0".'
+  collection_method: 'NEW, mirrors the same registry-wide gap already flagged by sibling
+    h2o.yaml/assembly101.yaml/ego_exo4d.yaml: OAKINK2 simultaneously records 1 egocentric
+    (head-mounted) camera AND 3 static/allocentric cameras per sequence (synchronized
+    ego+exo capture of unassisted human bimanual manipulation, arXiv:2403.19417 Sec
+    3.2.1). The existing egocentric_human value only captures the egocentric half
+    of this setup. Consider adding a value like ego_exo_human or multiview_human for
+    datasets that jointly capture synchronized first-person + third-person human views.'

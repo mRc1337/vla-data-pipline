@@ -1,16 +1,19 @@
 id: furniturebench
 name: FurnitureBench
 source_url: https://clvrai.github.io/furniture-bench/
+paper_url: https://arxiv.org/abs/2305.12821
 license: MIT
 raw_format: Custom
 release_type: fixed_episode_dataset
 collection_method: teleop
 secondary_collection_methods: []
+is_multi_embodiment: false
 embodiment_class: single_arm
 robot_platform: franka_panda
 num_arms: 1
 dof_per_arm: 7
 gripper_type: parallel_jaw
+hand_pose_representation: none
 has_mobile_base: false
 action_space: eef_pose
 action_frame: delta
@@ -23,123 +26,237 @@ num_camera_views: 2
 camera_views:
 - front
 - wrist
+has_synchronized_multiview_rig: true
 has_camera_calibration: true
 depth_coverage: none
 additional_modalities: []
 has_language_instruction: false
-num_task_types: 8
+num_task_types: 9
 urdf_available: true
 urdf_source: dataset_repo
 expected_size_gb: 1179.0
 expected_num_episodes: 5100
+expected_duration_hours: 219.6
+num_subjects: 2
+num_objects: 8
 review_status: pending_human_review
 field_sources:
   source_url: Verified live via https://clvrai.github.io/furniture-bench/ (official
     project homepage, links to paper arXiv:2305.12821, GitHub github.com/clvrai/furniture-bench,
     and docs); stub value confirmed correct, no change needed
+  paper_url: 'https://arxiv.org/abs/2305.12821 -- ''FurnitureBench: Reproducible Real-World
+    Benchmark for Long-Horizon Complex Manipulation'', Heecheol Kim et al., RSS 2023;
+    matches the arXiv id already cited throughout this file''s other field_sources
+    entries. Newly added field, previously blank.'
   license: 'https://api.github.com/repos/clvrai/furniture-bench (license.key: ''mit'')
     and https://raw.githubusercontent.com/clvrai/furniture-bench/main/LICENSE (''MIT
     License ... Copyright (c) 2023 Cognitive Learning for Vision and Robotics (CLVR)
     lab @ KAIST''); note a downstream HF mirror (IPEC-COMMUNITY/furniture_bench_dataset_lerobot)
     tags itself license:apache-2.0, but the primary/original repo and dataset release
-    are MIT'
+    are MIT. Re-verified this pass, unchanged.'
   raw_format: 'https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
     ''Demonstration File Format'': ''Each demonstration is stored in a .pkl file,
     containing a sequence of sensory inputs, actions, rewards, and other metadata''
     -- a custom Python-pickle schema, not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord
-    natively (those exist only as later third-party conversions, e.g. IPEC-COMMUNITY/furniture_bench_dataset_lerobot)'
-  collection_method: 'arXiv:2305.12821 Sec IV-A/B: ''219.6 hours of successful demonstrations
-    using an Oculus Quest 2 controller and a keyboard''; https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
-    repeats ''219.6 hours of 5100 successful demonstrations collected using an Oculus
-    Quest 2 controller and a keyboard'' -- human VR teleoperation'
+    natively (those exist only as later third-party conversions, e.g. IPEC-COMMUNITY/furniture_bench_dataset_lerobot).
+    Re-verified this pass, unchanged.'
+  release_type: 'https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
+    ''Download Dataset'' section: the dataset is a static, pre-collected corpus of
+    5100 demonstration .pkl files (downloadable per furniture/randomness level via
+    gdown/rclone), not a procedural generation framework, scene/asset platform, or
+    a standalone RL-only environment -- matches ReleaseType.FIXED_EPISODE_DATASET.
+    (Note: the broader FurnitureBench project also ships FurnitureSim, a simulation
+    benchmark environment, but this config/registry entry specifically tracks the
+    fixed real-world demonstration dataset.) Newly sourced this pass -- field was
+    previously filled with no field_sources entry.'
+  collection_method: 'arXiv:2305.12821 Sec IV-B ''Teleoperated demonstration dataset'':
+    ''We collected 219.6 hours of successful demonstrations using an Oculus Quest
+    2 controller and a keyboard''; https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
+    repeats the same figures -- human VR teleoperation. Re-verified this pass, unchanged.'
+  secondary_collection_methods: arXiv:2305.12821 Sec IV-B and Table II confirm all
+    5100 released demonstrations (across all 9 task/furniture categories, all 3 randomness
+    levels) were collected via the single Oculus Quest 2 + keyboard teleoperation
+    pipeline; no autonomous-policy, UMI, egocentric-human, or scripted-simulation
+    demonstrations are mixed into the released corpus, so left empty. Newly checked
+    this pass -- field was previously empty with no field_sources entry.
+  is_multi_embodiment: 'arXiv:2305.12821 Sec III-A (''7-DoF Franka Emika Panda robot
+    arm with a default parallel gripper'') and Sec VII Limitations (''Our benchmark
+    is mainly evaluated using single-task criteria with a single robot... FurnitureBench
+    uses a single Franka Emika Panda arm''): every episode in the dataset uses the
+    identical single robot embodiment, so false. Newly sourced this pass -- field
+    was previously blank.'
   embodiment_class: 'arXiv:2305.12821 Sec IV-A: ''7-DoF Franka Emika Panda robot arm
     with a default parallel gripper''; https://raw.githubusercontent.com/clvrai/furniture-bench/main/furniture_bench/config.py
-    defines a single fixed-base robot with no mobile-base component'
+    defines a single fixed-base robot with no mobile-base component. Re-verified this
+    pass, unchanged.'
   robot_platform: 'arXiv:2305.12821 Sec IV-A: ''7-DoF Franka Emika Panda robot arm'';
     https://huggingface.co/api/datasets/IPEC-COMMUNITY/furniture_bench_dataset_lerobot
-    meta/info.json ''robot_type'': ''franka'''
-  num_arms: 'arXiv:2305.12821 Sec IV-A and footnote: single-arm setup (''we leave
-    extending this work to multi-arm and mobile manipulation for future work'')'
-  dof_per_arm: 'arXiv:2305.12821 Sec IV-A: ''7-DoF Franka Emika Panda robot arm'''
+    meta/info.json ''robot_type'': ''franka''. Re-verified this pass, unchanged.'
+  num_arms: 'arXiv:2305.12821 Sec IV-A and Sec VII Limitations: single-arm setup (''we
+    leave extending this work to multi-arm and mobile manipulation for future work'').
+    Re-verified this pass, unchanged.'
+  dof_per_arm: 'arXiv:2305.12821 Sec IV-A: ''7-DoF Franka Emika Panda robot arm''.
+    Re-verified this pass, unchanged.'
   gripper_type: 'arXiv:2305.12821 Sec IV-A: ''Franka Emika Panda robot arm with a
-    default parallel gripper'''
+    default parallel gripper''. Re-verified this pass, unchanged.'
+  hand_pose_representation: 'Derived, not directly stated: gripper_type is parallel_jaw
+    (arXiv:2305.12821 Sec IV-A), not a dexterous/multi-fingered hand, and no MANO/3D-keypoint/joint-angle
+    finger encoding is used anywhere in the action or observation space (arXiv:2305.12821
+    Appendix B-E/F; https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
+    Demonstration File Format only lists ee_pos/ee_quat/gripper_width, no finger/hand-shape
+    fields) -- so HandPoseRepresentation.NONE applies. Newly filled this pass -- field
+    was previously blank.'
   has_mobile_base: 'arXiv:2305.12821 Sec IV-A / config.py: stationary tabletop Franka
     Panda arm bolted to a fixed base tag/table, no mobile base component anywhere
-    in the environment or robot control stack'
+    in the environment or robot control stack. Re-verified this pass, unchanged.'
   action_space: 'arXiv:2305.12821 Appendix B-E ''Action Space'': ''We use an 8D action
     space, which consists of delta end-effector (x,y,z)-position (3D), delta orientation
     (quaternion, 4D), and gripper action (1D)''; https://raw.githubusercontent.com/clvrai/furniture-bench/main/furniture_bench/config.py
-    ''action_dim'': 3+4+1'
+    ''action_dim'': 3+4+1. Re-verified this pass, unchanged.'
   action_frame: 'arXiv:2305.12821 Appendix B-E: ''8D action space, which consists
     of delta end-effector (x,y,z)-position ... delta orientation (quaternion) ...'';
-    Sec IV-A: ''We use end-effector delta-pose control at 10Hz'''
+    Sec IV-A: ''We use end-effector delta-pose control at 10Hz''. Re-verified this
+    pass, unchanged.'
   rotation_representation: 'arXiv:2305.12821 Appendix B-E: ''delta orientation (quaternion,
-    4D)'''
+    4D)''. Re-verified this pass, unchanged.'
   state_dim: 'arXiv:2305.12821 Appendix B-F Table V ''Observations available in FurnitureBench''
     (Policy column checked): EE position (3) + EE orientation quaternion (4) + EE
     linear velocity (3) + EE rotational velocity (3) + Gripper width (1) = 14D proprioceptive
     state fed to the policy; https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
     additionally shows the raw .pkl ''robot_state'' dict also stores joint_positions/joint_velocities/joint_torques
-    (7 each, unused by the paper''s baseline policies)'
+    (7 each, unused by the paper''s baseline policies). Re-verified this pass, unchanged.'
   action_dim: 'arXiv:2305.12821 Appendix B-E ''We use an 8D action space'' (3+4+1);
     https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html Demonstration
     File Format: "''actions'': List of 8-D actions"; matches franka_description-based
-    furniture_bench/config.py ''action_dim'': 3+4+1'
+    furniture_bench/config.py ''action_dim'': 3+4+1. Re-verified this pass, unchanged.'
   fps: 'arXiv:2305.12821 Sec IV-A: ''We use end-effector delta-pose control at 10Hz'';
     https://raw.githubusercontent.com/clvrai/furniture-bench/main/furniture_bench/config.py
     robot ''hz'': 10; https://huggingface.co/api/datasets/IPEC-COMMUNITY/furniture_bench_dataset_lerobot
-    meta/info.json ''fps'': 10'
+    meta/info.json ''fps'': 10. Re-verified this pass, unchanged.'
   fps_variable: 'furniture_bench/config.py hardcodes a single constant robot control
     rate ''hz'': 10 used for every episode/task; the HF LeRobot mirror''s meta/info.json
-    likewise reports one constant top-level ''fps'': 10 for the whole dataset'
+    likewise reports one constant top-level ''fps'': 10 for the whole dataset. Re-verified
+    this pass, unchanged.'
   num_camera_views: 'https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
     Demonstration File Format: the per-step ''observations'' dict only contains ''color_image1''
-    (wrist) and ''color_image2'' (front); https://huggingface.co/api/datasets/IPEC-COMMUNITY/furniture_bench_dataset_lerobot
-    meta/info.json ''total_videos'': 10200 over ''total_episodes'': 5100 = 2 videos/episode,
-    confirming 2 camera views are actually released per demonstration (a third, rear,
-    camera exists in the physical rig per furniture_bench/config.py ''num_camera'':
-    3 and arXiv:2305.12821 Table V, but is used only for AprilTag pose estimation/initialization,
-    not stored as a per-step image in the released demonstrations)'
-  camera_views: front camera ('color_image2') mapped to front; wrist camera ('color_image1')
-    mapped to other because FurnitureBench's Panda is a single, non-handed arm and
-    the enum only offers left_wrist/right_wrist (same convention as this repo's configs/calvin.yaml,
-    configs/libero.yaml, configs/libero_plus.yaml) -- see suggested_new_enum_values
+    (wrist) and ''color_image2'' (front); arXiv:2305.12821 Sec IV-A ''Observation
+    and robot control'': ''The observation space for the environment consists of front-view
+    and wrist camera inputs ... Two Intel RealSense D435 cameras are used to obtain
+    the RGB inputs''; https://huggingface.co/api/datasets/IPEC-COMMUNITY/furniture_bench_dataset_lerobot
+    meta/info.json ''total_videos'': 10200 over ''total_episodes'': 5100 = 2 videos/episode.
+    A third, rear, camera exists in the physical rig per furniture_bench/config.py
+    ''num_camera'': 3 and arXiv:2305.12821 Table V, but is used only for AprilTag
+    pose estimation/initialization, not stored as a per-step image in the released
+    demonstrations. Re-verified this pass, unchanged.'
+  camera_views: front camera ('color_image2') mapped to CameraView.FRONT; wrist camera
+    ('color_image1') mapped to CameraView.WRIST -- schema.py now defines a dedicated
+    generic, non-handed WRIST enum member, so no 'other' workaround is needed for
+    FurnitureBench's single non-handed Panda arm (the earlier onboarding pass's note
+    about using 'other' + a suggested_new_enum_values entry is now obsolete and has
+    been removed this pass since 'wrist' is a real, valid enum value). arXiv:2305.12821
+    Sec IV-A confirms exactly 'front-view and wrist camera inputs', no other views.
+    Re-verified this pass; value unchanged (front, wrist) but stale documentation
+    corrected.
   has_camera_calibration: 'https://raw.githubusercontent.com/clvrai/furniture-bench/main/furniture_bench/config.py
     ''camera'' dict: each of the 3 physical cameras (wrist/front/rear) has an exactly-specified
     ''rel_pose_from_base'' extrinsic transform; arXiv:2305.12821 Appendix H documents
-    a detailed step-by-step camera-mount calibration/reproducibility procedure'
+    a detailed step-by-step camera-mount calibration/reproducibility procedure. Re-verified
+    this pass, unchanged.'
+  has_synchronized_multiview_rig: 'https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
+    Demonstration File Format: each element of the per-episode ''observations'' list
+    is a single dict containing both ''color_image1'' (wrist) and ''color_image2''
+    (front) captured at the same timestep alongside robot_state, i.e. the two released
+    camera streams are frame-aligned to one common 10Hz control-loop clock, not independently
+    timestamped; furniture_bench/config.py additionally defines both cameras'' extrinsics
+    relative to one common robot-base frame (a calibrated rig). Newly filled this
+    pass -- field was previously blank.'
   depth_coverage: 'https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
     Demonstration File Format: the released per-step ''observations'' dict lists only
     ''color_image1''/''color_image2'' (RGB), robot_state, actions, rewards, and skills
     -- no depth field is present in the actual downloadable demonstration files, even
     though the underlying RealSense D435 sensors and simulator support depth capture
     (arXiv:2305.12821 Table V lists depth channels as available-but-unused environment
-    sensors)'
+    sensors; Sec IV-A ''Observation and robot control'' confirms the actual released
+    observation space uses RGB only: ''Two Intel RealSense D435 cameras are used to
+    obtain the RGB inputs''). Re-verified this pass, unchanged.'
+  additional_modalities: 'Checked arXiv:2305.12821 Appendix B-F Table V and https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
+    Demonstration File Format for force_torque/tactile/audio/eye_gaze signals: no
+    dedicated force-torque sensor, tactile sensor, microphone, or eye-tracking device
+    is described anywhere in the hardware setup (arXiv:2305.12821 Sec IV-A hardware
+    list: Franka Panda arm, parallel gripper, 3x RealSense D435 cameras only). The
+    raw .pkl robot_state does include ''joint_torques'' (7,), but this is a motor-current-derived
+    joint-torque estimate from the arm controller, not a dedicated force/torque sensor
+    reading, and is already captured structurally by the robot''s own proprioception
+    rather than as an ''additional modality'' -- left empty to avoid overclaiming
+    a sensor that is not physically present. Newly checked this pass -- field was
+    previously empty with no field_sources entry.'
   has_language_instruction: https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
     Demonstration File Format lists only 'furniture' (name string), 'observations',
     'actions', 'rewards', and 'skills' fields -- no natural-language instruction field
     is stored per demonstration; tasks are identified only by furniture-model name/id,
-    not free-form language
-  num_task_types: 'arXiv:2305.12821 Sec IV-A: ''8 different furniture models, each
-    modeled after an existing piece of IKEA furniture'' (desk, round_table, cabinet,
-    lamp, drawer, square_table, stool, chair)'
+    not free-form language. Re-verified this pass, unchanged.
+  num_task_types: 'CORRECTED from 8 to 9 this pass. Previous value of 8 was sourced
+    only from arXiv:2305.12821 Sec IV-A/Appendix F prose (''Our benchmark features
+    8 different furniture models''), describing the 8 IKEA-inspired furniture *models*.
+    However, the actual released demonstration dataset also includes a 9th distinct
+    task/directory, ''one_leg'' (an explicitly separate simplified sub-task of square_table:
+    ''one_leg assembly, which is a part of square_table consisting of five phases'',
+    arXiv:2305.12821 Sec VI-C) with its own 2500 demonstrations (1000 low + 1000 med
+    + 500 high, arXiv:2305.12821 Table II). Table II''s ''Overall'' row explicitly
+    sums demonstrations across all 9 rows (lamp, square_table, desk, drawer, cabinet,
+    round_table, stool, chair, one_leg) to exactly 5100 demos / 219.6 hours -- matching
+    this file''s expected_num_episodes/expected_size_gb. This is independently corroborated
+    by https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html ''Dataset
+    Size'' table (9 furniture rows including one_leg) and https://huggingface.co/api/datasets/IPEC-COMMUNITY/furniture_bench_dataset_lerobot
+    meta/info.json ''total_tasks'': 9. Since num_task_types describes the actual released
+    data (not just the narrative furniture-model count), 9 is the evidence-backed
+    value.'
   urdf_available: https://github.com/clvrai/furniture-bench/tree/main/furniture_bench/assets/franka_description_ros/franka_description
     (vendored Franka Panda arm URDF) and https://github.com/clvrai/furniture-bench/tree/main/furniture_bench/assets/furniture/urdf
-    (custom URDF files for each of the 8 furniture part models)
+    (custom URDF files for each of the 8 furniture part models). Re-verified this
+    pass, unchanged.
   urdf_source: Both the robot-arm URDF and the furniture-part URDFs are shipped directly
     inside the FurnitureBench GitHub repository itself (furniture_bench/assets/franka_description_ros/
     and furniture_bench/assets/furniture/urdf/), rather than requiring an external
-    manufacturer/community reference, so 'dataset_repo' was recorded
+    manufacturer/community reference, so 'dataset_repo' was recorded. Re-verified
+    this pass, unchanged.
   expected_size_gb: 'https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
     ''Dataset Size'' table: per-furniture, per-randomness-level sizes of raw .pkl
-    files sum to Total row low=457GB + med=499GB + high=223GB = 1179 GB'
+    files (9 rows including one_leg) sum to Total row low=457GB + med=499GB + high=223GB
+    = 1179 GB. Re-verified this pass, unchanged.'
   expected_num_episodes: 'https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html:
-    ''219.6 hours of 5100 successful demonstrations''; matches https://huggingface.co/api/datasets/IPEC-COMMUNITY/furniture_bench_dataset_lerobot
-    meta/info.json ''total_episodes'': 5100'
-suggested_new_enum_values:
-  camera_views: wrist (generic, non-handed) - FurnitureBench's Franka Panda is a single,
-    non-handed arm with one wrist-mounted RealSense camera ('color_image1'); the existing
-    left_wrist/right_wrist options force an incorrect handedness label onto a robot
-    with no left/right arm distinction, so 'other' was used instead as a stand-in
-    (same gap already noted in this repo's configs/calvin.yaml, configs/libero.yaml,
-    configs/libero_plus.yaml, configs/mimicgen.yaml, configs/robocasa.yaml, configs/roboset.yaml).
+    ''219.6 hours of 5100 successful demonstrations''; arXiv:2305.12821 Table II ''Overall''
+    row: 5100 demos across all 9 task categories; matches https://huggingface.co/api/datasets/IPEC-COMMUNITY/furniture_bench_dataset_lerobot
+    meta/info.json ''total_episodes'': 5100. Re-verified this pass, unchanged.'
+  expected_duration_hours: 'arXiv:2305.12821 Sec IV-B: ''We collected 219.6 hours
+    of successful demonstrations''; Table II ''Overall'' row confirms 219.6 total
+    hours across all 9 task categories/randomness levels; https://clvrai.github.io/furniture-bench/docs/tutorials/dataset.html
+    repeats ''219.6 hours of 5100 successful demonstrations''. Newly filled this pass
+    -- field was previously blank.'
+  num_subjects: 'arXiv:2305.12821 Appendix H / Fig. 16 caption (teleoperation setup):
+    ''We collected 219 hours of demonstration data over eight furniture models from
+    two human operators.'' (Distinct from the separate reproducibility experiment
+    in Sec IV-A/Appendix C, which recruited additional participants only to rebuild
+    the physical environment, not to collect demonstrations.) Newly filled this pass
+    -- field was previously blank.'
+  num_objects: 'arXiv:2305.12821 Appendix F: ''Our benchmark features 8 different
+    furniture models, each of which is modeled after an existing piece of IKEA furniture'',
+    enumerated in Fig. 17/Sec III-B as lamp, square_table, desk, drawer, cabinet,
+    round_table, stool, chair. (The 9th released task category, one_leg, reuses the
+    square_table physical object/URDF as a simplified sub-assembly and is not a distinct
+    physical furniture object, which is why num_task_types=9 but num_objects=8.) Newly
+    filled this pass -- field was previously blank.'
+  dof_per_hand: 'Left blank: not applicable. arXiv:2305.12821 Sec IV-A confirms the
+    end effector is a standard two-finger parallel-jaw gripper (1 actuated DOF, opening
+    width only), not a multi-DOF dexterous/anthropomorphic hand, so this dexterous-hand-specific
+    field does not apply to FurnitureBench. Considered and intentionally left blank
+    this pass (not simply overlooked).'
+  num_scenes: 'Left blank: no citable specific count found. arXiv:2305.12821 Sec IV-B
+    states data collection used one fixed lab tabletop rig with per-episode randomized
+    front-camera pose and continuously varied lighting color/brightness (not discretized
+    into a stated number of distinct ''scenes''); the 10-environment reproducibility
+    test (Appendix C-A) is a separate validation experiment building new physical
+    setups to test policy transfer, not part of the released 5100-demo training dataset,
+    so it should not be conflated with num_scenes for this dataset. Considered and
+    intentionally left blank this pass (not simply overlooked).'
+suggested_new_enum_values: {}

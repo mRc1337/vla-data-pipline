@@ -1,0 +1,287 @@
+id: nvidia_gr00t_x_embodiment_sim
+name: NVIDIA GR00T-X-Embodiment-Sim
+source_url: https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim
+paper_url: https://arxiv.org/abs/2503.14734
+license: CC-BY-4.0
+raw_format: LeRobot
+release_type: fixed_episode_dataset
+collection_method: simulation
+secondary_collection_methods:
+- teleop
+is_multi_embodiment: true
+dof_per_arm: 7
+hand_pose_representation: joint_angles
+action_space: mixed
+action_frame: mixed_delta_absolute
+fps_variable: true
+camera_views:
+- head
+- front
+- left_wrist
+- right_wrist
+- wrist
+- side
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 82
+expected_num_episodes: 345023
+expected_duration_hours: 1236.67
+review_status: pending_human_review
+field_sources:
+  source_url: Confirmed via HF datasets API (https://huggingface.co/api/datasets/nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim)
+    and README.md fetch -- repo exists, is public, non-gated, tag license:cc-by-4.0.
+    Distinct from the sibling gr00t_teleop_sim.yaml entry (source_url .../PhysicalAI-Robotics-GR00T-Teleop-Sim),
+    which was already re-verified 2026-07-10 to explicitly flag this repo as a separate,
+    non-duplicate dataset (different license, cross-embodiment scope, not GR1-specific).
+  paper_url: 'README.md opens with "Github Repo: [Isaac GR00T N1](https://github.com/NVIDIA/Isaac-GR00T)"
+    and states "We provide a set of datasets used for post-training of GR00T N1."
+    Fetched that Github repo''s README.md directly (raw.githubusercontent.com/NVIDIA/Isaac-GR00T/main/README.md),
+    which links "Paper" -> https://arxiv.org/abs/2503.14734 ("GR00T N1: An Open Foundation
+    Model for Generalist Humanoid Robots"). Two-hop citation chain (dataset README
+    -> linked Github repo -> that repo''s Paper link), not a direct in-repo citation,
+    so flagging for human confirmation despite reasonable confidence.'
+  license: 'HF API cardData: "license": "cc-by-4.0"; README.md YAML frontmatter: "license:
+    cc-by-4.0". Confirms this is CC-BY-4.0, distinctly NOT CC-BY-NC-4.0 (which is
+    the sibling gr00t_teleop_sim.yaml''s license) -- one of the concrete differentiators
+    between the two datasets.'
+  raw_format: 'Fetched meta/info.json for all 82 named dataset subfolders listed in
+    README.md (via HF resolve URLs). Every one reports "codebase_version": "v2.0"
+    or "v2.1" with data_path pointing at data/chunk-*/episode_*.parquet and video_path
+    at videos/chunk-*/{video_key}/episode_*.mp4 -- this is the LeRobot dataset format
+    (parquet state/action tables + separate mp4 video files), not HDF5 (unlike gr00t_teleop_sim
+    which ships HDF5 as its native raw_format).'
+  release_type: 'README.md presents 5 fixed sections ("Cross-embodied bimanual manipulation:
+    9k trajectories", "Humanoid robot tabletop manipulation: 240k trajectories", "...downsampled:
+    24k trajectories", "Robot Arm Kitchen Manipulation: 72K trajectories", "Unitree
+    G1 Loco-Manipulation: 102 trajectories"), each an already-recorded, fixed-size
+    collection of episodes per named task -- not a generation framework, scene platform,
+    or RL benchmark env that a user would run themselves.'
+  collection_method: 'INFERENCE, flagged for human review: task names in 4 of 5 README
+    sections (bimanual_panda_gripper.Threading, bimanual_panda_hand.LiftTray, ThreePieceAssembly,
+    Transport, BoxCleanup, DrawerCleanup, gr1_arms_only.CanSort, gr1_full_upper_body.Coffee/Pouring,
+    gr1_arms_waist.*, and especially the RoboCasa-branded single_panda_gripper.* kitchen
+    tasks e.g. CloseDoubleDoor/OpenDrawer/TurnOnStove/PnPCounterToSink) are the canonical
+    published task suites of NVIDIA/UT-Austin''s MimicGen and RoboCasa simulation-data-generation
+    frameworks, not live per-episode human teleoperation. Fetched RoboCasa''s own
+    Github README (raw.githubusercontent.com/robocasa/robocasa/main/README.md), which
+    describes its corpus as "high-quality demonstrations: including 600+ hours of
+    human demonstrations in addition to ... robot datasets created with automated
+    trajectory tools" -- i.e. a small human-teleop seed set is programmatically expanded
+    into the bulk of episodes via automated (motion-planning/replay) generation in
+    simulation. Set primary collection_method=simulation per this registry''s existing
+    convention (simulation = automated/scripted/motion-planning-generated, per gr00t_teleop_sim.yaml''s
+    own field_sources note citing libero_plus/maniskill3/robotwin precedent), since
+    the large majority of trajectories (bimanual+gr1_arms_waist+gr1_unified+single_panda_gripper
+    = ~344,920 of 345,023 episodes, i.e. >99.9%) fall in this generated-in-sim category.'
+  secondary_collection_methods: 'Set to [teleop] for two concrete, directly-observed
+    reasons: (1) the unitree_g1.LMPnPAppleToPlateDC subset''s meta/info.json (fetched
+    directly) contains explicit "teleop.navigate_command" and "teleop.base_height_command"
+    feature keys, i.e. this small (103-episode) Unitree G1 loco-manipulation subset
+    was recorded via direct human teleoperation of a simulated humanoid (this is the
+    same collection mechanism as the sibling gr00t_teleop_sim.yaml, which is entirely
+    teleop); (2) per the collection_method note above, RoboCasa/MimicGen-style automated
+    generation is itself seeded from human teleoperated demonstrations. Left as a
+    secondary (not primary) method since it accounts for a small minority of the total
+    episode count.'
+  is_multi_embodiment: 'Fetched meta/info.json robot_type field for representative
+    subsets across all 5 README sections: "Panda" (bimanual_panda_gripper.*), "PandaDexRH"
+    (bimanual_panda_hand.*), "GR1ArmsOnly" (gr1_arms_only.CanSort), "GR1FixedLowerBody"
+    (gr1_full_upper_body.*), "GR1ArmsAndWaistFourierHands" (gr1_arms_waist.*/gr1_unified.*),
+    "Panda+OmronBase" (single_panda_gripper.*, note: mobile-base-equipped, unlike
+    the fixed-base Panda bimanual subsets), and "humanoid" (unitree_g1.LMPnPAppleToPlateDC,
+    a Unitree G1 -- confirmed via its 43-dim leg+arm+hand joint-name list, distinct
+    from the Fourier GR1 humanoid used elsewhere in this same dataset). Seven distinct
+    robot_type values spanning dual-arm fixed-base manipulators, a single-arm mobile
+    manipulator, and two different humanoid platforms (Fourier GR1 and Unitree G1)
+    -- genuinely heterogeneous cross-embodiment data, matching the dataset''s own
+    "Cross-embodied" self-description. Per task instructions, embodiment_class and
+    robot_platform are left blank rather than picking one embodiment to represent
+    the whole dataset.'
+  embodiment_class: 'Left blank: genuinely heterogeneous across dual_arm (bimanual_panda_gripper/hand),
+    single_arm-with-mobile-base (single_panda_gripper.*, Panda+OmronBase), and humanoid
+    (gr1_* and unitree_g1.*) subsets within this one dataset release -- no single
+    EmbodimentClass value accurately describes it. See is_multi_embodiment note for
+    the underlying evidence.'
+  robot_platform: 'Left blank: genuinely heterogeneous (Franka Panda variants, Fourier
+    GR1 variants, and Unitree G1 all appear as separate named robot_type values within
+    this one release) and the schema field is singular, not a list. See is_multi_embodiment
+    note for the underlying evidence.'
+  num_arms: 'Left blank: varies by subset -- 2 for the bimanual_panda_gripper/hand,
+    gr1_*, and unitree_g1 subsets, but 1 for the single_panda_gripper.* (Panda+OmronBase)
+    kitchen-manipulation subset, which alone accounts for 72,470 of 345,023 episodes
+    (>20%). Not a minor exception, so left blank rather than reporting the majority
+    value only.'
+  dof_per_arm: 'Filled 7, true across every embodiment sampled: Franka Panda is a
+    canonical 7-DOF arm (industry-standard fact about the platform, not something
+    directly labeled in this dataset''s generic "motor_0..motor_N" state/action feature
+    names for the Panda-based subsets); the Fourier GR1 arm is confirmed 7-DOF via
+    the sibling gr00t_teleop_sim.yaml''s own already-verified LeRobot meta/modality.json
+    parse (left_arm/right_arm each dims[0,7)); and the Unitree G1 subset''s meta/info.json
+    observation.state "names" list, fetched directly, shows exactly 7 joints per arm
+    (e.g. left_shoulder_pitch/roll/yaw_joint, left_elbow_joint, left_wrist_roll/pitch/yaw_joint).
+    Consistent enough across all embodiments in this release to fill with one value.'
+  dof_per_hand: 'Left blank: heterogeneous where a dexterous hand is present -- the
+    Fourier GR1 hand is 6 DOF (per sibling gr00t_teleop_sim.yaml''s modality.json-verified
+    value) but the Unitree G1 hand''s meta/info.json observation.state "names" list
+    (fetched directly) shows 7 joints per hand (index_0/1, middle_0/1, thumb_0/1/2);
+    the PandaDexRH dex-hand subsets'' 24-dim action vector was not decomposed into
+    an exact per-hand DOF split. Left blank rather than pick one inconsistent value.'
+  gripper_type: 'Left blank, suggested new enum value: no single GripperType value
+    covers this release -- bimanual_panda_gripper.*/single_panda_gripper.* use parallel_jaw
+    grippers (robot_type names literally say "gripper"), while bimanual_panda_hand.*
+    (robot_type "PandaDexRH"), gr1_* (Fourier hands, per sibling gr00t_teleop_sim.yaml),
+    and unitree_g1.* (7-joint per-hand finger names in meta/info.json) use dexterous_hand
+    end effectors, within the same dataset release. See suggested_new_enum_values.'
+  hand_pose_representation: 'Filled joint_angles: everywhere a dexterous hand appears
+    in this dataset (gr1_* subsets per sibling gr00t_teleop_sim.yaml''s modality.json-verified
+    joint_angles value; unitree_g1.LMPnPAppleToPlateDC''s observation.state finger
+    joint names index_0/1, middle_0/1, thumb_0/1/2 fetched directly from meta/info.json),
+    the hand shape is encoded as actuated joint angles within the same state/action
+    vector as the rest of the body, not as MANO parameters or 3D keypoints. No counter-evidence
+    of MANO/keypoint hand encoding found in any subset checked.'
+  has_mobile_base: 'Left blank: heterogeneous -- single_panda_gripper.* subsets''
+    robot_type is explicitly "Panda+OmronBase" (Omron is a wheeled mobile-base manufacturer;
+    this one subset alone is 72,470 of 345,023 episodes, >20%), while the bimanual_panda_gripper/hand
+    and gr1_arms_waist/gr1_unified subsets are fixed-base tabletop manipulation (no
+    base terms in their robot_type strings). The unitree_g1.LMPnPAppleToPlateDC subset
+    additionally has "teleop.navigate_command"/"teleop.base_height_command" features
+    implying legged locomotion (not a wheeled/tracked base) for that small subset.
+    Genuinely mixed within one release, left blank rather than picking one value.'
+  action_space: 'Filled mixed: the gr1_arms_waist/gr1_unified subsets'' 44-dim action
+    is confirmed joint_position per the sibling gr00t_teleop_sim.yaml''s already-verified
+    modality.json parse of the identical GR1ArmsAndWaistFourierHands robot_type/feature
+    layout; the unitree_g1 subset''s meta/info.json (fetched directly) exposes both
+    a 43-dim joint-space "action" (named *_joint) AND a parallel 14-dim "action.eef"
+    (wrist pos + quaternion) feature simultaneously, i.e. both mechanisms are recorded
+    together for that embodiment. This dataset genuinely mixes joint-space and eef-pose
+    action encodings across its subsets/embodiments, matching the ActionSpace.MIXED
+    enum value exactly.'
+  action_frame: 'Filled mixed_delta_absolute: gr1_arms_waist/gr1_unified use absolute
+    joint-position actions (per sibling gr00t_teleop_sim.yaml''s verified README/modality.json
+    citation for the identical GR1 robot_type). The bimanual_panda_gripper/hand and
+    single_panda_gripper.* (RoboCasa-family, robosuite-backed) subsets'' action dims
+    (14 and 12 respectively) are consistent with robosuite/MimicGen/RoboCasa''s standard
+    OSC_POSE controller, which outputs delta end-effector pose + gripper actions by
+    default -- this is strong platform convention rather than a value read directly
+    off this dataset''s generic motor_N feature names, so flagged as inference. Combined
+    evidence supports a genuine absolute/delta mix across this release, matching ActionFrame.MIXED_DELTA_ABSOLUTE.'
+  rotation_representation: 'Left blank, suggested new enum value: gr1_arms_waist/gr1_unified
+    subsets use none (pure joint-position state/action, per sibling gr00t_teleop_sim.yaml''s
+    verified modality.json parse), while the unitree_g1 subset''s meta/info.json (fetched
+    directly) has an explicit "observation.eef_state"/"action.eef" feature with "_abs_quat"
+    named dims -- i.e. quaternion orientation is used for that embodiment. No single
+    RotationRepresentation value (there is no "mixed" option, unlike ActionSpace/ActionFrame)
+    covers both. See suggested_new_enum_values.'
+  state_dim: 'Left blank: fetched meta/info.json observation.state shape directly
+    for 7 representative subsets spanning all 5 README sections and found 5 different
+    values -- 32 (bimanual_panda_gripper.Threading), 40 (bimanual_panda_hand.LiftTray),
+    44 (gr1_arms_waist/gr1_unified/gr1_full_upper_body), 53 (single_panda_gripper.CloseDoubleDoor),
+    43 (unitree_g1.LMPnPAppleToPlateDC, +14 more in a separate observation.eef_state
+    feature). Genuinely heterogeneous by embodiment, no single value applies.'
+  action_dim: 'Left blank: same per-subset fetch as state_dim above found 5 different
+    values -- 14 (bimanual_panda_gripper.Threading), 24 (bimanual_panda_hand.LiftTray),
+    44 (gr1_* subsets), 12 (single_panda_gripper.CloseDoubleDoor), 43 (unitree_g1,
+    +14 more in a separate action.eef feature). Genuinely heterogeneous by embodiment,
+    no single value applies.'
+  fps: 'Left blank (see fps_variable): dominant rate is 20.0 (confirmed for all 81
+    non-unitree_g1 subsets checked, matching the sibling gr00t_teleop_sim.yaml''s
+    GR1 subset), but unitree_g1.LMPnPAppleToPlateDC''s meta/info.json (fetched directly)
+    reports fps 50.0. Left blank rather than report only the majority value, since
+    fps_variable=true already flags the exception.'
+  fps_variable: 'Filled true: fetched meta/info.json "fps" for all 82 named dataset
+    subfolders listed in the README (full crawl, not a sample) -- 81 of 82 report
+    fps 20.0 and exactly one (unitree_g1.LMPnPAppleToPlateDC) reports fps 50.0. Confirmed,
+    not assumed, variation.'
+  num_camera_views: 'Left blank: varies by subset -- 1 camera (gr1_arms_waist/gr1_unified/gr1_arms_only/unitree_g1,
+    all "...ego_view" only), 1 camera for gr1_full_upper_body (front_view only), 3
+    cameras for bimanual_panda_gripper (right_wrist_view/left_wrist_view/front_view),
+    3 cameras for bimanual_panda_hand (right_wrist_view/left_wrist_view/ego_view),
+    and 3 cameras for single_panda_gripper (left_view/right_view/wrist_view). Genuinely
+    heterogeneous, no single count applies.'
+  camera_views: 'Filled with the union of camera semantics directly observed across
+    7 representative subsets'' meta/info.json video feature keys (fetched directly,
+    spanning all 5 README sections): "observation.images.ego_view" (gr1_*/unitree_g1)
+    -> head; "observation.images.front_view" (bimanual_panda_gripper/gr1_full_upper_body)
+    -> front; "observation.images.left_wrist_view"/"right_wrist_view" (bimanual_panda_gripper/hand)
+    -> left_wrist/right_wrist; "observation.images.wrist_view" (single_panda_gripper)
+    -> wrist; "observation.images.left_view"/"right_view" (single_panda_gripper) ->
+    mapped to side as the closest enum match (flagged for human review -- these are
+    plausibly two static side-mounted scene cameras flanking the kitchen counter,
+    per RoboCasa''s typical rendering setup, but this dataset''s own metadata does
+    not spell out their exact placement/semantics beyond the key name).'
+  additional_modalities: 'Left empty (verified, not just defaulted): checked the full
+    "features" block of meta/info.json for 7 representative subsets spanning all 5
+    README sections, including the unitree_g1 subset which has an unusually large
+    feature set (observation.sim.* mujoco-state/finger/wrist debug fields) -- none
+    of force_torque, tactile, audio, or eye_gaze feature keys appear anywhere.'
+  has_language_instruction: 'Filled true: meta/info.json for the bimanual_panda_gripper/hand
+    and single_panda_gripper.* subsets (fetched directly) includes an explicit "annotation.human.action.task_description"
+    feature (an index into a per-episode natural-language task description), and for
+    the gr1_* subsets a per-task language string is assigned via the standard LeRobot
+    meta/tasks.jsonl mechanism (same mechanism already confirmed present for the byte-identical
+    GR1ArmsAndWaistFourierHands robot_type in the sibling gr00t_teleop_sim.yaml).'
+  num_task_types: 'Filled 82: this is an exact count of the distinct named dataset/task
+    subfolders enumerated across all 5 of README.md''s tables (9 cross-embodied bimanual
+    + 24 humanoid-tabletop-full + 24 humanoid-tabletop-downsampled + 24 kitchen +
+    1 unitree-g1-loco-manipulation = 82), cross-checked by successfully fetching meta/info.json
+    for every one of those 82 named subfolders via the HF resolve API (no 404s). CAVEAT
+    for human review: the "downsampled" 24-task section largely re-lists the same
+    underlying manipulation tasks as the "full" 240k-episode section at a smaller
+    1000-episode-per-task scale (e.g. gr1_unified.PnPBottleToCabinetClose_..._1000
+    vs gr1_arms_waist.PlaceBottleToCabinet) -- if "task type" is meant to mean distinct
+    underlying skills rather than distinct named HF subfolders, the true unique-skill
+    count would be lower than 82.'
+  urdf_available: 'Checked: the partial repo file listing fetched via the HF datasets
+    API siblings field (spot-checked, not an exhaustive recursive tree scan of all
+    82 subfolders'' full file lists) showed only README.md/.gitattributes/parquet/mp4
+    files, no .urdf/.xacro/.mjcf files. Left blank rather than assert false from an
+    incomplete listing -- a full recursive tree scan of this large multi-thousand-file
+    repo was out of scope for this pass.'
+  expected_size_gb: 'Left blank: no total repo size is stated in README.md, the HF
+    datasets-server /size endpoint returned a server-side job error when queried,
+    and meta/info.json does not include byte sizes (only frame/episode counts) --
+    computing an accurate total across 82 subfolders'' worth of parquet+mp4 files
+    without downloading them was not achievable in this pass. Left blank rather than
+    estimate.'
+  expected_num_episodes: 'Filled 345023: exact sum of "total_episodes" from meta/info.json,
+    fetched individually for all 82 named dataset subfolders listed in README.md (full
+    crawl, not extrapolated from the README''s rounded per-section totals of 9k/240k/24k/72k/102,
+    which sum to an approximate 345,102). The precise sum from live per-subfolder
+    metadata is 345,023.'
+  expected_duration_hours: 'Filled 1236.67: computed as sum-over-all-82-subfolders
+    of (total_frames / fps), each divided by 3600, using the same full per-subfolder
+    meta/info.json crawl as expected_num_episodes (total_frames summed = 89,087,530;
+    correctly divides by each subfolder''s own fps, 20.0 for 81 subfolders and 50.0
+    for unitree_g1, before summing -- not a single blended fps assumption).'
+  num_subjects: 'Checked README.md and all fetched meta/info.json files: no statement
+    anywhere of how many distinct human operators contributed the (mostly small) teleop
+    seed sets underlying this dataset''s automated generation pipeline. Left blank
+    rather than fabricate.'
+  num_scenes: 'Checked README.md: no scene/layout count is given for this specific
+    dataset release. The RoboCasa project''s own Github README mentions "2,500+ kitchen
+    scenes" for the broader RoboCasa365 corpus, but that figure describes RoboCasa''s
+    general asset library, not a stated count of scenes actually used in this specific
+    HF dataset''s single_panda_gripper.* kitchen-task subset, so it would be a fabrication
+    to attribute that number here. Left blank.'
+  num_objects: 'Checked README.md and the 82 task names (e.g. PlaceBottleToCabinet,
+    CuttingboardToTieredBasket, PnPCounterToSink, LMPnPAppleToPlateDC): task names
+    encode many receptacle/object nouns (bottle, can, cup, milk, potato, wine, cuttingboard,
+    basket, cardboard box, pan, pot, tiered basket/shelf, placemat, bowl, plate, tray,
+    cabinet, drawer, microwave, sink, stove, coffee mug, apple -- roughly 20+ distinct
+    nouns across the whole release), but this is an interpretive parse of task-name
+    strings rather than a stated object count/inventory. Left blank rather than report
+    a number not explicitly stated by the source, consistent with the sibling gr00t_teleop_sim.yaml''s
+    same reasoning for this field.'
+suggested_new_enum_values:
+  GripperType: 'Add MIXED = "mixed": this dataset combines parallel_jaw (Panda-gripper
+    subsets), dexterous_hand (PandaDexRH/GR1/Unitree-G1 subsets), and gripper-less
+    arms-only manipulation within a single dataset release, and the schema''s gripper_type
+    field is a single Optional[GripperType] with no way to represent a genuinely mixed
+    release short of leaving it blank (which loses information relative to what''s
+    knowable per-subset).'
+  RotationRepresentation: 'Add MIXED = "mixed": this dataset combines subsets with
+    none (pure joint-position GR1/gr1_arms_waist subsets, no wrist orientation encoding
+    at all) and subsets with quaternion (unitree_g1''s observation.eef_state/action.eef
+    "_abs_quat" fields) within a single release. Unlike ActionSpace and ActionFrame,
+    which already have a MIXED/MIXED_DELTA_ABSOLUTE escape hatch for exactly this
+    kind of cross-embodiment dataset, RotationRepresentation has no equivalent value.'

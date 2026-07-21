@@ -1,11 +1,13 @@
 id: libero
 name: LIBERO
 source_url: https://libero-project.github.io/datasets
+paper_url: https://arxiv.org/abs/2306.03310
 license: CC-BY-4.0
 raw_format: HDF5
 release_type: fixed_episode_dataset
 collection_method: teleop
 secondary_collection_methods: []
+is_multi_embodiment: false
 embodiment_class: single_arm
 robot_platform: franka_panda
 num_arms: 1
@@ -22,7 +24,8 @@ fps_variable: false
 num_camera_views: 2
 camera_views:
 - third_person
-- other
+- wrist
+has_synchronized_multiview_rig: true
 has_camera_calibration: true
 depth_coverage: none
 additional_modalities: []
@@ -32,22 +35,53 @@ urdf_available: false
 urdf_source: not_found
 expected_size_gb: 100.0
 expected_num_episodes: 6500
+expected_duration_hours: 14.0
 review_status: pending_human_review
 field_sources:
-  source_url: 'Verified reachable (HTTP 200) and confirmed on-topic: https://libero-project.github.io/datasets
+  source_url: 'Re-verified reachable (HTTP 200) and confirmed on-topic: https://libero-project.github.io/datasets
     (''LIBERO Datasets'' page listing RGB workspace/wrist cameras, proprioception,
-    language task specs, PDDL scene descriptions). Stub value kept as-is.'
+    language task specs, PDDL scene descriptions, ''130 tasks'', and a frame-count-per-episode
+    chart used below to cross-check episode/frame totals). Unchanged.'
+  paper_url: 'Newly filled: https://arxiv.org/abs/2306.03310 (''LIBERO: Benchmarking
+    Knowledge Transfer for Lifelong Robot Learning'', NeurIPS 2023 Datasets and Benchmarks
+    Track), linked from the GitHub README ''[Paper]'' badge and cited throughout this
+    file.'
   license: 'https://github.com/Lifelong-Robot-Learning/LIBERO README.md ''License''
-    table: ''Codebase: MIT License'' / ''Datasets: Creative Commons Attribution 4.0
-    International (CC BY 4.0)''. Recorded the Datasets license (CC-BY-4.0), not the
-    codebase''s MIT.'
+    table (re-fetched from master branch): ''Codebase: MIT License'' / ''Datasets:
+    Creative Commons Attribution 4.0 International (CC BY 4.0)''. Recorded the Datasets
+    license (CC-BY-4.0), not the codebase''s MIT. Note: the HuggingFace mirror repo
+    (https://huggingface.co/datasets/yifengzhu-hf/LIBERO-datasets) carries a ''license:apache-2.0''
+    tag in its own metadata, which conflicts with the project''s own README table;
+    kept CC-BY-4.0 since the official GitHub README is the authoritative statement
+    for the dataset content itself, but flagging this HF-tag discrepancy for human
+    review.'
   raw_format: https://github.com/Lifelong-Robot-Learning/LIBERO README.md 'Datasets'
     section (download script fetches per-task demo files) and HuggingFace mirror https://huggingface.co/datasets/yifengzhu-hf/LIBERO-datasets
     file listing, e.g. 'libero_10/KITCHEN_SCENE3_..._demo.hdf5' -- demonstrations
-    stored as HDF5 (robomimic-style).
-  collection_method: 'arXiv:2306.03310 Section 4.4 (page 6): ''we provide 50 trajectories
-    of high-quality demonstrations ... The demonstrations are collected by human experts
-    through teleoperation with 3Dconnexion Spacemouse.'''
+    stored as HDF5 (robomimic-style). Re-verified, unchanged.
+  release_type: 'https://libero-project.github.io/datasets + https://github.com/Lifelong-Robot-Learning/LIBERO
+    README.md ''Datasets'' section: the primary downloadable artifact is a fixed set
+    of pre-recorded per-task demo HDF5 files (libero_spatial/libero_object/libero_goal/libero_90/libero_10),
+    i.e. a fixed episode dataset, even though the repo also ships a procedural task-generation
+    pipeline and simulation envs (arXiv:2306.03310 Sec 4.1) that can create additional
+    tasks beyond the released 130. Classified by the artifact actually ingested for
+    VLA training, same convention as configs/calvin.yaml. Newly documented (field
+    was already set but previously undocumented in field_sources).'
+  collection_method: 'arXiv:2306.03310 Section 4.4 (page 6, re-verified against full
+    PDF text): ''we provide 50 trajectories of high-quality demonstrations ... The
+    demonstrations are collected by human experts through teleoperation with 3Dconnexion
+    Spacemouse.'' Unchanged.'
+  secondary_collection_methods: 'arXiv:2306.03310 (full-text re-check): no mention
+    of autonomous-policy, UMI, or synthesis-based data collection for the released
+    demonstrations -- only human teleoperation via 3Dconnexion Spacemouse in the (simulated)
+    robosuite environment. Following the same convention as configs/calvin.yaml (also
+    a simulator-hosted teleop dataset), ''simulation'' is not added here since that
+    CollectionMethod enum value is reserved for scripted/autonomous data generation,
+    not for the fact that the teleoperated env happens to be simulated. Left empty.'
+  is_multi_embodiment: 'https://github.com/Lifelong-Robot-Learning/LIBERO libero/libero/envs/env_wrapper.py:
+    ControlEnv default `robots=["Panda"]` used identically across all four task suites
+    (LIBERO-Spatial/Object/Goal/100); arXiv:2306.03310 does not mention any other
+    robot embodiment. Newly filled: false.'
   embodiment_class: 'https://github.com/Lifelong-Robot-Learning/LIBERO libero/libero/envs/env_wrapper.py:
     ControlEnv default `robots=["Panda"]` (single robot arm) built on robosuite.'
   robot_platform: 'https://github.com/Lifelong-Robot-Learning/LIBERO libero/libero/envs/env_wrapper.py:
@@ -85,9 +119,16 @@ field_sources:
   camera_views: 'env_wrapper.py `camera_names=["agentview", "robot0_eye_in_hand"]`:
     ''agentview'' is a fixed external workspace camera -> mapped to third_person;
     ''robot0_eye_in_hand'' is a single wrist-mounted camera with no left/right distinction
-    (single-arm robot) -> mapped to ''other'' as a stand-in, following the same convention
-    used for CALVIN''s single-arm wrist camera in this repo''s configs/calvin.yaml
-    (see suggested_new_enum_values).'
+    -> mapped to wrist (CORRECTED from ''other'' -- schema.py now defines CameraView.WRIST,
+    a generic non-handed wrist camera value, which fits this single-arm robot better
+    than the previous ''other'' workaround). suggested_new_enum_values entry for this
+    is now resolved and removed, same correction as configs/calvin.yaml.'
+  has_synchronized_multiview_rig: 'Newly filled: true. Inferred, not an explicit paper
+    statement -- env_wrapper.py/bddl_base_domain.py render both ''agentview'' and
+    ''robot0_eye_in_hand'' cameras from the same MuJoCo/robosuite simulation state
+    at each control step, so the two views are perfectly synchronized by construction
+    in this simulated benchmark. Same reasoning as configs/calvin.yaml; treat as a
+    reasoned inference rather than a direct citation.'
   has_camera_calibration: Camera intrinsics/extrinsics are deterministically defined
     in the MuJoCo/robosuite scene XML and env setup code (bddl_base_domain.py `_setup_camera()`),
     so exact calibration parameters are always derivable/known for every episode (simulation),
@@ -95,6 +136,11 @@ field_sources:
   depth_coverage: env_wrapper.py ControlEnv default `camera_depths=False`; https://libero-project.github.io/datasets
     lists only 'RGB images from workspace and wrist cameras', no depth channel mentioned
     for the released demonstration data.
+  additional_modalities: 'https://libero-project.github.io/datasets ''What are included''
+    list (RGB images, proprioception, language task specifications, PDDL scene descriptions
+    only) and arXiv:2306.03310 full-text re-check: no force/torque, tactile, audio,
+    or eye-gaze sensing mentioned anywhere for the released demonstrations. Left empty
+    (re-verified, unchanged).'
   has_language_instruction: 'arXiv:2306.03310 Section 4 (page 4): ''LIBERO generates
     130 language-conditioned robot manipulation tasks''; every task has a natural-language
     instruction (problem_info[''language_instruction''] in env_wrapper.py).'
@@ -106,15 +152,27 @@ field_sources:
     an MJCF description is bundled, no standalone URDF file found.'
   urdf_source: 'Same check as urdf_available: no .urdf file located in the LIBERO
     or robosuite repos, only a MuJoCo MJCF model -> not_found.'
-  expected_size_gb: https://huggingface.co/datasets/yifengzhu-hf/LIBERO-datasets dataset
-    page reports total repo size '100 GB' for the full libero_spatial/libero_object/libero_goal/libero_90/libero_10
-    HDF5 collection.
-  expected_num_episodes: 'arXiv:2306.03310 Section 4.4 (page 6): ''50 trajectories
-    of high-quality demonstrations ... for every single task'' across 130 tasks total
-    -> 50 x 130 = 6500.'
-suggested_new_enum_values:
-  camera_views: wrist (generic, non-handed) - LIBERO's Panda arm is single-armed with
-    one eye-in-hand ('robot0_eye_in_hand') camera; the existing left_wrist/right_wrist
-    options force an incorrect handedness label onto a robot with no left/right arm
-    distinction, so 'other' was used as a stand-in instead (same issue and same workaround
-    as configs/calvin.yaml).
+  expected_size_gb: 'Re-verified via live HuggingFace API (https://huggingface.co/api/datasets/yifengzhu-hf/LIBERO-datasets?full=true&files_metadata=true,
+    fetched directly): `usedStorage` field = 99,830,157,042 bytes = 99.83 GB across
+    the full libero_spatial/libero_object/libero_goal/libero_90/libero_10 HDF5 collection
+    (132 files), confirming the previously-recorded ''100 GB'' dataset-page figure.
+    Unchanged (100.0).'
+  expected_num_episodes: 'Cross-validated three ways, unchanged (6500): 1) arXiv:2306.03310
+    Section 4.4 (page 6): ''50 trajectories of high-quality demonstrations ... for
+    every single task'' across 130 tasks -> 50 x 130 = 6500; 2) https://libero-project.github.io/datasets
+    embeds a per-episode frame-count JS array for each task suite (fetched and parsed
+    directly) with lengths 500 (libero_spatial) + 500 (libero_object) + 500 (libero_goal)
+    + 5000 (libero_100, i.e. libero_90 + libero_10 combined) = 6500 episodes total,
+    matching the paper exactly. Note: the same datasets page''s prose separately claims
+    ''65,000 high-quality demonstrations'', which appears to be a typo on the official
+    site (likely an extra digit) since both the paper''s explicit math and the page''s
+    own embedded per-episode data arrays independently agree on 6500 -- flagging this
+    site-text discrepancy for human awareness even though it did not change the recorded
+    value.'
+  expected_duration_hours: 'Newly filled: 13.9947 -> rounded to 14.0. Computed directly
+    from https://libero-project.github.io/datasets embedded per-episode frame-count
+    JS arrays (y_spatial sum=62250, y_object sum=74507, y_goal sum=63728, y_100 sum=807133;
+    total = 1,007,618 frames across 6500 episodes), divided by the confirmed fps=20Hz
+    control frequency (env_wrapper.py `control_freq=20`): 1007618 / 20 / 3600 = 13.9947
+    hours.'
+suggested_new_enum_values: {}

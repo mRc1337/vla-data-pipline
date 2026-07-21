@@ -1,25 +1,31 @@
 id: robotwin
 name: RoboTwin
 source_url: https://huggingface.co/datasets/TianxingChen/RoboTwin2.0/tree/main/dataset
+paper_url: https://arxiv.org/abs/2506.18088
 license: MIT
 raw_format: HDF5
 release_type: fixed_episode_dataset
 collection_method: simulation
 secondary_collection_methods: []
+is_multi_embodiment: true
 embodiment_class: dual_arm
 robot_platform: agilex_aloha
 num_arms: 2
 dof_per_arm: 6
 gripper_type: parallel_jaw
+hand_pose_representation: none
 has_mobile_base: false
 action_space: mixed
 action_frame: absolute
 rotation_representation: quaternion
+fps: 16.67
+fps_variable: false
 num_camera_views: 3
 camera_views:
 - head
 - left_wrist
 - right_wrist
+has_synchronized_multiview_rig: true
 has_camera_calibration: true
 depth_coverage: none
 additional_modalities: []
@@ -29,80 +35,152 @@ urdf_available: true
 urdf_source: dataset_repo
 expected_size_gb: 1360.0
 expected_num_episodes: 100000
+num_objects: 731
 review_status: pending_human_review
 field_sources:
-  source_url: 'https://huggingface.co/datasets/TianxingChen/RoboTwin2.0/tree/main/dataset
-    - the stub''s ''TianxingChen/RoboTwin2.0 at main'' was a pasted Hugging Face dataset
-    page title (not GitHub); code repo mirror is https://github.com/RoboTwin-Platform/RoboTwin
-    (paper: https://arxiv.org/abs/2506.18088)'
-  license: 'https://github.com/RoboTwin-Platform/RoboTwin (repo license = MIT, and
-    README.md ''License'' section: ''This repository is released under the MIT license'');
-    https://huggingface.co/datasets/TianxingChen/RoboTwin2.0 lists ''License: mit'''
-  raw_format: 'https://robotwin-platform.github.io/doc/usage/configurations.html:
-    ''An episode''s data will be stored in one HDF5 file''; confirmed in https://robotwin-platform.github.io/doc/usage/collect-data.html'
-  collection_method: 'arXiv:2506.18088 abstract/title: ''RoboTwin 2.0, a scalable
-    simulation framework'' generating expert trajectories entirely via simulated dual-arm
-    data synthesis (no teleoperation)'
-  embodiment_class: arXiv:2506.18088 title ('Robust Bimanual Robotic Manipulation')
-    and Figure 5 'Five RoboTwin 2.0 Embodiments' (all dual-arm task setups)
-  robot_platform: 'README.md minimal config example uses embodiment: [aloha-agilex];
-    arXiv:2506.18088 Table 5/Section 4.5 benchmark: ''Evaluations are conducted on
-    all 50 benchmark tasks using the Aloha AgileX dual-arm embodiment.'' This is the
-    flagship/default of 5 supported platforms (see suggested_new_enum_values for the
-    others).'
-  num_arms: arXiv:2506.18088 title/abstract (bimanual = 2 arms); Table 2 shows all
-    5 embodiments (Aloha-AgileX, Piper, Franka, UR5, ARX-X5) benchmarked as dual-arm
-    pairs on the same 50 tasks
-  dof_per_arm: 'arXiv:2506.18088 Section 4.2: ''lower-DoF platforms such as Aloha-AgileX,
-    Piper, and ARX-X5 (6-DoF)'' vs ''high-DoF arms such as Franka and UR5 (7-DoF)'';
-    value given here (6) is for the default Aloha-AgileX embodiment'
-  gripper_type: 'arXiv:2506.18088 Appendix E: ''multiple gripper types, including
-    the Panda gripper and WSG gripper'' (both parallel-jaw grippers); Figure 6 grasp
-    illustrations'
-  has_mobile_base: arXiv:2506.18088 Figure 5/6 and task descriptions show all 5 embodiments
-    as stationary tabletop dual-arm rigs; no mobile base is described anywhere in
-    the paper or docs
-  action_space: 'https://robotwin-platform.github.io/doc/usage/control-robot.html:
-    take_action supports both ''qpos'' (joint position) mode and ''ee'' (end-effector
-    pose) mode, and the collected data_type fields (endpose + qpos) in configurations.html
-    save both simultaneously'
-  action_frame: 'https://robotwin-platform.github.io/doc/usage/configurations.html
-    and control-robot.html: qpos = absolute joint angles, endpose = ''end-effector
-    pose in the world coordinate frame'' (absolute, not delta)'
-  rotation_representation: 'https://robotwin-platform.github.io/doc/usage/configurations.html:
-    endpose is ''a list of 7 elements ... following the order x, y, z, qw, qx, qy,
-    qz'''
-  num_camera_views: 'GitHub raw envs/_base_task.py: self.robot.left_camera / right_camera
-    (wrist) plus head_camera; task_config/demo_clean.yml camera section (head_camera_type,
-    wrist_camera_type, collect_head_camera, collect_wrist_camera)'
-  camera_views: GitHub raw envs/_base_task.py (left_camera, right_camera, head_camera
-    attributes) and task_config/demo_clean.yml
-  has_camera_calibration: Simulation environment (SAPIEN) - camera intrinsics/extrinsics
+  source_url: HF dataset page (huggingface.co/datasets/TianxingChen/RoboTwin2.0, confirmed
+    live via HF API, license:mit tag) is the pre-collected 100k-trajectory release;
+    code/paper mirror is github.com/RoboTwin-Platform/RoboTwin
+  license: 'Re-verified: GitHub README.md License section (''released under the MIT
+    license''); HF API https://huggingface.co/api/datasets/TianxingChen/RoboTwin2.0
+    returns tags:[''license:mit''], cardData.license=''mit'''
+  raw_format: 'Re-verified via robotwin-platform.github.io/doc/usage/configurations.html
+    Minimal Example section: "An episode''s data will be stored in one HDF5 file"'
+  collection_method: 'Re-verified: arXiv:2506.18088 abstract - ''expert data synthesis
+    pipeline that leverages multimodal language models (MLLMs) and simulation-in-the-loop
+    refinement to automatically generate task-level execution code'', executed entirely
+    in SAPIEN simulation; no teleoperation or real-robot collection involved'
+  embodiment_class: 'Re-verified: arXiv:2506.18088 title ''Robust Bimanual Robotic
+    Manipulation'' and Fig.5 ''Five RoboTwin 2.0 Embodiments'' - all 5 supported platforms
+    are dual-arm rigs (single-arm robots combined in pairs per docs configurations.html)'
+  robot_platform: 'Re-verified: robotwin-platform.github.io/doc/usage/configurations.html
+    Task & Embodiment Settings table lists ''Available Embodiment: ur5-wsg, ARX-X5,
+    franka-panda, piper, aloha-agilex (dual-arm)''; aloha-agilex is the flagship default
+    used in the paper''s main benchmark table (Aloha AgileX dual-arm embodiment).
+    See is_multi_embodiment and suggested_new_enum_values for the other 4.'
+  num_arms: 'Re-verified: all 5 embodiments are used as dual-arm pairs (either native
+    dual-arm like Aloha-AgileX, or two single-arm robots combined per configurations.html
+    embodiment field description)'
+  dof_per_arm: 'Re-verified via arXiv:2506.18088 full text (arxiv.org/html/2506.18088):
+    ''lower-DoF platforms such as Aloha-AgileX, Piper, and ARX-X5 (6-DoF)'' vs ''high-DoF
+    arms such as Franka and UR5 (7-DoF)''; value here (6) is for the default Aloha-AgileX
+    embodiment recorded in robot_platform'
+  gripper_type: 'Re-verified: arXiv:2506.18088 Appendix E - ''multiple gripper types,
+    including the Panda gripper and WSG gripper'' (both parallel-jaw); Fig.6 grasp
+    illustrations show parallel-jaw grasping for all embodiments'
+  has_mobile_base: 'Re-verified: arXiv:2506.18088 Fig.5/6 and task descriptions show
+    all 5 embodiments as stationary tabletop dual-arm rigs; no mobile base anywhere
+    in paper or docs'
+  action_space: 'Re-verified via robotwin-platform.github.io/doc/usage/configurations.html
+    Data Type section: data_type.qpos (joint position) and data_type.endpose (end-effector
+    pose + gripper opening ratio) are both collected simultaneously in the released
+    dataset''s default configs (task_config/demo_clean.yml, demo_randomized.yml)'
+  action_frame: 'Re-verified: configurations.html Data Type / Note sections - qpos
+    is absolute joint angles; endpose is ''end-effector pose in the world coordinate
+    frame'' (absolute, not delta)'
+  rotation_representation: 'Re-verified: configurations.html Note - endpose entries
+    are 7-element lists ''following the order x, y, z, qw, qx, qy, qz'' (quaternion)'
+  num_camera_views: 'Re-verified: configurations.html Camera Configuration section
+    (collect_head_camera, collect_wrist_camera) and _base_task.py left_camera/right_camera/head_camera
+    attributes -> 3 views (head + 2 wrists)'
+  camera_views: 'Re-verified: same as num_camera_views - head_camera (head), left_camera/right_camera
+    (left_wrist/right_wrist) per _base_task.py and task_config/_camera_config.yml'
+  has_camera_calibration: 'Re-verified: simulation environment (SAPIEN) - camera intrinsics/extrinsics
     for head/wrist cameras are exactly defined in task_config/_camera_config.yml (fovy,
-    resolution) rather than estimated
-  depth_coverage: 'https://raw.githubusercontent.com/RoboTwin-Platform/RoboTwin/main/task_config/demo_clean.yml:
-    data_type.depth: false (default collection config does not save depth maps)'
-  has_language_instruction: README.md ('language_num' config field, 'Trajectory-Level
-    Diverse Language Instructions'); arXiv:2506.18088 Section 2.2 describes MLLM-generated
-    diverse per-trajectory language instructions
-  num_task_types: 'arXiv:2506.18088 abstract/Section 3.2: ''a collection of over 100,000
-    expert trajectories spanning 50 tasks''; https://robotwin-platform.github.io/doc/tasks/index.html
-    lists the 50 tasks'
-  urdf_available: README.md Install & Download step 4 (bash script/_download_assets.sh
-    downloads assets/embodiments/<name>/config.yml + meshes for simulation); task_config/_embodiment_config.yml
-    lists file_path per embodiment
-  urdf_source: Same as urdf_available - embodiment URDF/mesh assets are bundled/distributed
-    as part of the RoboTwin project's own asset release (assets/embodiments/), not
-    a third-party manufacturer file
-  expected_size_gb: https://huggingface.co/datasets/TianxingChen/RoboTwin2.0/tree/main/dataset
-    - dataset folder listed as '1.36 TB'
-  expected_num_episodes: 'arXiv:2506.18088 abstract/Section 3.2: ''a collection of
-    over 100,000 expert trajectories spanning 50 tasks across five dual-arm robot
-    platforms'''
+    resolution) rather than estimated'
+  depth_coverage: 'Re-verified against both official default task configs used to
+    produce the released dataset: raw.githubusercontent.com/RoboTwin-Platform/RoboTwin/main/task_config/demo_clean.yml
+    AND demo_randomized.yml both set data_type.depth: false, despite D435 cameras
+    being depth-capable; depth is an opt-in data_type flag not enabled in either standard
+    collection config'
+  has_language_instruction: 'Re-verified: configurations.html language_num config
+    field (''number of language descriptions to sample for each task''); arXiv:2506.18088
+    describes MLLM-generated diverse per-trajectory language instructions and a combinatorial
+    augmentation pipeline (Appendix H/I)'
+  num_task_types: 'Re-verified: arXiv:2506.18088 abstract ''instantiated across 50
+    dual-arm tasks''; robotwin-platform.github.io/doc/tasks/index.html lists the 50
+    named tasks (confirmed via docs page table of contents)'
+  urdf_available: 'Re-verified: GitHub README Install & Download step downloads assets/embodiments/<name>/
+    meshes/config for simulation; task_config/_embodiment_config.yml lists file_path
+    per embodiment (aloha-agilex, piper, franka-panda, ARX-X5, ur5-wsg), all confirmed
+    present'
+  urdf_source: 'Re-verified: same as urdf_available - embodiment asset files are bundled
+    as part of the RoboTwin project''s own asset release (assets/embodiments/), not
+    a third-party manufacturer file'
+  expected_size_gb: 'Re-verified live: huggingface.co/datasets/TianxingChen/RoboTwin2.0/tree/main/dataset
+    folder size badge reads ''1.36 TB'' (fetched directly, matches prior value of
+    1360.0 GB)'
+  expected_num_episodes: 'Re-verified: arXiv:2506.18088 abstract/Section 3.2 and GitHub
+    README ''We provide over 100,000 pre-collected trajectories as part of the open-source
+    release'''
+  paper_url: 'arXiv:2506.18088 ''RoboTwin 2.0: A Scalable Data Generator and Benchmark
+    with Strong Domain Randomization for Robust Bimanual Robotic Manipulation'' -
+    matches GitHub README citation block and abstract content verified directly'
+  release_type: 'Judgment call, re-examined: arXiv abstract describes RoboTwin 2.0
+    as ''a scalable framework'' that also releases ''the data generator, benchmark,
+    dataset, and code''; this registry entry''s source_url points at the pre-collected
+    ~100k-trajectory HF dataset asset (a fixed release), not the generator codebase,
+    so fixed_episode_dataset is kept. Comparable simulation-generator datasets (e.g.
+    gensim2) were classified as generation_framework in the backfill table (common/backfill_schema_refinement.py);
+    robotwin was not listed there and defaults to fixed_episode_dataset -- flagging
+    as a judgment call for human review since the underlying pipeline is also a generator.'
+  secondary_collection_methods: 'Investigated: the MLLM-generated execution code is
+    scripted/motion-planned, not an RL ''autonomous_policy'' exploring, and RoboTwin-OD
+    asset curation (scene_asset_curation) pertains to object-library construction,
+    not trajectory collection itself. Left empty - no secondary collection method
+    fits distinctly from simulation.'
+  is_multi_embodiment: 'New: confirmed via arXiv:2506.18088 abstract (''instantiated
+    across 50 dual-arm tasks and five robot embodiments'') and docs configurations.html
+    embodiment table (5 available platforms: ur5-wsg, ARX-X5, franka-panda, piper,
+    aloha-agilex)'
+  dof_per_hand: 'Investigated and left blank: field is intended for dexterous/multi-finger
+    hands (paired with hand_pose_representation); RoboTwin''s parallel-jaw grippers
+    are single-actuator open/close end-effectors, not dexterous hands, so this field
+    does not cleanly apply'
+  hand_pose_representation: 'New: set to ''none'' because all embodiments use parallel-jaw
+    grippers (see gripper_type), not dexterous/articulated hands, so no MANO/keypoint/joint-angle
+    hand-shape encoding applies'
+  has_synchronized_multiview_rig: 'New: all cameras (head + both wrists) are rendered
+    from the same SAPIEN simulation state at each saved timestep, so multi-view frames
+    are inherently synchronized by construction; not explicitly phrased as ''synchronized''
+    in the docs, so flagged as an inference from the simulation architecture rather
+    than an explicit statement'
+  additional_modalities: Investigated via arXiv:2506.18088 full text and configurations.html
+    data_type list (rgb, third_view, depth, pointcloud, observer, endpose, qpos, mesh_segmentation,
+    actor_segmentation) - no force/torque, tactile, audio, or eye-gaze sensing found
+    anywhere; left empty
+  num_objects: 'New: arXiv:2506.18088 abstract and Section 2 - RoboTwin-OD asset library
+    comprises 731 object instances across 147 categories (534 instances/111 categories
+    in-house via Rodin RGB-to-3D + convex decomposition, 153 instances/27 categories
+    from Objaverse, 44 instances/9 categories from SAPIEN PartNet-Mobility; 534+153+44=731,
+    111+27+9=147, both verified by direct arithmetic)'
+  fps: 'New, inferred: configurations.html Data Collection Settings - save_freq description
+    states ''Save every N steps. Per-step indicates 0.004s in the real world.''; both
+    official default configs used for the released dataset (task_config/demo_clean.yml
+    and demo_randomized.yml) set save_freq: 15, giving 1/(15*0.004s) ~= 16.67 Hz.
+    Not an explicit ''fps'' statement in the docs -- derived from the timestep math,
+    flagged for human spot-check.'
+  fps_variable: 'New, inferred: both official default task configs (demo_clean.yml,
+    demo_randomized.yml) that plausibly produced the released 100k-trajectory dataset
+    use the same save_freq: 15, so effective fps appears constant across the release;
+    not verified against every one of the 50 per-task config files individually'
+  expected_duration_hours: 'Investigated and left blank: no per-episode step-count
+    or trajectory-length statistic found in arXiv:2506.18088 full text or docs; without
+    an average episode length this cannot be derived from fps alone without fabricating
+    a number'
+  num_subjects: 'Investigated and left blank: not applicable - RoboTwin is a pure
+    simulation data generator (SAPIEN), no human subjects/demonstrators are involved
+    in producing the released trajectories'
+  num_scenes: 'Investigated and left blank: RoboTwin 2.0 uses continuous domain randomization
+    axes (background texture, lighting, clutter, table height, language) rather than
+    a discrete enumerated set of named scenes; arXiv:2506.18088 full text search found
+    no explicit scene count'
 suggested_new_enum_values:
   robot_platform: agilex_piper - RoboTwin 2.0's fifth supported embodiment is the
     AgileX Piper, a 6-DoF single arm deployed as a mirrored left/right pair for bimanual
-    tasks (arXiv:2506.18088 Fig.5, Table 2). No existing robot_platform enum value
-    corresponds to 'Piper'; the dataset overall is multi-embodiment (Aloha-AgileX,
-    ARX-X5, Franka-Panda, UR5-WSG, Piper), which the current single-value robot_platform
-    field cannot fully capture.
+    tasks (arXiv:2506.18088 full text Sec.2.3/4.2 DoF comparisons; configurations.html
+    embodiment table lists 'piper' as a distinct available embodiment alongside aloha-agilex,
+    franka-panda, ARX-X5, ur5-wsg). No existing robot_platform enum value corresponds
+    to 'Piper'; the dataset overall is multi-embodiment (see is_multi_embodiment=true),
+    which the current single-value robot_platform field cannot fully capture on its
+    own.

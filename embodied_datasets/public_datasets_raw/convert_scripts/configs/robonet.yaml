@@ -1,16 +1,21 @@
 id: robonet
 name: RoboNet
 source_url: https://www.robonet.wiki/
+paper_url: https://arxiv.org/abs/1910.11215
 license: CC-BY-4.0
 raw_format: HDF5
 release_type: fixed_episode_dataset
 collection_method: autonomous_policy
 secondary_collection_methods: []
+is_multi_embodiment: true
 gripper_type: parallel_jaw
+hand_pose_representation: none
+has_mobile_base: false
 action_space: eef_pose
 action_frame: delta
 camera_views:
 - third_person
+has_synchronized_multiview_rig: true
 has_camera_calibration: false
 depth_coverage: none
 additional_modalities: []
@@ -84,6 +89,23 @@ field_sources:
     roughly 162,000 trajectories...from 7 robots''; Table 1 breakdown sums to ~161.7k
     (Sawyer 68k + Baxter 18k + WidowX 5k + Franka 7.9k + Kuka 1.8k + Fetch 5k + GoogleRobot
     56k)'
+  paper_url: 'Cited throughout repo/wiki as ''the RoboNet paper''; CoRL 2019 paper,
+    Dasari et al. ''RoboNet: Large-Scale Multi-Robot Learning'', arXiv:1910.11215.'
+  is_multi_embodiment: 'arXiv:1910.11215 abstract + Table 1: dataset combines 7 distinct
+    robot platforms (Sawyer, Baxter, WidowX, Franka, Kuka, Fetch, GoogleRobot) from
+    4 institutions -- an intentional multi-robot collection, not single-embodiment.'
+  has_mobile_base: 'arXiv:1910.11215 Appendix B.1: state/action space for all 7 robots
+    is restricted to end-effector XYZ + yaw + gripper joint; no base-motion dimension
+    defined for any robot, and all tasks are stationary tabletop object-relocation
+    tasks.'
+  hand_pose_representation: Table 1 lists only 2-finger parallel-jaw grippers (WSG-50,
+    Robotiq, WidowX/Baxter/Franka/Kuka stock grippers); Appendix B.1 records only
+    a single binarized gripper joint-angle value, no dexterous-hand or bare-hand pose
+    data -- 'none' applies.
+  has_synchronized_multiview_rig: GitHub wiki Getting-Started page (github.com/SudeepDasari/RoboNet/wiki/Getting-Started)
+    TF-loading example shows image batches shaped (B, T, N_VIEWS, H, W, C) -- multiple
+    camera views recorded together per trajectory in the hdf5 files (env/cam{i}_video
+    groups).
 suggested_new_enum_values:
   robot_platform: RoboNet is an intentionally multi-embodiment collection spanning
     7 distinct robot platforms (Sawyer, Baxter, WidowX, Franka Panda, Kuka LBR iiwa,
@@ -109,3 +131,9 @@ suggested_new_enum_values:
     in the dataset's own metadata schema) genuinely varies per constituent robot/source
     file rather than being fixed dataset-wide, so no single state_dim/action_dim integer
     is accurate for the collection as a whole.
+  rotation_representation: Most RoboNet robots (excluding Google R3) restrict orientation
+    to a single yaw angle (roll/pitch locked, gripper always pointing downward) per
+    arXiv:1910.11215 Appendix B.1's R5 state definition (XYZ + yaw + gripper). This
+    is not a full 3-axis euler_xyz, quaternion, 6D, or axis_angle representation;
+    left blank rather than forcing a full-orientation enum value. A 'yaw_only'/'single_axis_angle'
+    enum option would represent this restricted-rotation convention precisely.

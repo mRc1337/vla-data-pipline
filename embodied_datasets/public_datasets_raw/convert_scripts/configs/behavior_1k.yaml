@@ -1,18 +1,23 @@
 id: behavior_1k
 name: BEHAVIOR-1K
 source_url: https://behavior.stanford.edu/
+paper_url: https://arxiv.org/abs/2403.09227
 license: MIT
 raw_format: LeRobot
 release_type: fixed_episode_dataset
 collection_method: teleop
 secondary_collection_methods: []
+is_multi_embodiment: false
 embodiment_class: mobile_manipulator
-robot_platform: other
+robot_platform: r1pro
 num_arms: 2
 dof_per_arm: 7
 gripper_type: parallel_jaw
+hand_pose_representation: none
 has_mobile_base: true
-action_space: joint_position
+action_space: mixed
+action_frame: absolute
+rotation_representation: quaternion
 state_dim: 61
 action_dim: 23
 fps: 30.0
@@ -29,10 +34,16 @@ has_language_instruction: true
 num_task_types: 100
 expected_size_gb: 3270.0
 expected_num_episodes: 20000
+expected_duration_hours: 1950.0
+num_scenes: 7
 review_status: pending_human_review
 field_sources:
   source_url: https://github.com/StanfordVL/BEHAVIOR-1K (official repo README; stub
     had no usable source_url, corrected to project homepage/GitHub)
+  paper_url: 'https://arxiv.org/abs/2403.09227 (arXiv:2403.09227, ''BEHAVIOR-1K: A
+    Human-Centered, Embodied AI Benchmark with 1,000 Everyday Activities and Realistic
+    Simulation'', cited as the canonical BibTeX entry on both the challenge page and
+    dataset page)'
   license: 'https://huggingface.co/datasets/behavior-1k/2026-challenge-demos (README:
     ''license: mit'')'
   raw_format: https://huggingface.co/datasets/behavior-1k/2026-challenge-demos/resolve/main/meta/info.json
@@ -46,17 +57,47 @@ field_sources:
   robot_platform: same robots.md / evaluation.md sources; R1Pro is BEHAVIOR-1K's own
     OmniGibson-native robot, not in the given enum list, so mapped to 'other' (see
     suggested_new_enum_values)
+  secondary_collection_methods: no evidence of any collection method other than JoyLo
+    teleoperation for the 2026-challenge-demos release; left empty after re-check
+    of https://behavior.stanford.edu/challenge/index.html and dataset.html (the mention
+    of OmniGibson/scripts/learning/replay_obs.py is only for re-rendering additional
+    observations from the same raw teleop trajectories, not an alternate collection
+    method)
+  is_multi_embodiment: 'false -- https://huggingface.co/datasets/behavior-1k/2026-challenge-demos/resolve/main/meta/info.json
+    (''robot_type'': ''R1Pro'') plus the two official OmniGibson configs used to define
+    the R1Pro action/observation space for BEHAVIOR (raw.githubusercontent.com/StanfordVL/BEHAVIOR-1K/main/OmniGibson/omnigibson/configs/r1pro_behavior.yaml
+    and .../OmniGibson/omnigibson/eval/r1pro.yaml, both ''robots: [{type/model: R1Pro}]''
+    only); challenge/evaluation.html allows participants to swap in a different robot
+    for their own *policy* submissions, but the released 20k-demo dataset itself is
+    single-embodiment (R1Pro only)'
   num_arms: 'docs/omnigibson/robots.md R1Pro description: ''x2 6/7-DOF arm'' (R1Pro
     variant uses 7-DOF arms)'
   dof_per_arm: 'docs/omnigibson/robots.md: R1Pro composed of holonomic base, 4-DOF
     torso, x2 7-DOF arm, x2 2-DOF parallel jaw grippers'
   gripper_type: 'docs/omnigibson/robots.md: R1Pro ''2-DOF parallel jaw grippers'''
+  hand_pose_representation: none -- confirmed via robots.md (R1Pro uses '2-DOF parallel
+    jaw grippers', not a dexterous/articulated hand) and the R1Pro controller_config
+    in OmniGibson/omnigibson/eval/r1pro.yaml (gripper_left/right use MultiFingerGripperController,
+    a simple open/close command, no MANO/keypoint/joint-angle hand pose encoding)
   has_mobile_base: 'docs/omnigibson/robots.md: R1Pro has a holonomic (x,y,rz) mobile
     base'
-  action_space: 'https://huggingface.co/datasets/behavior-1k/2026-challenge-demos/resolve/main/meta/info.json:
-    action shape [23] = base(3)+torso(4)+arms(2x7=14)+grippers(2), matching per-joint
-    control per docs/omnigibson/robots.md controller list (Base/Torso/Arm/Gripper
-    joint controllers)'
+  action_space: 'CORRECTED from ''joint_position'' to ''mixed'' on re-verification.
+    raw.githubusercontent.com/StanfordVL/BEHAVIOR-1K/main/OmniGibson/omnigibson/eval/r1pro.yaml
+    and .../omnigibson/configs/r1pro_behavior.yaml controller_config: base uses HolonomicBaseJointController
+    with motor_type: velocity (3-dim rate command), while trunk/arm_left/arm_right
+    use JointController with motor_type: position and use_delta_commands: false (4+7+7=18
+    dims), and gripper_left/right use MultiFingerGripperController (2 dims); 3+4+14+2=23
+    matches meta/info.json action shape [23] exactly, confirming this controller mix
+    (velocity base + position arms/torso + gripper command) generated the released
+    actions, i.e. a mixed action space rather than pure joint_position'
+  action_frame: 'absolute -- same r1pro.yaml/r1pro_behavior.yaml controller_config:
+    trunk/arm_left/arm_right JointControllers all explicitly set use_delta_commands:
+    false; no delta usage found anywhere in the official R1Pro controller configs'
+  rotation_representation: quaternion -- r1pro.yaml proprio_obs list includes eef_left_quat
+    / eef_right_quat (4-dim wrist-orientation quaternion per arm); cross-validated
+    against meta/info.json observation.state shape [61] = base_qvel(3) + [arm_qpos(7)+arm_qvel(7)+eef_pos(3)+eef_quat(4)+gripper_qpos(2)+gripper_qvel(2)]x2
+    arms(50) + trunk_qpos(4)+trunk_qvel(4)(8) = 61, an exact match confirming eef_quat
+    is part of the recorded state
   state_dim: 'meta/info.json: observation.state shape [61]'
   action_dim: 'meta/info.json: action shape [23]'
   fps: 'meta/info.json: ''fps'': 30'
@@ -71,6 +112,9 @@ field_sources:
   depth_coverage: 'docs/challenge/dataset.md: dataset includes RGB and Depth (depth_linear)
     modalities for all camera views; meta/info.json has observation.depth_linear.*
     for every camera'
+  additional_modalities: 'confirmed empty on re-check -- meta/info.json feature list
+    has no force_torque/tactile/eye_gaze features, and every RGB video feature has
+    ''has_audio'': false explicitly'
   has_language_instruction: 'docs/challenge/dataset.md: ''annotations'' folder contains
     ''Language annotations for each episode'''
   num_task_types: 'docs/challenge/dataset.md Dataset Statistics table: Total Tasks
@@ -79,6 +123,16 @@ field_sources:
     TB in total'' (LeRobot format release)'
   expected_num_episodes: 'docs/challenge/dataset.md Dataset Statistics table: Total
     Trajectories = 20,000'
+  expected_duration_hours: 'https://behavior.stanford.edu/challenge/index.html (''Challenge
+    at a Glance'': ''20,000 human teleoperation demos, 1,950 hours in total''); cross-validated
+    against dataset.html Dataset Statistics table (Avg. Trajectory Duration 351.54
+    seconds x 20,000 trajectories = 7,030,800 s = ~1953.0 h, consistent with the stated
+    1,950 h)'
+  num_scenes: 'https://behavior.stanford.edu/challenge/index.html (''Challenge at
+    a Glance'': ''Environments 7 scenes, including 4 new scenes''); this is the challenge/demo-release-specific
+    scene count, not the full BEHAVIOR-1K/OmniGibson asset library figure of 50 scenes
+    cited on the project homepage and in arXiv:2403.09227, which describes the whole
+    platform rather than this specific 100-task/20k-episode release'
 suggested_new_enum_values:
   robot_platform: r1pro - BEHAVIOR-1K's default embodiment for its public demonstration
     dataset (and the 2026 Challenge) is 'R1Pro', a custom bimanual (2x7-DOF arm),

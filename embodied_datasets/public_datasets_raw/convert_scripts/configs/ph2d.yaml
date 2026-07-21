@@ -1,0 +1,214 @@
+id: ph2d
+name: PH2D
+source_url: https://huggingface.co/datasets/RogerQi/PH2D
+paper_url: https://arxiv.org/abs/2503.13441
+license: MIT
+raw_format: HDF5
+release_type: fixed_episode_dataset
+collection_method: egocentric_human
+secondary_collection_methods:
+- teleop
+- simulation
+is_multi_embodiment: true
+embodiment_class: human_hand
+robot_platform: unitree_h1
+num_arms: 2
+dof_per_arm: 7
+dof_per_hand: 6
+gripper_type: dexterous_hand
+hand_pose_representation: keypoints_3d
+has_mobile_base: false
+action_space: mixed
+action_frame: absolute
+rotation_representation: rotation_6d
+state_dim: 128
+action_dim: 128
+fps: 30.0
+fps_variable: false
+num_camera_views: 1
+camera_views:
+- head
+has_synchronized_multiview_rig: false
+has_camera_calibration: true
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 6
+urdf_available: true
+urdf_source: dataset_repo
+expected_size_gb: 15.83
+expected_num_episodes: 28376
+expected_duration_hours: 34.1
+review_status: pending_human_review
+field_sources:
+  source_url: Pre-filled stub, verified reachable via HF datasets API https://huggingface.co/api/datasets/RogerQi/PH2D
+    (sha=87b77716f10c04602bdf53de4657795b13fde1c5, not gated, not private).
+  paper_url: 'arXiv:2503.13441, "Humanoid Policy ~ Human Policy" (Qiu, Yang, Cheng,
+    Chawla, Li, He, Yan, Yoon, Hoque, Paulsen, Yang, Zhang, Yi, Shi, Wang). HF dataset
+    card verbatim: "arXiv link: https://arxiv.org/abs/2503.13441". CoRL paper PDF
+    also linked from https://human-as-robot.github.io/.'
+  license: 'HF dataset card front-matter: "license: mit"; HF API cardData.license
+    == "mit"; schema.org JSON-LD on the dataset page: "license": "https://choosealicense.com/licenses/mit/".'
+  raw_format: 'HF README "Data organizations": "Each folder represents one task. Most
+    HDF5 files contain ONE execution of the task..."; HF API siblings list confirms
+    every task folder contains only *.hdf5.hdf5 files (e.g. 000-sim_test/processed_episode_0.hdf5.hdf5).'
+  release_type: HF repo is a fixed, closed set of ~50 task folders / ~1850 HDF5 files
+    plus a static ph2d_metadata.json (re-verified via HF API siblings list); not a
+    procedural generator, scene platform, or RL benchmark env -> fixed_episode_dataset.
+  collection_method: 'arXiv:2503.13441 abstract + Sec. III-A "Data Collection Pipeline":
+    "We collect task-oriented egocentric human demonstrations by asking human operators
+    to perform tasks... when wearing the VR devices" (Apple Vision Pro built-in camera
+    + ARKit, or Meta Quest 3 / Apple Vision Pro + ZED Mini stereo camera). Per paper
+    Table I, the human-collected portion is the dominant share of the dataset (26,824
+    of 28,376 demos, ~94.5% of episodes; ~3.02M of ~3.69M frames, ~82% of frames),
+    so egocentric_human is used as the primary collection_method.'
+  secondary_collection_methods: 'GitHub RogerQi/human-policy README "Download open-sourced
+    data": the HF release also contains "Two Unitree H1 humanoid robots physically
+    located in UCSD and CMU. Collected via teleoperation" (real-robot portion, task
+    IDs not starting with "1" per HF README convention) and "One Unitree H1 humanoid
+    robot in Mujoco. Collected via teleoperation" (sim portion). teleop covers both
+    the real-robot and Mujoco-teleoperated episodes; simulation is added separately
+    because ph2d_metadata.json embodiment_type_camera lists explicit sim-only embodiment
+    types (h1_inspire_sim, h1_2_inspire_sim, gr1_inspire_sim) and the HF file listing
+    includes sim-only folders (000-sim_test/, 1061new_sim_pepsi_grasp_h1_2_inspire-.../).'
+  is_multi_embodiment: 'true: the released dataset genuinely mixes two physically
+    distinct capture setups -- real human bodies wearing consumer VR/AR headsets (embodiment_type
+    human_avp / human_zed in ph2d_metadata.json) and real/simulated Unitree H1 (and
+    one Fourier-GR1-class sim variant, gr1_inspire_sim) humanoid robots (embodiment_type
+    h1_inspire / h1_2_inspire_cmu / h1_inspire_sim / h1_2_inspire_sim) -- unlike single-embodiment
+    human-to-robot-synthesis datasets in this registry (e.g. dexcap.yaml) that only
+    ever release one target robot''s data.'
+  embodiment_class: 'JUDGMENT CALL, human_hand: PH2D is genuinely bi-embodiment (human
+    + Unitree H1 humanoid, see is_multi_embodiment above), and the EmbodimentClass
+    enum only allows one scalar value here. Chosen human_hand because it is the dominant
+    raw-capture format by volume (arXiv:2503.13441 Table I: 26,824/28,376 demos and
+    ~3.02M/~3.69M frames are the human-collected portion), matching the same "dominant
+    collected format" convention already used for dexcap.yaml (also embodiment_class=human_hand
+    despite robot_platform=franka_panda being filled for the robot side). robot_platform=unitree_h1,
+    gripper_type=dexterous_hand, dof_per_arm/dof_per_hand below describe the humanoid-robot
+    side of this same dataset; a reviewer could reasonably prefer embodiment_class=humanoid
+    instead since the paper''s stated goal and dataset name ("Physical Humanoid-Human
+    Data") center on humanoid robot policy learning -- flagging this ambiguity explicitly
+    for human review.'
+  robot_platform: 'arXiv:2503.13441 "Hardware Platforms" paragraph: "We run our experiments
+    on Unitree H1 bimanual humanoid robots equipped with a pair of 6-DOF Inspire dexterous
+    hands." GitHub README also states two real Unitree H1 robots (UCSD + CMU) plus
+    one Mujoco-simulated Unitree H1 were used for the released robot-side data. (ph2d_metadata.json
+    also lists a minor gr1_inspire_sim embodiment_type for one sim task folder --
+    Fourier GR1-class -- but Unitree H1 is the paper''s stated primary/majority hardware
+    platform.)'
+  num_arms: 'arXiv:2503.13441 "Hardware Platforms": bimanual Unitree H1 ("a pair of
+    6-DOF Inspire dexterous hands"); "Unified State-Action Space" section: "Both bimanual
+    robots and humans have two end effectors." -> 2 arms for both embodiments.'
+  dof_per_arm: 'arXiv:2503.13441 "Hardware Platforms": "This configuration results
+    in a total of 28 degrees of freedom" = 2 arms x 7 DoF + 2 hands x 6 DoF + 2 DoF
+    neck = 14+12+2=28, confirming 7 DoF per arm. Cross-checked against GitHub RogerQi/human-policy
+    hdt/constants.py H1_QPOS_LEFT_ARM_INDICES = elbow(4 indices)+wrist(3 indices)
+    = 7.'
+  dof_per_hand: 'arXiv:2503.13441 "Hardware Platforms", verbatim: "a pair of 6-DOF
+    Inspire dexterous hands." Cross-checked against hdt/constants.py H1_QPOS_LEFT_HAND_INDICES
+    / H1_QPOS_RIGHT_HAND_INDICES, each 6 indices long (the real-robot control interface
+    after truncating to the 26-dim actuated H1_MOTOR_INDICES).'
+  gripper_type: 'Same source as dof_per_hand: Unitree H1 robots are equipped with
+    6-DOF Inspire dexterous hands (arXiv:2503.13441 "Hardware Platforms"), not parallel-jaw
+    grippers.'
+  hand_pose_representation: 'arXiv:2503.13441 "Unified State-Action Space": "The HAT
+    model makes predictions in a human-centric action space using wrist 6 DoF poses
+    and finger tips" (finger tips = 3D keypoints, not joint angles or MANO parameters).
+    Confirmed in GitHub hdt/constants.py: RETARGETTING_INDICES / VALID_RETARGETTING_INDICES
+    select 5 fingertip keypoints per hand, and OUTPUT_LEFT_KEYPOINTS/OUTPUT_RIGHT_KEYPOINTS
+    each span 3*5=15 dims (3D xyz per fingertip keypoint) within the 128-dim ACTION_STATE_VEC_SIZE.'
+  has_mobile_base: 'arXiv:2503.13441 "Hardware Platforms": "We focus on manipulation
+    and do not actuate the lower body of the robot." No locomotion/mobile base is
+    used in this dataset -- the H1''s legs are fixed/unused, only upper body + a 2-DoF
+    actuated neck are actuated.'
+  action_space: 'arXiv:2503.13441 "Unified State-Action Space" + hdt/constants.py
+    ACTION_STATE_VEC_SIZE=128 breakdown: "9 (position_3+rotation_6) + 3*6 + 9 + 3*6
+    + 9" per side -- i.e. the unified action combines 6-DoF end-effector/head poses
+    (position+rotation) with 3D fingertip keypoints and (for the robot) 26-dim actuated
+    qpos, a mix of eef_pose and joint/keypoint components -> mixed.'
+  action_frame: 'JUDGMENT CALL, absolute: arXiv:2503.13441 "Adapting Low-cost Commercial
+    Devices" section states devices provide "accurate on-device world frame 3D head
+    pose tracking and 3D hand keypoint tracking" -- poses are tracked in a consistent
+    world frame per timestep rather than as inter-frame deltas. The paper does not
+    explicitly use the words "absolute" or "delta" for the released action representation,
+    so this is inferred by analogy to the same "world/camera frame per-timestep pose"
+    pattern used for the absolute classification in egodex.yaml and dexcap.yaml.'
+  rotation_representation: 'GitHub hdt/constants.py, verbatim comment: "HDT training
+    state space indices (128-dim) ... 9(position_3 +rotation_6) + 3*6 + 9 + 3*6 +
+    9" -- each 9-dim eef/head block is 3D position + 6D rotation, i.e. the 6D continuous
+    rotation representation (Zhou et al.), matching the "6 DoF poses" language in
+    arXiv:2503.13441 "Unified State-Action Space".'
+  state_dim: 'GitHub hdt/constants.py: "ACTION_STATE_VEC_SIZE = 128" -- the unified
+    HDT/HAT training state-action vector size described in arXiv:2503.13441 "Unified
+    State-Action Space" section, applied to both human and humanoid-robot embodiments.'
+  action_dim: 'Same source as state_dim: hdt/constants.py ACTION_STATE_VEC_SIZE =
+    128 is used for both the state and action representation in the unified human-humanoid
+    space (OUTPUT_INDEX in the same file selects the action-relevant subset of this
+    128-dim vector).'
+  fps: 'arXiv:2503.13441 Table I footnote, verbatim: "The number of frames is estimated
+    assuming 30 Hz."'
+  fps_variable: 'Inferred false: Table I footnote treats 30 Hz as a fixed assumed
+    capture rate for computing frame counts across the whole released dataset (both
+    human and robot portions); no mention of variable frame rate anywhere in the paper
+    or GitHub README.'
+  num_camera_views: 'arXiv:2503.13441 "Adapting Low-cost Commercial Devices": each
+    data-collection device (Apple Vision Pro built-in camera, or Meta Quest 3/Vision
+    Pro + ZED Mini stereo camera holder) provides a single head-mounted egocentric
+    camera stream per episode; ph2d_metadata.json "cameras" section lists exactly
+    one camera id per embodiment_type_camera mapping (e.g. h1_inspire -> UCSD_H1_ZED).'
+  camera_views: Same source as num_camera_views -- single head-mounted/egocentric
+    camera for both the human VR-headset setups and the humanoid robot's head-mounted
+    ZED camera (embodiment_type_camera mapping in ph2d_metadata.json), matching the
+    head CameraView enum value.
+  has_synchronized_multiview_rig: 'false: only one camera stream is released per episode
+    (see num_camera_views); no multi-camera synchronized rig is described.'
+  has_camera_calibration: ph2d_metadata.json "cameras" section explicitly lists per-camera-id
+    intrinsics (cx, cy, fx, fy) and raw resolution for UCSD_H1_ZED and UCSD_Vision_pro_1.
+  depth_coverage: 'Inferred none: arXiv:2503.13441 "Unified State-Action Space" states
+    "The images are encoded by a frozen DinoV2 encoder" (an RGB image encoder); no
+    depth map or point-cloud modality is mentioned anywhere in the paper despite the
+    ZED stereo camera hardware being capable of depth -- only RGB frames appear to
+    be used/released.'
+  additional_modalities: 'Checked: full-text search of arXiv:2503.13441 for force/torque,
+    tactile, audio, and eye-gaze sensing returns no hits describing these as recorded/released
+    modalities (Apple ARKit head/hand tracking and RGB video are the only sensing
+    channels described).'
+  has_language_instruction: 'HF README "Data organizations": "Most HDF5 files contain
+    ONE execution of the task specified by the language..." -- each episode is associated
+    with a language task description.'
+  num_task_types: 'ph2d_metadata.json "metadata.task_types" list, verbatim: ["pouring",
+    "grasping", "stacking", "picking", "cup_passing", "sorting_cans"] = 6 task types.'
+  urdf_available: 'GitHub RogerQi/human-policy README "Repo Structure": "assets: robot
+    URDFs and meshes" -- the companion code repo linked from the HF dataset card (and
+    from https://human-as-robot.github.io/) bundles Unitree H1 (and Inspire hand)
+    URDFs used for Mujoco simulation/replay (docs/humanoid_mujoco.md).'
+  urdf_source: Same GitHub repository (RogerQi/human-policy) linked from the HF dataset
+    card as the official code/data companion repo, consistent with the dataset_repo
+    convention used for arcap.yaml/dexcap.yaml.
+  expected_size_gb: 'HF datasets API https://huggingface.co/api/datasets/RogerQi/PH2D
+    field "usedStorage": 15829946918 bytes = 15.83 GB (decimal GB convention, same
+    convention used for dexcap.yaml/arcap.yaml).'
+  expected_num_episodes: 'arXiv:2503.13441 Table I ("Comparison to prior work"), PH2D
+    row: Human 26,824 demos + Robot 1,552 demos = 28,376 total demos/episodes (exact
+    counts as stated in the table; only the frame counts in the same row are marked
+    approximate with "~").'
+  expected_duration_hours: 'DERIVED, approximate: arXiv:2503.13441 Table I gives ~3.02M
+    human frames + ~668k robot frames = ~3.69M total frames, and the same table''s
+    footnote states frame counts are "estimated assuming 30 Hz." 3.69M frames / 30
+    fps / 3600 s/hr ~= 34.1 hours. No total-duration figure is stated directly in
+    the paper; this is a basic arithmetic derivation from the paper''s own approximate
+    frame counts and stated fps, not an independently fabricated number.'
+  num_subjects: 'Checked, left blank: neither arXiv:2503.13441 nor the GitHub README
+    states a total headcount of human data collectors/operators (Sec. III-A refers
+    generically to "human operators"; HF task folder names like "104-lars-grasping..."
+    suggest multiple named operators but give no aggregate count).'
+  num_scenes: 'Checked, left blank: arXiv:2503.13441 "Human data improves background
+    generalization" section only states qualitatively that "the human data includes
+    more than five different backgrounds" for one ablation task (cup passing); no
+    dataset-wide scene/background count is given.'
+  num_objects: 'Checked, left blank: the paper repeatedly refers to "a diverse set
+    of objects" (Table I caption) and names specific objects used in ablations (bottle,
+    box_1, box_2, can, coke, etc.) but never states a total distinct-object count
+    across the released dataset.'
+suggested_new_enum_values: {}

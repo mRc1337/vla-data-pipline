@@ -1,15 +1,19 @@
 id: galaxea_open_world_dataset
 name: Galaxea Open-World Dataset
 source_url: https://huggingface.co/datasets/OpenGalaxea/Galaxea-Open-World-Dataset
+paper_url: https://arxiv.org/abs/2509.00576
 license: CC-BY-NC-SA-4.0
 raw_format: LeRobot
 release_type: fixed_episode_dataset
 collection_method: teleop
 secondary_collection_methods: []
+is_multi_embodiment: false
 embodiment_class: mobile_manipulator
+robot_platform: galaxea_r1_lite
 num_arms: 2
 dof_per_arm: 6
 gripper_type: parallel_jaw
+hand_pose_representation: none
 has_mobile_base: true
 action_space: joint_position
 action_frame: absolute
@@ -29,10 +33,21 @@ urdf_available: true
 urdf_source: manufacturer_official
 expected_size_gb: 13016.3
 expected_num_episodes: 100000
+expected_duration_hours: 500.0
+num_scenes: 50
+num_objects: 1600
 review_status: pending_human_review
 field_sources:
   source_url: https://huggingface.co/api/datasets/OpenGalaxea/Galaxea-Open-World-Dataset
     (dataset card confirms this is the canonical HF repo)
+  paper_url: arXiv:2509.00576 (https://arxiv.org/abs/2509.00576), 'Galaxea Open-World
+    Dataset and G0 Dual-System VLA Model' -- the paper cited throughout this dataset's
+    HF card and linked in the HF 'arxiv:2509.00576' tag
+  license: re-verified 2026-07-10 via https://huggingface.co/api/datasets/OpenGalaxea/Galaxea-Open-World-Dataset
+    cardData.license = 'cc-by-nc-sa-4.0'; extra_gated_prompt confirms 'CC BY-NC-SA
+    4.0'. LicenseEnum now includes CC_BY_NC_SA_4_0 ("CC-BY-NC-SA-4.0"), so this is
+    a valid enum member and the earlier suggested_new_enum_values flag for license
+    is now obsolete (removed).
   raw_format: 'HF dataset card description (via API): ''Dataset in LeRobot v2.1 format.''
     https://huggingface.co/datasets/OpenGalaxea/Galaxea-Open-World-Dataset ; also
     GalaxeaVLA README changelog entry ''Oct 7, 2025: The Galaxea Open-World Dataset
@@ -40,9 +55,24 @@ field_sources:
   collection_method: 'arXiv:2509.00576 (Galaxea Open-World Dataset and G0 Dual-System
     VLA Model), Section 3 ''Data Collection Platform'': ''we adopt an isomorphic teleoperation
     scheme that maps human operator movements directly to the robot''s kinematics'''
+  release_type: 'HF dataset card: ''The dataset is organized as 227 task-level tar.gz
+    archives'' of pre-recorded, fixed demonstrations (100K trajectories); arXiv:2509.00576
+    describes no simulation/generation framework, scene-asset platform, or RL benchmark
+    env -- it is a static released collection of episodes.'
+  secondary_collection_methods: arXiv:2509.00576, Section 3 describes only the isomorphic
+    teleoperation scheme as the collection method; no autonomous-policy, UMI, egocentric-human,
+    simulation, or human-to-robot synthesis methods are mentioned anywhere in the
+    paper or HF card, so left empty.
+  is_multi_embodiment: 'arXiv:2509.00576 Section 3: ''Galaxea Open-World Dataset was
+    consistently captured using a single robotic embodiment''; HF card Key Features:
+    ''All data collected using one uniform robotic embodiment (R1-Lite) for consistency.'''
   embodiment_class: 'arXiv:2509.00576, Section 3: ''All demonstrations are recorded
     using the Galaxea R1 Lite platform ... a mobile, bimanual robot designed for operation
     in human-centric environments'' plus a 6-DoF vector-drive omnidirectional base'
+  robot_platform: 'arXiv:2509.00576, Section 3: ''All demonstrations are recorded
+    using the Galaxea R1 Lite platform.'' RobotPlatform enum now includes GALAXEA_R1_LITE
+    (''galaxea_r1_lite''); the earlier suggested_new_enum_values flag for robot_platform
+    is now obsolete (removed) since the schema was extended to add this value.'
   num_arms: 'arXiv:2509.00576, Section 3: ''23-DoF embodiment comprising two 6-DoF
     arms ...'''
   dof_per_arm: 'arXiv:2509.00576, Section 3 (''two 6-DoF arms''); corroborated by
@@ -50,6 +80,11 @@ field_sources:
   gripper_type: 'arXiv:2509.00576, Section 3: ''The spherical wrists and parallel
     grippers allow robust manipulation of everyday objects''; Figure 2 caption labels
     ''1-DoF grippers'''
+  hand_pose_representation: 'arXiv:2509.00576, Section 3 and https://github.com/OpenGalaxea/GalaxeaVLA/blob/main/configs/data/r1lite.yaml
+    shape_meta: the end-effector is a simple 1-DoF parallel-jaw gripper (open/close),
+    not a dexterous multi-finger hand; no MANO/3D-keypoint/joint-angle hand-pose encoding
+    exists in the raw action/state schema, so set to ''none'' (same reasoning pattern
+    used for rotation_representation).'
   has_mobile_base: 'arXiv:2509.00576, Section 3: ''a 6-DoF vector-drive omnidirectional
     base capable of speeds up to 1.5 m/s'''
   action_space: https://github.com/OpenGalaxea/GalaxeaVLA/blob/main/configs/data/r1lite.yaml
@@ -75,6 +110,10 @@ field_sources:
   depth_coverage: 'arXiv:2509.00576, Section 3: wrist cameras are ''Intel RealSense
     D405 RGB-D'' (depth) while the head camera is described as ''stereo RGB'' (no
     explicit depth channel), so only a subset of views carry depth'
+  additional_modalities: arXiv:2509.00576 and the HF dataset card describe only a
+    stereo RGB head camera, dual RGB-D wrist cameras, robot proprioceptive state,
+    and bilingual subtask language annotations; no force/torque, tactile, audio, or
+    eye-gaze sensor streams are mentioned anywhere, so left empty.
   has_language_instruction: 'arXiv:2509.00576 abstract: ''paired with precise subtask-level
     language annotations''; HF dataset card: ''Fine-grained subtask language annotations
     (bilingual Chinese/English)'''
@@ -90,13 +129,17 @@ field_sources:
   expected_num_episodes: 'arXiv:2509.00576, Section 3: ''It contains 100K demonstration
     trajectories spanning 150 task categories performed in 50 distinct real-world
     scenes'''
-suggested_new_enum_values:
-  license: CC-BY-NC-SA-4.0 -- HF dataset card (https://huggingface.co/api/datasets/OpenGalaxea/Galaxea-Open-World-Dataset)
-    lists license 'cc-by-nc-sa-4.0' and the repo's extra_gated_prompt confirms 'CC
-    BY-NC-SA 4.0'; the existing enum only has CC-BY-NC-4.0 (no ShareAlike variant),
-    so no legal option matches exactly.
-  robot_platform: galaxea_r1_lite -- all demonstrations are collected on the Galaxea
-    R1-Lite mobile bimanual platform (arXiv:2509.00576, Section 3), which is not represented
-    by any existing enum member (closest generic option is 'other', but a dedicated
-    value would be more informative given this is a named, documented platform with
-    public specs).
+  expected_duration_hours: 'arXiv:2509.00576 abstract: ''Galaxea Open-World Dataset
+    comprises 500 hours of high-fidelity data''; HF dataset card Key Features: ''500+
+    hours of real-world mobile manipulation data.'''
+  num_scenes: 'arXiv:2509.00576, Section 3: ''150 task categories performed in 50
+    distinct real-world scenes''; also ''collected at 11 physical sites ... a total
+    of 50 unique scenes.'''
+  num_objects: 'arXiv:2509.00576, Section 3: ''These demonstrations cover more than
+    1,600 unique objects and 58 operational skills.'' (stated as a lower bound, >1,600;
+    recorded here as 1600).'
+  not_filled_note: num_subjects (operator count), has_synchronized_multiview_rig,
+    dof_per_hand, and fps/fps_variable were checked against the paper, HF card, and
+    GalaxeaVLA repo but are not stated anywhere findable, so left blank rather than
+    guessed.
+suggested_new_enum_values: {}

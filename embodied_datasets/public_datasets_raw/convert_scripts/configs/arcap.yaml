@@ -1,16 +1,20 @@
 id: arcap
 name: ARCap
 source_url: https://huggingface.co/datasets/Ericcsr/ARCap
+paper_url: https://arxiv.org/abs/2410.08464
 license: CC-BY-4.0
 raw_format: HDF5
 release_type: fixed_episode_dataset
 collection_method: ar_haptic_guided_synthesis
 secondary_collection_methods: []
+is_multi_embodiment: true
 embodiment_class: single_arm
 robot_platform: franka_panda
 num_arms: 1
 dof_per_arm: 7
+dof_per_hand: 16
 gripper_type: dexterous_hand
+hand_pose_representation: joint_angles
 has_mobile_base: false
 action_space: mixed
 action_frame: absolute
@@ -18,6 +22,7 @@ rotation_representation: quaternion
 num_camera_views: 1
 camera_views:
 - head
+has_synchronized_multiview_rig: false
 has_camera_calibration: true
 depth_coverage: full
 additional_modalities: []
@@ -28,79 +33,180 @@ urdf_source: dataset_repo
 expected_size_gb: 103.8
 review_status: pending_human_review
 field_sources:
-  license: HF datasets API https://huggingface.co/api/datasets/Ericcsr/ARCap -> cardData.license=cc-by-4.0
-  raw_format: 'HF file listing shows assemble_arcap.hdf5, clutter_arcap.hdf5, clutter_arcap_users.hdf5,
-    open_bottle_arcap.hdf5, wild_arcap.hdf5; paper arXiv:2410.08464 Sec III-B: ''all
-    data for a single task will be stored in one hdf5 file'''
-  collection_method: 'arXiv:2410.08464 abstract/Sec II: portable AR-headset + haptic-glove
-    system, no physical robot present during collection, outputs directly robot-executable
-    trajectories; paper explicitly places itself in the lineage of UMI (cites arXiv:2402.10329,
-    ''Universal Manipulation Interface: In-The-Wild Robot Teaching Without In-The-Wild
-    Robots''). Closest existing enum value is ''umi'' (portable, robot-absent, directly-transferable
-    trajectories); this is a judgment call since ARCap uses AR/haptic-glove IK retargeting
-    rather than a handheld mechanical gripper mimic -- see suggested_new_enum_values.'
-  embodiment_class: 'arXiv:2410.08464 Sec III-A/IV-A: each collection targets a single
-    Franka Panda arm with one end-effector (Leap Hand or Fin-ray gripper). Note: project
-    website (stanford-tml.github.io/ARCap) also shows a ''cross embodiment bimanual
-    manipulation'' demo video, but the 5 HF-released hdf5 files (assemble/clutter/open_bottle/wild)
-    correspond to single-arm task collections.'
-  robot_platform: 'arXiv:2410.08464 Sec IV-A: ''We used two Franka Panda arms in our
-    experiment, one attached with a Leap hand and another one attached with a Fin-ray
-    gripper''; GitHub Ericcsr/ARCap data_processing/assets/franka_arm URDFs'
-  num_arms: arXiv:2410.08464 Sec IV-A experimental setup describes single-arm data
-    collection per task/end-effector
-  dof_per_arm: Franka Panda is a standard 7-DOF arm (robot_platform identity); not
-    restated as an explicit DOF count in the paper text found
-  gripper_type: 'arXiv:2410.08464 Sec III-A: two interchangeable end-effectors --
-    ''Leap Hand, a fully actuated, four-finger dexterous hand'' and ''the Fin-ray
-    gripper, a compliant parallel-jaw-like gripper''. The majority of released HF
+  source_url: Re-verified 2026-07-10 via HF datasets API https://huggingface.co/api/datasets/Ericcsr/ARCap
+    -- still live, same 5-hdf5-file listing, sha=2cadcdbf4cec4ed9bc7023959583e82c8f4f0203.
+  paper_url: 'arXiv:2410.08464, "ARCap: Collecting High-quality Human Demonstrations
+    for Robot Learning with Augmented Reality Feedback" (Chen, Wang, Nguyen, Fei-Fei,
+    Liu; Stanford, ICRA 2025). Confirmed live at https://arxiv.org/abs/2410.08464
+    on 2026-07-10; PDF/HTML text re-fetched directly for this re-verification pass.'
+  license: Re-verified 2026-07-10 via HF datasets API -- cardData.license=cc-by-4.0,
+    tags include license:cc-by-4.0. Unchanged.
+  raw_format: 'Re-verified 2026-07-10: HF file listing still shows assemble_arcap.hdf5,
+    clutter_arcap.hdf5, clutter_arcap_users.hdf5, open_bottle_arcap.hdf5, wild_arcap.hdf5;
+    paper arXiv:2410.08464 Sec III-B: ''all data for a single task will be stored
+    in one hdf5 file.'' Unchanged.'
+  release_type: The HF release is a closed, fixed set of 5 hdf5 files with a fixed
+    episode count each (not a procedural generator, scene-asset platform, or RL benchmark
+    env), matching the repo-wide convention that already-published fixed-episode datasets
+    get fixed_episode_dataset (per docs/superpowers/specs/2026-07-10-registry-schema-refinement-design.md
+    Sec 4.B, which classifies robogen/gensim2 as generation_framework, grutopia as
+    scene_platform, humanoidbench as rl_benchmark_env, and the remaining ~55 onboarded
+    datasets including arcap as fixed_episode_dataset). Unchanged.
+  collection_method: 'RE-VERIFIED, value unchanged, source text corrected: this field
+    was previously mapped to the pre-existing enum value ''umi'' as a stop-gap (see
+    stale reasoning this replaces), then corrected to ''ar_haptic_guided_synthesis''
+    in a prior backfill pass once that enum member was added to CollectionMethod in
+    schema.py -- confirmed still present in the current schema.py (AR_HAPTIC_GUIDED
+    = "ar_haptic_guided_synthesis") and confirmed as the intended target in docs/superpowers/specs/2026-07-10-registry-schema-refinement-design.md
+    Sec 4.A ("arcap | collection_method | umi (此前权宜之计) -> ar_haptic_guided_synthesis").
+    This is the best fit per arXiv:2410.08464 abstract/Sec II-III: a portable AR-headset
+    + Rokoko haptic data-glove system with no physical robot present during collection,
+    which retargets human hand/wrist motion to a virtual robot via real-time IK and
+    records the resulting robot-joint-space trajectory directly with live visual/haptic
+    feedback on kinematic feasibility and collisions -- distinct from ''umi'' (a handheld
+    mechanical mimic of the actual gripper) and from generic ''human_to_robot_synthesis''
+    (typically post-hoc retargeting from passive human video with no live feedback
+    loop). The suggested_new_enum_values entry from the prior pass is removed since
+    the value now exists natively in the schema.'
+  secondary_collection_methods: No evidence of a second, distinct collection mechanism
+    blended into this dataset -- all 5 released hdf5 files use the same AR-headset
+    + haptic-glove IK-retargeting pipeline (arXiv:2410.08464 Sec III), unlike e.g.
+    ALOHA Unleashed which mixes real teleop with simulated teleop. Left empty.
+  is_multi_embodiment: 'true (new field, filled): arXiv:2410.08464 explicitly frames
+    this as cross-embodiment data collection -- Fig. 3 caption "Cross-Embodiment Data
+    Collection", Sec III-A bullet "Cross-embodiment. AR visualization supports both
+    parallel-jaw grippers and multifinger dexterous hands, allowing users to collect
+    data for different types of robot hardware using the same system," and Sec IV-D
+    "Long horizon manipulation with different embodiments." The released HF files
+    span two distinct end-effector embodiments on the same Franka Panda arm (Leap
+    Hand dexterous hand for clutter/clutter_users/open_bottle/wild vs. Fin-ray parallel-jaw
+    gripper for assemble, per the pre-existing gripper_type note below) -- a single
+    scalar embodiment_class/gripper_type value would understate this heterogeneity,
+    matching the is_multi_embodiment convention already used for robogen/yubi/humanoidbench
+    in this registry.'
+  embodiment_class: 'Re-verified 2026-07-10: arXiv:2410.08464 Sec III-A/IV-A: each
+    collection targets a single Franka Panda arm with one end-effector (Leap Hand
+    or Fin-ray gripper) per episode; the "two Franka Panda arms" in Sec IV-A refers
+    to two separate physical robots used for on-robot replay/evaluation of the two
+    different end-effector task families, not simultaneous bimanual control within
+    a single episode. Unchanged.'
+  robot_platform: 'Re-verified 2026-07-10: arXiv:2410.08464 Sec IV-A: ''We used two
+    Franka Panda arms in our experiment, one attached with a Leap hand and another
+    one attached with a Fin-ray gripper.'' Also directly re-confirmed via GitHub Ericcsr/ARCap
+    git-tree listing: data_processing/assets/franka_arm/panda_gripper.urdf, panda_leap.urdf.
+    Unchanged.'
+  num_arms: Re-verified 2026-07-10 -- arXiv:2410.08464 Sec IV-A experimental setup
+    describes single-arm data collection per task/end-effector episode. Unchanged.
+  dof_per_arm: Re-verified 2026-07-10 -- Franka Panda is a standard 7-DOF arm (robot_platform
+    identity); still not restated as an explicit numeral in the paper text found.
+    Unchanged.
+  dof_per_hand: '16 (new field, filled): the Leap Hand used as ARCap''s dexterous
+    end-effector is the open-source hand from Shaw, Agarwal & Pathak, "LEAP Hand:
+    Low-Cost, Efficient, and Anthropomorphic Hand for Robot Learning" (arXiv:2309.06440,
+    cited by ARCap as the dexterous-hand hardware), which states its RL policy "receives
+    joint angles (16 values) from the motors and outputs the target joint angles (16)
+    at 20 Hz" -- 16 actuated DOF total (4 fingers x 4 DOF each). Cross-checked against
+    ARCap''s own Sec III-A: "each finger of the leap hand has one redundant degree
+    of freedom," consistent with 4 DOF/finger. Applies to the 4 of 5 released hdf5
+    files that use the dexterous hand (clutter/clutter_users/open_bottle/wild); the
+    assemble (Fin-ray parallel-jaw) file has only a 1-DOF open/close gripper, not
+    a comparable per-hand DOF count -- 16 is chosen as the dominant value, matching
+    the existing gripper_type reasoning below.'
+  gripper_type: 'Re-verified 2026-07-10: arXiv:2410.08464 Sec III-A: two interchangeable
+    end-effectors -- ''Leap Hand, a fully actuated, four-finger dexterous hand'' and
+    ''the Fin-ray gripper, a compliant parallel-jaw-like gripper''. GitHub README
+    confirms two data-collection modes (`data_collection_server.py` default = Leap
+    hand; `--handedness left` = parallel jaw gripper). The majority of released HF
     files (clutter, clutter_users, open_bottle, wild) correspond to dexterous-hand
     tasks per the paper''s task descriptions, while ''assemble'' (Lego) uses the Fin-ray
     parallel-jaw gripper -- dexterous_hand chosen as dominant value; dataset actually
-    spans both gripper types across task files.'
-  has_mobile_base: No mention of a mobile base anywhere in the paper, GitHub repo,
-    or HF card; system is a fixed-base Franka Panda arm setup
-  action_space: 'arXiv:2410.08464 Sec III-B: ''ARCap records the following data: ...
-    Joint angle for the virtual robot solved by IK ... Headset pose in the world frame
-    ... Virtual robot pose in the world frame'' -- both joint angles and end-effector/wrist
-    poses are recorded per frame'
-  action_frame: 'arXiv:2410.08464 Sec III-B: recorded joint angles and poses are instantaneous
-    absolute robot/wrist states used directly for replay, not delta commands'
-  rotation_representation: GitHub Ericcsr/ARCap data_processing/convert_data_with_robot.py
-    uses scipy.spatial.transform.Rotation.from_quat/.as_quat() for wrist_orn (quaternion
-    [x,y,z,w])
-  num_camera_views: 'arXiv:2410.08464 Sec III-A: ''A RealSense D435 camera is mounted
-    on top of the headset using a 3D-printed bracket to capture 3D visual information''
-    -- single camera'
-  camera_views: 'Same as num_camera_views source: the single RGB-D camera is mounted
-    on the AR headset worn by the human demonstrator (egocentric/head-mounted viewpoint)'
-  has_camera_calibration: 'arXiv:2410.08464 Sec III-B and Fig. 5: explicit ''AR-based
-    Camera Calibration'' procedure where users align the virtual robot base with the
-    actual robot base to compute camera-to-robot transform'
-  depth_coverage: RealSense D435 RGB-D camera is the sole sensor and provides depth/point-cloud
-    data over the captured scene region (arXiv:2410.08464 Sec III-B)
-  has_language_instruction: No language/task-instruction annotation is mentioned in
-    the paper, the (empty) HF README, or the GitHub repo; data is organized per task-type
-    hdf5 file rather than per-episode text instructions
-  num_task_types: 'HF file listing: assemble_arcap.hdf5, clutter_arcap.hdf5, clutter_arcap_users.hdf5,
-    open_bottle_arcap.hdf5, wild_arcap.hdf5 -> 4 distinct tasks (Lego assembly, cluttered
-    pick-and-place, bottle opening, in-the-wild); clutter_arcap_users.hdf5 is the
-    20-user user-study replicate of the same clutter task, not a distinct 5th task
-    type'
-  urdf_available: GitHub Ericcsr/ARCap repo, data_processing/assets/ contains franka_arm,
-    franka_leap, leap_hand, gripper URDF folders plus quest3.urdf
+    spans both gripper types across task files. Unchanged.'
+  hand_pose_representation: 'joint_angles (new field, filled): arXiv:2410.08464 Sec
+    III-B lists recorded data as including "Joint angle for the virtual robot solved
+    by IK," and Sec III-B-2 states the policy action "for dex hand, consists of the
+    target joint angles of each finger." The GitHub README''s data_processing pipeline
+    likewise stores "joint angles of hand and arm" per frame. This is the finger/hand-shape
+    encoding actually persisted in the dexterous-hand task files -- distinct from
+    the Rokoko data-glove fingertip positions used only as an intermediate IK target
+    for the *human* hand during retargeting (Sec III-A: "the data gloves capture fingertip
+    positions relative to the wrist"), which are not what is stored as the dataset''s
+    hand-pose representation. Applies to the dominant dexterous-hand files, consistent
+    with the gripper_type/dof_per_hand reasoning above; the assemble (parallel-jaw)
+    file has no dexterous hand-shape encoding (binary open/close only).'
+  has_mobile_base: Re-verified 2026-07-10 -- no mention of a mobile base anywhere
+    in the paper, GitHub repo, or HF card; system is a fixed-base Franka Panda arm
+    setup. Unchanged.
+  action_space: 'Re-verified 2026-07-10: arXiv:2410.08464 Sec III-B: ''ARCap records
+    the following data: ... Joint angle for the virtual robot solved by IK ... Headset
+    pose in the world frame ... Virtual robot pose in the world frame'' -- both joint
+    angles and end-effector/wrist poses are recorded per frame. Unchanged.'
+  action_frame: 'Re-verified 2026-07-10: arXiv:2410.08464 Sec III-B: recorded joint
+    angles and poses are instantaneous absolute robot/wrist states used directly for
+    replay, not delta commands. Unchanged.'
+  rotation_representation: Re-verified 2026-07-10 by re-fetching GitHub Ericcsr/ARCap
+    data_processing/convert_data_with_robot.py directly -- still uses scipy.spatial.transform.Rotation.from_quat/.as_quat()
+    pervasively for wrist_orn/head_orn (quaternion [x,y,z,w]). Unchanged.
+  num_camera_views: 'Re-verified 2026-07-10: arXiv:2410.08464 Sec III-A: ''A RealSense
+    D435 camera is mounted on top of the headset using a 3D-printed bracket to capture
+    3D visual information'' -- single camera. Unchanged.'
+  camera_views: Re-verified 2026-07-10 -- same single RGB-D camera mounted on the
+    AR headset worn by the human demonstrator (egocentric/head-mounted viewpoint).
+    Unchanged.
+  has_synchronized_multiview_rig: 'false (new field, filled): num_camera_views=1 --
+    there is only the single headset-mounted RealSense D435 (arXiv:2410.08464 Sec
+    III-A/IV-A); no multi-camera rig exists, so cross-view synchronization is not
+    applicable.'
+  has_camera_calibration: 'Re-verified 2026-07-10: arXiv:2410.08464 Sec III-B and
+    Fig. 5: explicit ''AR-based Camera Calibration'' procedure where users align the
+    virtual robot base with the actual robot base to compute camera-to-robot transform.
+    Unchanged.'
+  depth_coverage: Re-verified 2026-07-10 -- RealSense D435 RGB-D camera is the sole
+    sensor and provides depth/point-cloud data over the captured scene region (arXiv:2410.08464
+    Sec III-B). Unchanged.
+  additional_modalities: 'Empty (new field, checked): arXiv:2410.08464 Sec III-B data
+    list is limited to colored point cloud, IK-solved joint angle, headset pose, and
+    virtual robot pose -- no force/torque, tactile, audio, or eye-gaze sensing is
+    recorded as part of the dataset. The system''s "haptic feedback" (controller vibration
+    warning on collision/speed-limit violation, Sec III-A) is an output/actuation
+    cue to the human demonstrator, not a recorded sensor modality, so it is not logged
+    here.'
+  has_language_instruction: Re-verified 2026-07-10 -- no language/task-instruction
+    annotation is mentioned in the paper, the (empty) HF README, or the GitHub repo;
+    data is organized per task-type hdf5 file rather than per-episode text instructions.
+    Unchanged.
+  num_task_types: 'Re-verified 2026-07-10: HF file listing unchanged -- assemble_arcap.hdf5,
+    clutter_arcap.hdf5, clutter_arcap_users.hdf5, open_bottle_arcap.hdf5, wild_arcap.hdf5
+    -> 4 distinct tasks (Lego assembly, cluttered pick-and-place, bottle opening,
+    in-the-wild); clutter_arcap_users.hdf5 is the 20-user user-study replicate of
+    the same clutter task, not a distinct 5th task type. Note: the arXiv:2410.08464
+    v1 body text found only describes/names the assemble (Lego) and clutter (cluttered
+    pick-and-place) tasks in detail -- open_bottle and wild are inferred solely from
+    the HF filenames, not further described in the paper text located during this
+    pass. Unchanged.'
+  urdf_available: Re-verified 2026-07-10 directly via GitHub git-trees API (Ericcsr/ARCap,
+    branch main, recursive listing) -- data_processing/assets/franka_arm/{panda_gripper,panda_leap}.urdf,
+    data_processing/assets/franka_leap/robot.urdf, data_processing/assets/leap_hand/*.urdf,
+    data_processing/assets/gripper/franka_panda_tri_gripper.urdf, data_processing/assets/quest3.urdf
+    all present. Unchanged.
   urdf_source: URDFs are bundled directly in the GitHub repo (https://github.com/Ericcsr/ARCap)
-    linked from the HF dataset card / paper code release
-  expected_size_gb: HF datasets API https://huggingface.co/api/datasets/Ericcsr/ARCap
-    -> usedStorage=111452967384 bytes = 103.8 GB
-suggested_new_enum_values:
-  collection_method: 'Consider adding a value such as ''ar_haptic_guided_synthesis''
-    to CollectionMethod for systems like ARCap: a portable AR headset + haptic/motion-capture
-    glove that retargets human hand/wrist motion to a virtual robot via real-time
-    IK, giving live visual/haptic feedback on kinematic feasibility and collisions,
-    and records the resulting robot-joint-space trajectory directly -- with no physical
-    robot present and no mechanical device shaped like the robot''s own end-effector.
-    This is distinct from ''umi'' (a handheld mechanical mimic of the actual gripper)
-    and from ''human_to_robot_synthesis'' (typically post-hoc retargeting from passive
-    human video). ARCap was mapped to ''umi'' above as the closest existing fit, but
-    a reviewer may prefer a dedicated category.'
+    linked from the HF dataset card / paper code release. Unchanged.
+  expected_size_gb: Re-verified 2026-07-10 via HF datasets API -- usedStorage=111452967384
+    bytes = 103.8 GB (GiB). Unchanged.
+  not_found_fields_note: 'expected_duration_hours: left blank -- arXiv:2410.08464
+    Sec IV-C/IV-D give durations only for specific ablation subsets used in paper
+    experiments (two 30-minute clutter datasets by the authors + a merged 30-minute
+    crowd-sourced set; two one-hour Lego-assembly datasets), not a total-duration
+    figure for the actual released 5-file/103.8GB HF dataset, which also includes
+    open_bottle_arcap.hdf5 and wild_arcap.hdf5 that are undescribed in the paper text
+    found -- computing a total would require fabricating a number. num_subjects: left
+    blank -- Sec IV-B states 20 user-study participants, but this figure plausibly
+    covers only the clutter_arcap_users.hdf5 file; the other 4 released files were
+    "collected by the authors of this paper" (Sec IV-C), an unspecified small count
+    -- no single total-subject figure is stated anywhere for the whole released dataset.
+    num_scenes: left blank -- the paper never gives a numeric count of distinct scenes/environments;
+    task descriptions are qualitative only (e.g. "cluttered scene", Lego assembly
+    setup). num_objects: left blank -- the paper mentions specific items per task
+    (tennis ball, Lego blocks) but never gives a total distinct-object count across
+    or within tasks, and the open_bottle/wild tasks are not described in the paper
+    text located during this pass.'
+suggested_new_enum_values: {}

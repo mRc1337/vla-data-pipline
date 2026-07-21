@@ -1,0 +1,181 @@
+id: robocook
+name: RoboCook
+source_url: https://hshi74.github.io/robocook/
+paper_url: https://arxiv.org/abs/2306.14447
+license: MIT
+raw_format: ROS_bag
+release_type: fixed_episode_dataset
+collection_method: autonomous_policy
+secondary_collection_methods: []
+is_multi_embodiment: false
+embodiment_class: single_arm
+robot_platform: franka_panda
+num_arms: 1
+dof_per_arm: 7
+gripper_type: parallel_jaw
+hand_pose_representation: none
+has_mobile_base: false
+action_space: eef_pose
+rotation_representation: single_axis_angle
+num_camera_views: 4
+camera_views:
+- third_person
+has_synchronized_multiview_rig: true
+has_camera_calibration: true
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: false
+num_task_types: 2
+urdf_available: true
+urdf_source: manufacturer_official
+num_scenes: 1
+num_objects: 1
+review_status: pending_human_review
+field_sources:
+  source_url: Verified live via curl against https://hshi74.github.io/robocook/ (official
+    project page for the CoRL 2023 Best System Paper Award RoboCook work); loads and
+    links to [Paper]/[Code]/[Data]. Stub value confirmed correct, unchanged.
+  paper_url: 'https://arxiv.org/abs/2306.14447 -- "RoboCook: Long-Horizon Elasto-Plastic
+    Object Manipulation with Diverse Tools", Shi, Xu, Clarke, Li, Wu, Stanford University/UIUC,
+    CoRL 2023 Best System Paper Award. Linked directly from the project page''s [Paper]
+    button.'
+  license: 'https://raw.githubusercontent.com/hshi74/robocook/main/LICENSE ("MIT License,
+    Copyright (c) 2023 Haochen Shi"). Caveat: this is the license on the GitHub code
+    repository; no separate, explicit license statement was found for the real-world
+    dataset itself (shared via an unlicensed Google Drive folder linked from the README),
+    so MIT is recorded as the best available evidence rather than a data-specific
+    license grant.'
+  raw_format: 'https://raw.githubusercontent.com/hshi74/robocook/main/README.md "Data"
+    section: "raw: because the raw ROSbag data are huge, we share an episode of random
+    exploration ... as a sample." The underlying real-world sensor capture format
+    is ROS bag. Caveat: only one small sample episode of the raw ROSbag data is actually
+    shared publicly (full raw capture was not released due to size); the bulk of what
+    is downloadable is derived/processed data (per-frame .h5 files for the "dynamics"
+    dataset, .ply point clouds for "tool_classification").'
+  release_type: Project shares a static, pre-collected/pre-processed real-world dataset
+    (raw sample + dynamics/tool_classification/planning subsets on Google Drive per
+    README) plus the RoboCook code framework used to produce it -- not a procedural
+    generation framework, scene/asset platform, or standalone RL benchmark env, so
+    fixed_episode_dataset fits best.
+  collection_method: 'arXiv:2306.14447 PDF Sec 6.2.1 "Data Collection": "we collect
+    around 20 minutes of data for each tool using a behavior policy that randomly
+    samples parameters within a predefined action space. In each episode, the robot
+    applies multiple action sequences to the soft object, and after the current episode,
+    a human manually resets the environment." This is autonomous, scripted random-exploration
+    data collection (no human teleoperation of the arm); the human''s role is limited
+    to manually reshaping/resetting the dough between episodes, not driving the robot.'
+  secondary_collection_methods: No teleoperation, UMI, egocentric-human, or simulation
+    data collection is described anywhere in arXiv:2306.14447 or the GitHub README
+    -- all real-world data collection (dynamics, tool classification) uses the same
+    random-exploration behavior policy / pre-coded dumpling pipeline. Left empty.
+  is_multi_embodiment: 'arXiv:2306.14447 PDF Sec 6.5.1: single "7-DoF Franka Emika
+    Panda robot arm and its parallel jaw gripper as the base robot" used throughout
+    all experiments and data collection. Single, standardized embodiment.'
+  embodiment_class: arXiv:2306.14447 PDF Sec 6.5.1 -- single fixed-base Franka Panda
+    arm setup, no second arm, no mobile base, no humanoid/hand tracking.
+  robot_platform: 'arXiv:2306.14447 PDF Sec 6.5.1: "We use the 7-DoF Franka Emika
+    Panda robot arm and its parallel jaw gripper as the base robot."'
+  num_arms: arXiv:2306.14447 PDF Sec 6.5.1 and project page hardware photo (Figure
+    4) show exactly one robot arm.
+  dof_per_arm: 'arXiv:2306.14447 PDF Sec 6.5.1: "We use the 7-DoF Franka Emika Panda
+    robot arm..."'
+  gripper_type: 'arXiv:2306.14447 PDF Sec 6.5.1: "...and its parallel jaw gripper
+    as the base robot." Note: many of the 14-15 3D-printed tools (rollers, presses,
+    grippers, knife, spatulas, etc., Sec 6.5.2/6.5.3) attach to and are actuated by
+    this same parallel-jaw gripper via a quick-connector mechanism, rather than replacing
+    it with a different end-effector type.'
+  hand_pose_representation: Derived -- the end effector is the Franka''s standard
+    2-finger parallel-jaw gripper (see gripper_type), not an articulated/dexterous
+    hand or bare-hand tracking, so no MANO/keypoint/joint-angle finger-shape encoding
+    applies. HandPoseRepresentation.NONE.
+  has_mobile_base: arXiv:2306.14447 PDF Sec 6.5.1/Figure 4 -- fixed tabletop Franka
+    arm bolted next to a stationary workspace with fixed tool racks; no mobile base
+    anywhere in the setup.
+  action_space: 'arXiv:2306.14447 PDF Sec 3.2/Figure 3(B): the parametrized action
+    spaces are Cartesian/tool-pose based, e.g. gripping a=(r, theta, d) (rod separation,
+    rotation angle, depth) and pressing/rolling a=(x, y, z, theta) (tool position
+    + rotation angle) -- these are end-effector/tool-pose displacement parameters,
+    not joint-space commands, so eef_pose is the closest fit. Note action_dim is intentionally
+    left blank below because it varies by tool (3 for gripping, 4 for pressing/rolling)
+    rather than being a single fixed value across the whole dataset.'
+  action_frame: 'Left blank: the paper (arXiv:2306.14447 Sec 3.2/6.4) defines each
+    tool''s action as bounded Cartesian/rotation parameters (e.g. a=(x,y,z,theta))
+    but never explicitly states whether these parameters are absolute world-frame
+    targets or relative/delta displacements from the tool''s current pose -- no citable
+    statement found either way, so left blank rather than guessed.'
+  rotation_representation: 'Left blank: action rotation components are a single scalar
+    angle theta (e.g. a=(x,y,z,theta) for pressing/rolling, a=(r,theta,d) for gripping;
+    arXiv:2306.14447 Figure 3(B)), representing rotation about one axis only. This
+    does not cleanly match any existing RotationRepresentation enum value (euler_xyz/quaternion/rotation_6d/axis_angle/rotation_matrix
+    all describe full 3D orientation, not a single scalar angle), so left blank with
+    a suggested_new_enum_values entry instead of forcing an imprecise match.'
+  state_dim: 'Left blank: RoboCook''s "state" is a processed point cloud (300 sampled
+    surface points, arXiv:2306.14447 Sec 6.2/Figure 2) rather than a fixed-length
+    proprioceptive vector, so a single scalar state_dim does not meaningfully apply.'
+  action_dim: 'Left blank: action dimensionality varies by tool -- 3 for gripping
+    (r, theta, d) vs. 4 for pressing/rolling (x, y, z, theta) per arXiv:2306.14447
+    Figure 3(B) -- there is no single fixed action_dim across the whole dataset.'
+  fps: 'arXiv:2306.14447 PDF Sec 6.5.1: "Four calibrated Intel RealSense D415 RGB-D
+    cameras ... capture 1280x720 RGB-D images at 30 Hz."'
+  fps_variable: Single fixed 30 Hz camera capture rate stated in arXiv:2306.14447
+    Sec 6.5.1, no mention of a variable rate anywhere in the paper or README.
+  num_camera_views: 'arXiv:2306.14447 PDF Sec 6.5.1: "Four calibrated Intel RealSense
+    D415 RGB-D cameras are fixed on vertical metal bars around the robot tabletop"
+    (also depicted as 4 dashed white circles at the four corners of the table in Figure
+    4).'
+  camera_views: arXiv:2306.14447 Sec 6.5.1/Figure 4 -- all four RealSense D415 cameras
+    are static, table-external, exterior-facing units mounted around the workspace
+    perimeter (no wrist-mounted, head-mounted, or body-worn camera), so mapped to
+    the single third_person category.
+  has_synchronized_multiview_rig: 'arXiv:2306.14447 Sec 6.2/Figure 2: the four calibrated
+    camera point clouds are merged into one unified scene point cloud per perception
+    timestep ("the input to the perception module is a raw observation point cloud
+    merged from four RGBD cameras"), implying frame-synchronized capture across the
+    rig.'
+  has_camera_calibration: 'arXiv:2306.14447 Sec 6.5.1: "Four calibrated Intel RealSense
+    D415 RGB-D cameras..." -- explicitly described as calibrated.'
+  depth_coverage: arXiv:2306.14447 Sec 6.2 -- the RGB-D depth from all four cameras
+    is used to reconstruct a full watertight mesh/point cloud of the dough and workspace
+    (crop ROI, extract dough point cloud, reconstruct watertight mesh, sample surface
+    points), i.e. full depth coverage of the manipulation region, not partial/none.
+  additional_modalities: 'Checked arXiv:2306.14447 (full PDF text) and the GitHub
+    README for force/torque, tactile, audio, or eye-gaze sensing: Sec 6.5.1''s hardware
+    list is only the Franka arm + parallel gripper + 4 RealSense D415 RGB-D cameras
+    + 3D-printed tools; no dedicated force-torque sensor, tactile sensor, microphone,
+    or eye-tracking device is mentioned anywhere despite the tools" varied contact-rich
+    interactions. Left empty rather than assuming sensing that is not documented.'
+  has_language_instruction: Checked arXiv:2306.14447 (full PDF text) and the GitHub
+    README for any natural-language instruction/annotation field -- none found; tasks/subgoals
+    are specified via target point-cloud configurations (goal-conditioned), not free-form
+    language strings.
+  num_task_types: 'arXiv:2306.14447 abstract/Sec 1: "a general-purpose robot arm can
+    learn complex long-horizon soft object manipulation tasks, such as making dumplings
+    and alphabet letter cookies" -- 2 distinct long-horizon composite tasks are demonstrated
+    end-to-end (dumpling-making; alphabet-letter-cookie-shaping, covering letters
+    R/O/B/C/K). Distinct from the 14-15 individual tool-use primitives (Sec 6.5.2),
+    which are sub-skills composed into these 2 task types, not separate task types
+    themselves.'
+  urdf_available: 'Following the precedent set for other Franka-Panda-based configs
+    in this registry (e.g. droid.yaml, furniturebench.yaml): the manufacturer''s official
+    Franka Panda URDF is published in https://github.com/frankaemika/franka_ros (franka_description/robots/panda/panda.urdf.xacro),
+    applicable to RoboCook''s robot_platform=franka_panda. Note: no URDF for RoboCook''s
+    custom 3D-printed tools was found -- only tool mesh files are shared via the Google
+    Drive link in the README ("we also share the 3D models of all the tools"), format
+    unconfirmed (likely STL for 3D printing, not URDF).'
+  urdf_source: Franka Panda URDF is not vendored inside the hshi74/robocook GitHub
+    repository itself; it is sourced from the manufacturer''s official franka_ros
+    package (frankaemika/franka_ros), so manufacturer_official.
+  num_scenes: 'arXiv:2306.14447 Sec 6.5.1/Figure 4: a single fixed lab tabletop workspace
+    with fixed camera rig and tool racks is used throughout; no scene diversity (multiple
+    rooms/tables/lighting setups) is described.'
+  num_objects: 'arXiv:2306.14447 -- all tasks manipulate a single class of manipulandum,
+    elasto-plastic dough (Sec 1 abstract: "manipulates elasto-plastic objects with
+    various tools"); the 14-15 3D-printed tools (Sec 6.5.2) are end-effector attachments,
+    not separate manipulated objects, so num_objects=1 (dough) rather than counting
+    tools.'
+suggested_new_enum_values:
+  rotation_representation: 'single_axis_angle -- RoboCook''s action space parametrizes
+    tool rotation as one scalar angle theta about a single (vertical) axis (arXiv:2306.14447
+    Figure 3(B): a=(x,y,z,theta) for pressing/rolling, a=(r,theta,d) for gripping),
+    which is not represented by any current RotationRepresentation value (euler_xyz/quaternion/rotation_6d/axis_angle/rotation_matrix
+    all encode full 3D orientation, not a single scalar angle).'

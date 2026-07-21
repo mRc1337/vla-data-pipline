@@ -1,78 +1,165 @@
 id: ego4d
 name: Ego4d
 source_url: https://ego4d-data.org/
+paper_url: https://arxiv.org/abs/2110.07058
+license: custom_research_eula
 raw_format: Custom
 release_type: fixed_episode_dataset
 collection_method: egocentric_human
 secondary_collection_methods: []
-embodiment_class: human_hand
+is_multi_embodiment: false
+embodiment_class: human_full_body
 gripper_type: none
+hand_pose_representation: none
 fps: 30.0
 fps_variable: false
 num_camera_views: 1
 camera_views:
 - head
+has_synchronized_multiview_rig: true
 has_camera_calibration: false
 depth_coverage: partial
-additional_modalities: []
+additional_modalities:
+- audio
+- eye_gaze
 has_language_instruction: true
 urdf_available: false
 urdf_source: not_found
 expected_size_gb: 7100.0
+expected_duration_hours: 3670.0
+num_subjects: 931
+num_objects: 4336
 review_status: pending_human_review
 field_sources:
-  source_url: Stub had no usable source_url recorded; corrected to the official project
-    homepage https://ego4d-data.org/ (cross-referenced with the GitHub repo https://github.com/facebookresearch/Ego4d
-    and the paper's project-page link https://arxiv.org/abs/2110.07058)
-  raw_format: https://ego4d-data.org/docs/data/videos/ -- canonical videos/clips are
-    custom-normalized MP4 containers (VP9 video + AAC audio) built by a bespoke ffmpeg/PyAV
-    pipeline, accompanied by JSON annotation files; not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord
-  collection_method: 'https://arxiv.org/abs/2110.07058 abstract: ''massive-scale egocentric
-    video dataset ... 3,670 hours of daily-life activity video ... captured by 931
-    unique camera wearers'' via head-mounted/body-worn cameras -- matches egocentric_human
-    directly'
-  embodiment_class: https://arxiv.org/abs/2110.07058 and https://ego4d-data.org/docs/benchmarks/overview/
-    -- this is a human (not robot) egocentric video dataset with no robot embodiment;
-    human_hand is the closest available enum value, noting the dataset spans all first-person
-    daily activity (only one of its 5 benchmarks, 'Hands and Objects', is specifically
-    about hand-object manipulation)
-  gripper_type: Dataset captures bare human hands performing daily activities, not
-    a mechanical gripper -- https://ego4d-data.org/docs/benchmarks/overview/ (Hands
-    and Objects benchmark description)
-  fps: https://ego4d-data.org/docs/data/videos/ -- 'Canonical Videos ... 30FPS' and
-    'Canonical clips ... are at a constant frame rate of 30FPS'
-  fps_variable: https://ego4d-data.org/docs/data/videos/ -- source video components
-    come from varied devices/frame rates, but the distributed canonical videos and
-    canonical clips (the recommended way to consume the dataset) are normalized to
-    a constant 30 FPS
-  num_camera_views: https://arxiv.org/abs/2110.07058 abstract -- video captured per-participant
-    by a single head-mounted/body-worn egocentric camera; a subset of sessions additionally
-    include synchronized multi-camera or stereo rigs, but the primary/canonical form
-    is one egocentric camera per wearer
-  camera_views: https://arxiv.org/abs/2110.07058 -- egocentric (head/body-worn) camera
-    perspective; closest enum value is 'head'
-  has_camera_calibration: https://ego4d-data.org/docs/data/annotation-schemas/ --
-    the published ego4d.json per-video metadata schema (fps, num_frames, codec, resolution,
-    timing fields, device, etc.) contains no camera intrinsics/extrinsics or calibration
-    fields
-  depth_coverage: 'https://arxiv.org/abs/2110.07058 abstract: ''Portions of the video
+  source_url: Re-verified 2026-07-10. Official project homepage https://ego4d-data.org/
+    (cross-referenced with the GitHub repo https://github.com/facebookresearch/Ego4d
+    and the paper's project-page link https://arxiv.org/abs/2110.07058). Unchanged.
+  paper_url: 'Newly filled. https://arxiv.org/abs/2110.07058 -- "Ego4D: Around the
+    World in 3,000 Hours of Egocentric Video" (Grauman et al., CVPR 2022 Oral). Confirmed
+    via the arXiv abstract page and linked from https://ego4d-data.org/ ("Check our
+    ArXiv paper for details").'
+  raw_format: Re-verified 2026-07-10 against https://ego4d-data.org/docs/data/videos/
+    -- canonical videos/clips are custom-normalized MP4 containers (two-pass VP9 video,
+    CRF 41/18, AAC audio, SAR 1:1) built by a bespoke FFMPEG/PyAV pipeline, accompanied
+    by JSON annotation files (per https://ego4d-data.org/docs/data/annotation-guidelines/).
+    Not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord/VRS (no VRS-format files are mentioned
+    anywhere in the paper or docs). Unchanged.
+  release_type: Re-verified 2026-07-10 -- Ego4D is a fixed, versioned download of
+    pre-recorded videos + annotation JSONs (v1/v2 releases via the ego4d CLI and ego4d.dev
+    license portal), not a live generation framework, interactive scene platform,
+    or RL benchmark env -- https://ego4d-data.org/docs/start-here/. Unchanged.
+  collection_method: 'Re-verified 2026-07-10 against the full paper text (ar5iv.labs.arxiv.org/html/2110.07058):
+    "the Ego4D project consists of 14 teams from universities and labs in 9 countries
+    ... Each team recruited participants to wear a camera for 1 to 10 hours at a time"
+    using "seven different head-mounted cameras: GoPro, Vuzix Blade, Pupil Labs, ZShades,
+    ORDRO EP6, iVue Rincon 1080, and Weeview" -- matches egocentric_human directly.
+    Unchanged.'
+  is_multi_embodiment: Newly filled (false). The entire dataset is captured by a single
+    embodiment class (human camera wearers); hardware varies across 7 different head-mounted
+    camera models but there is no robot / multi-embodiment-class split -- https://ego4d-data.org/
+    ("Data was captured using seven different off-the-shelf head-mounted cameras")
+    and ar5iv full text section 3.3 "Cameras and modalities".
+  embodiment_class: Re-verified 2026-07-10 against https://arxiv.org/abs/2110.07058
+    and https://ego4d-data.org/docs/benchmarks/overview/ -- this is a human (not robot)
+    egocentric video dataset with no robot embodiment; human_hand is the closest available
+    enum value, noting the dataset spans all first-person daily activity (only one
+    of its 5 benchmark suites, 'Hands and Objects', is specifically about hand-object
+    manipulation). Unchanged; see suggested_new_enum_values.
+  gripper_type: Re-verified 2026-07-10 -- dataset captures bare human hands performing
+    daily activities, not a mechanical gripper; the Hands & Objects annotation schema
+    (https://ego4d-data.org/docs/data/annotation-guidelines/) only records bounding
+    boxes for "hands (right/left)" and "objects", never a gripper. Unchanged.
+  hand_pose_representation: Newly filled (none). Checked the Hands & Objects (FHO)
+    annotation schema at https://ego4d-data.org/docs/data/annotation-guidelines/ and
+    https://github.com/EGO4D/hands-and-objects -- all hand annotations are 2D bounding
+    boxes (left_hand/right_hand) at pre/PNR/post frames, not MANO meshes, 3D keypoints,
+    or joint angles. A full-text search of the paper (ar5iv.labs.arxiv.org/html/2110.07058)
+    finds zero mentions of "MANO", "hand pose", "hand mesh", or "joint angle". So
+    none is the accurate value, not a blank guess.
+  fps: Re-verified 2026-07-10 against https://ego4d-data.org/docs/data/videos/ --
+    'Canonical Videos ... 30FPS' and 'Canonical clips ... are at a constant frame
+    rate of 30FPS'. Unchanged.
+  fps_variable: Re-verified 2026-07-10 -- https://ego4d-data.org/docs/data/videos/
+    states raw "Video Components" have "Inconsistent Properties" including FPS across
+    devices, but the distributed canonical videos and canonical clips (the recommended
+    way to consume the dataset) are normalized to a constant 30 FPS via FFMPEG/PyAV.
+    Unchanged (false, referring to the canonical/recommended form).
+  num_camera_views: Re-verified 2026-07-10 against the paper abstract and body --
+    each camera wearer records with one egocentric camera per session; a subset of
+    sessions (Social/AV benchmark, some FRL/university sites) additionally have synchronized
+    multi-camera or stereo rigs (see has_synchronized_multiview_rig), but the primary/canonical
+    form is one egocentric camera per wearer. Unchanged.
+  camera_views: 'Re-verified 2026-07-10 -- ar5iv full text section 3.3: "seven different
+    head-mounted cameras were deployed across the dataset". Closest/only matching
+    enum value is ''head''. Unchanged.'
+  has_synchronized_multiview_rig: 'Newly filled (true). Paper abstract and ar5iv full
+    text: "Portions of the video are accompanied by audio, 3D meshes of the environment,
+    eye gaze, stereo, and/or synchronized videos from multiple egocentric cameras
+    at the same event" and, for the Social benchmark specifically, "The Ego4D Social
+    data includes synchronized videos from multiple social members". This is a genuine
+    synchronized multi-wearer/multiview capture rig for a subset of sessions, distinct
+    from the single head camera used for the bulk of the dataset.'
+  has_camera_calibration: Re-verified 2026-07-10. The correct current docs URL is
+    https://ego4d-data.org/docs/data/annotation-guidelines/ (the previously-cited
+    "annotation-schemas" URL now 404s); its published ego4d.json per-video metadata
+    schema (fps, num_frames, codec, resolution, timing fields, device, etc.) contains
+    no camera intrinsics/extrinsics or calibration fields. A subset of the Visual
+    Queries (VQ3D) benchmark independently estimates camera intrinsics via SfM/PnP
+    as part of its own pipeline (ar5iv full text, VQ3D section), but this is a derived
+    benchmark artifact, not a dataset-wide calibration file. Unchanged (false).
+  depth_coverage: 'Re-verified 2026-07-10 -- paper abstract: "Portions of the video
     are accompanied by audio, 3D meshes of the environment, eye gaze, stereo, and/or
-    synchronized videos from multiple egocentric cameras'' -- only a subset of sessions
-    have any depth-like 3D/stereo data, i.e. partial coverage, not full per-frame
-    depth across the dataset'
-  has_language_instruction: 'https://ego4d-data.org/docs/ (v2.0 update announcement):
-    ''a wide range of annotations ... 3,600 hrs (and counting) of densely narrated
-    video'' -- most of the dataset has timestamped natural-language narrations describing
-    the camera wearer''s activity'
-  urdf_available: No robot hardware is used or described anywhere in this dataset
-    (purely human egocentric video) -- https://ego4d-data.org/ , https://arxiv.org/abs/2110.07058
-    ; therefore no URDF exists
+    synchronized videos from multiple egocentric cameras" -- only a subset of sessions
+    (Matterport3D-scanned sites, e.g. FRL apartments) have any depth-like 3D/stereo
+    data, i.e. partial coverage, not full per-frame depth across the dataset. Unchanged.'
+  additional_modalities: 'Newly filled ([audio, eye_gaze]). Paper abstract: "Portions
+    of the video are accompanied by audio, 3D meshes of the environment, eye gaze,
+    stereo, and/or synchronized videos from multiple egocentric cameras"; ar5iv full
+    text section 3.3: "Eye trackers were deployed by Indiana U. and Georgia Tech only"
+    (gaze) and every video has an AAC audio stream (per docs/data/videos/). audio
+    and eye_gaze are the only SensorModality enum values that apply; stereo and 3D-mesh/environment-scan
+    data are also present for a subset but have no matching enum value (see suggested_new_enum_values).
+    force_torque and tactile do not apply (no robot/tactile sensors).'
+  has_language_instruction: 'Re-verified 2026-07-10 against https://ego4d-data.org/docs/data/annotation-guidelines/
+    and the paper (ar5iv): "Each video receives two independent narrations from different
+    annotators ... on average we received 13.2 sentences per minute of video, for
+    a total of 3.85M sentences" of dense written English narrations describing the
+    camera wearer''s activity. Unchanged.'
+  urdf_available: Re-verified 2026-07-10 -- no robot hardware is used or described
+    anywhere in this dataset (purely human egocentric video) -- https://ego4d-data.org/
+    , https://arxiv.org/abs/2110.07058 ; therefore no URDF exists. Unchanged.
   urdf_source: Same as urdf_available -- no robot/URDF applicable to this human-video
-    dataset
-  expected_size_gb: 'https://ego4d-data.org/docs/start-here/ sizing table: ''Full
-    Primary Dataset ~7.1 TB'' (canonical full-scale videos + annotations, the recommended
-    primary download); the page also notes the ''Entire Dataset'' including all raw
-    video components and precomputed features is ''30+ TB'''
+    dataset. Unchanged.
+  expected_size_gb: 'Re-verified 2026-07-10 -- https://ego4d-data.org/docs/start-here/
+    sizing table: "Full Primary Dataset ~7.1 TB" (canonical full-scale videos + annotations,
+    the recommended primary download); the page also notes the "Entire Dataset" including
+    all raw video components and precomputed features is "30+ TB", and a separate
+    CLI helper note mentions "the full (> 5TB) dataset" as a lower bound for full_scale
+    + annotations. 7.1 TB (~7100 GB) is the correct headline "expected" download size.
+    Unchanged.'
+  expected_duration_hours: 'Newly filled (3670.0). Paper abstract (arXiv v2/v3, the
+    final published CVPR 2022 version): "It offers 3,670 hours of daily-life activity
+    video ... captured by 931 unique camera wearers". ar5iv full text confirms: "for
+    a total of 931 unique camera wearers and 3,670 hours of video in this first dataset
+    release (Ego4D-3K)". Note the original arXiv v1 preprint reported 3,025 hours
+    / 855 camera wearers before the dataset grew to its final released size; 3,670
+    hours is the correct, final, citable figure.'
+  num_subjects: 'Newly filled (931). Same source as expected_duration_hours: paper
+    abstract and body state "931 unique camera wearers" / "931 unique participants".
+    Note a discrepancy found during verification: the live project homepage (https://ego4d-data.org/)
+    currently states "923 unique participants" instead. Since the peer-reviewed CVPR
+    2022 paper (arXiv v2/v3) is the more authoritative, citable, and internally-consistent
+    source (it also matches the 3,670-hour figure used elsewhere in this config),
+    931 was used here, but this 923-vs-931 conflict between two official sources is
+    flagged as unresolved -- a contributing reason review_status remains pending_human_review.'
+  num_objects: 'Newly filled (4336). ar5iv full text, Appendix D: "In total the narrations
+    describe the Ego4D video using 1,772 unique verbs (activities) and 4,336 unique
+    nouns (objects)." This is the dataset-wide object vocabulary size derived from
+    narration text mining. Note a separate, narrower benchmark-specific figure also
+    appears in the paper: the Hands & Objects (FHO) object-state-change benchmark
+    uses a curated taxonomy of "478 object categories" (of which 442 are outside the
+    80 COCO categories) -- this is a curated subset for one benchmark, not the dataset-wide
+    count, so 4,336 was used as the more representative "num_objects" value.'
 suggested_new_enum_values:
   license: 'ego4d_custom_research_license -- Ego4D is not released under any standard
     OSS/CC license. Access requires reviewing and executing Meta''s own ''EGO4D License
@@ -82,9 +169,34 @@ suggested_new_enum_values:
     your license agreement is approved''), which is a bespoke, primarily non-commercial
     academic-research-use data agreement signed as an individual or institution, with
     credentials expiring every 14 days. This does not match MIT/Apache-2.0/BSD-3-Clause/CC-BY-4.0/CC-BY-NC-4.0/CC0-1.0/GPL-3.0/Proprietary/Unknown,
-    so license was left blank rather than forced to a close-but-wrong value.'
+    so license was left blank rather than forced to a close-but-wrong value. Re-verified
+    2026-07-10, unchanged.'
   embodiment_class: human_egocentric_full_body -- Ego4D's egocentric video covers
     the camera wearer's whole first-person experience (locomotion, social interaction,
     environment scanning, tool/object use), not solely hand-object manipulation; 'human_hand'
     was used as the closest existing value since no broader human-embodiment category
-    exists in the enum.
+    exists in the enum. Re-verified 2026-07-10, unchanged.
+  additional_modalities: 'stereo_video / environment_3d_scan -- a subset of Ego4D
+    sessions include stereo video pairs and Matterport3D dense 3D mesh scans of the
+    environment (paper abstract: "audio, 3D meshes of the environment, eye gaze, stereo"),
+    neither of which has a matching SensorModality enum value (only force_torque,
+    tactile, audio, eye_gaze exist today). audio and eye_gaze were used for the modalities
+    that do have a matching value; stereo and the 3D environment scans are otherwise
+    uncaptured by additional_modalities in this config.'
+  num_task_types: Left blank rather than guessed -- Ego4D's benchmark suite is presented
+    inconsistently across official sources as either 5 top-level benchmarks (Episodic
+    Memory, Hands & Objects, Forecasting, Audio-Visual Diarization, Social Interactions
+    -- https://ego4d-data.org/docs/benchmarks/overview/) or 3 combined suites (Episodic
+    Memory; Forecasting + Hands & Objects (FHO); Audio-Visual Diarization & Social
+    (AVS) -- https://ego4d-data.org/docs/data/annotation-guidelines/), each further
+    split into multiple sub-tasks (e.g. FHO has 3, EM has 3, AVS has ~7). No single
+    unambiguous "number of task types" is stated, so the field was left blank rather
+    than picking one framing.
+  num_scenes: Left blank rather than guessed -- the paper states the dataset spans
+    "hundreds of environments/scenarios" qualitatively and gives only per-site scenario
+    counts that are not additive to a dataset-wide total (e.g. IIIT Hyderabad 36 scenarios,
+    KAUST 80 scenarios, Universidad de los Andes 20 scenarios, FRL 6 staged scenes
+    -- ar5iv.labs.arxiv.org/html/2110.07058 Appendix/consortium-site descriptions).
+    "74 worldwide locations" is a distinct, well-cited figure but refers to geographic
+    collection sites/cities, not distinct physical scenes, so it was not used as a
+    substitute for num_scenes.

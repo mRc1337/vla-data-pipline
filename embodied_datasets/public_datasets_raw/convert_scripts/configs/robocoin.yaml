@@ -1,44 +1,110 @@
 id: robocoin
 name: RoboCOIN
 source_url: https://huggingface.co/RoboCOIN/datasets
+paper_url: https://arxiv.org/abs/2511.17441
 license: Apache-2.0
 raw_format: LeRobot
 release_type: fixed_episode_dataset
 collection_method: teleop
 secondary_collection_methods: []
+is_multi_embodiment: true
 num_arms: 2
+gripper_type: mixed
+action_space: mixed
+rotation_representation: euler_xyz
 camera_views:
 - head
 - left_wrist
 - right_wrist
+- third_person
+has_synchronized_multiview_rig: true
+depth_coverage: none
 additional_modalities: []
 has_language_instruction: true
 num_task_types: 421
+urdf_available: false
+urdf_source: not_found
 expected_num_episodes: 180000
+num_scenes: 16
+num_objects: 432
 review_status: pending_human_review
 field_sources:
-  license: https://huggingface.co/datasets/RoboCOIN/alpha_bot_2_move_the_table (and
-    other RoboCOIN/* dataset repos all tagged license:apache-2.0 via HF Datasets API
-    https://huggingface.co/api/datasets?author=RoboCOIN)
-  raw_format: 'HF dataset cards state: ''This dataset uses an extended format based
-    on LeRobot and is fully compatible with LeRobot... Codebase Version: v2.1'' (e.g.
-    https://huggingface.co/datasets/RoboCOIN/alpha_bot_2_move_the_table)'
-  collection_method: 'arXiv:2511.17441 (RoboCOIN paper) Table I comparison row: ''RoboCOIN
-    (Ours) ... Human Teleoperation''; Table I also lists per-platform teleoperation
-    methods (isomorphic arm, exoskeleton, VR, motion capture) which are all forms
-    of human teleoperation'
-  num_arms: 'arXiv:2511.17441 Table I: every one of the 15 listed platforms has Arm
-    DoF given as ''2 x N'' (dual-arm), consistent with the paper''s framing as a bimanual
-    manipulation dataset'
-  camera_views: 'arXiv:2511.17441 Table I ''Camera Configuration'' column: every platform
-    includes at minimum ''Head + Wrist''; some platforms add Back, Chest, or Third-Person
-    cameras on top of this baseline (heterogeneous, see notes below)'
-  has_language_instruction: 'arXiv:2511.17441 abstract/intro: ''All data are acquired
-    via human teleoperation... accompanied by detailed language annotations'''
-  num_task_types: 'arXiv:2511.17441 abstract: ''the dataset features 421 bimanual
-    tasks systematically categorized by 39 bimanual collaboration actions and 432
-    objects'''
-  expected_num_episodes: 'arXiv:2511.17441 abstract: ''a large-scale multi-embodiment
-    bimanual manipulation dataset comprising over 180,000 demonstrations collected
-    from 15 distinct robotic platforms'''
-suggested_new_enum_values: {}
+  source_url: HF org page https://huggingface.co/RoboCOIN lists all dataset repos
+    (confirmed reachable, 744 repos as of check)
+  paper_url: 'arXiv:2511.17441 ''RoboCOIN: An Open-Sourced Bimanual Robotic Data Collection
+    for Integrated Manipulation'', v3 13 Apr 2026'
+  license: HF Datasets API (api/datasets?author=RoboCOIN) shows license:apache-2.0
+    tag on all 744 checked RoboCOIN/* repos; re-confirmed, unchanged
+  raw_format: 'HF dataset cards: ''extended format based on LeRobot ... Codebase Version:
+    v2.1''; re-confirmed via multiple repo descriptions, unchanged'
+  release_type: Fixed 180k-demonstration release with enumerated tasks/platforms,
+    not a generator/sim framework or RL env; re-confirmed, unchanged
+  collection_method: 'arXiv:2511.17441 abstract and Sec III-A: ''All data are acquired
+    via human teleoperation''; Table I sub-methods (Isomorphic Arm, Exoskeleton, VR,
+    Motion Capture) are all teleop variants with no separate enum value, so kept as
+    single ''teleop''; re-confirmed, unchanged'
+  secondary_collection_methods: No collection method outside teleop variants found
+    for the 180k demo corpus (the paper's simulation tasks are eval-only benchmarks,
+    not part of the demonstration collection); re-confirmed empty
+  is_multi_embodiment: 'arXiv:2511.17441 abstract: ''multi-embodiment bimanual manipulation
+    dataset ... 15 distinct robotic platforms''; Table I lists 3 dual-arm, ~10 half-humanoid,
+    2 humanoid platform types (Sec III-B percentages)'
+  num_arms: 'arXiv:2511.17441 Table I: every one of the 15 platforms has Arm DoF listed
+    as ''2 x N''; re-confirmed, unchanged'
+  camera_views: 'arXiv:2511.17441 Table I ''Camera Configuration'' column: baseline
+    ''Head + Wrist'' on every platform (confirmed left_wrist+right_wrist split via
+    RoboCOIN/Leju_Kuavo_4_hotel_services and RoboCOIN/Galbot_g1_steamer_storage_baozi_a
+    HF file listings: observation.images.cam_*_wrist_rgb + cam_high/front_head_rgb);
+    added third_person because Table I lists ''Head + Wrist + Third-Person'' for Airbot
+    MMK2. Back/Chest cameras on some platforms (Agibot G1, Tianqing A2, AI2 AlphaBot
+    1s/2) have no matching enum value, see suggested_new_enum_values'
+  has_synchronized_multiview_rig: 'arXiv:2511.17441 Sec III-A: ''Strict temporal synchronization
+    across all data streams is maintained through timestamp alignment, ensuring consistency
+    between visual observations and kinematic states'''
+  depth_coverage: HF repo file listings (RoboCOIN/Galbot_g1_steamer_storage_baozi_a,
+    RoboCOIN/Leju_Kuavo_4_hotel_services) show only *_rgb video streams, no depth
+    streams; HF dataset tags list modality:video/tabular/timeseries only, no depth
+    modality tag
+  additional_modalities: No force/torque, tactile, audio, or eye-gaze sensors mentioned
+    anywhere in arXiv:2511.17441 or in checked HF repo file listings; re-confirmed
+    empty
+  has_language_instruction: 'arXiv:2511.17441 abstract/Sec III: dataset includes hierarchical
+    language annotations (trajectory/segment/frame-level task descriptions); re-confirmed,
+    unchanged'
+  num_task_types: 'arXiv:2511.17441 abstract: ''421 bimanual tasks systematically
+    categorized by 39 bimanual collaboration actions and 432 objects''; re-confirmed,
+    unchanged'
+  urdf_available: Checked HF file listing for RoboCOIN/Galbot_g1_steamer_storage_baozi_a
+    (data/videos/annotations/meta only, no urdf files); paper never mentions URDF
+    release; not exhaustively checked across all 15 platform repos
+  urdf_source: Derived from urdf_available=false finding above; no URDF found in checked
+    repo or paper
+  action_space: 'arXiv:2511.17441 Sec III-A: ''kinematic data is recorded ... to capture
+    joint angles, end-effector poses, and gripper states'', i.e. both joint and eef
+    representations are stored -> mixed'
+  rotation_representation: 'arXiv:2511.17441 Sec III-A: ''orientation is represented
+    using Euler angles in radians'''
+  expected_num_episodes: 'arXiv:2511.17441 abstract: ''over 180,000 demonstrations''
+    (stated as a lower bound, kept as approximate value); re-confirmed, unchanged'
+  num_scenes: 'arXiv:2511.17441 abstract: ''Spanning 16 diverse environments-including
+    residential, commercial, and industrial settings''; Sec III-B: ''16 distinct scenarios'''
+  num_objects: 'arXiv:2511.17441 abstract: ''432 objects''; Sec III-B: ''432 objects
+    are classified along a spectrum of mobility'''
+suggested_new_enum_values:
+  robot_platform: 'galbot_g1 needed - arXiv:2511.17441 Table I lists ''Galbot G1''
+    (2x7 arm, Head+Wrist cams, parallel gripper, motion-capture teleop) as one of
+    the 15 platforms, distinct from existing agibot_g1/unitree_g1 values; confirmed
+    present as its own robot on HF (RoboCOIN/Galbot_g1_* repos, e.g. Galbot_g1_steamer_storage_baozi_a,
+    Robot Type: yinhe). robot_platform left blank in this config because the dataset
+    spans 15 different platforms with no single dominant one; other unmatched platforms
+    include realman_rmc_aida_l, leju_kuavo, airbot_mmk2, tianqing_a2, ai2_alphabot_1s/2,
+    agilex_split_aloha'
+  embodiment_class: 'half_humanoid needed - arXiv:2511.17441 Sec III-B: ''Half-humanoid
+    Robots (49.0%)... the mainstream architecture in RoboCOIN'' (e.g. Realman RMC-AIDA-L,
+    Agibot G1, Galbot G1: dual arms mounted on a torso/stand without full humanoid
+    legs), distinct from both dual_arm and humanoid. embodiment_class left blank because
+    the dataset mixes dual_arm (3 platforms), half-humanoid (~10), and humanoid (2)
+    types'
+  gripper_type: mixed needed - Table I shows 9 platforms with Parallel Gripper end-effectors
+    and 6 with Dexterous Hand end-effectors within the same dataset; no single GripperType
+    enum value describes the release, so gripper_type left blank

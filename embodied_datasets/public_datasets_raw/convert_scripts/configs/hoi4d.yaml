@@ -1,19 +1,24 @@
 id: hoi4d
 name: HOI4D
 source_url: https://hoi4d.github.io/
+paper_url: https://arxiv.org/abs/2203.01577
 license: CC-BY-NC-4.0
 raw_format: Custom
 release_type: fixed_episode_dataset
 collection_method: egocentric_human
 secondary_collection_methods: []
+is_multi_embodiment: false
 embodiment_class: human_hand
+dof_per_hand: 45
 gripper_type: none
+hand_pose_representation: mano
 rotation_representation: axis_angle
 fps: 15.0
 fps_variable: false
 num_camera_views: 1
 camera_views:
 - head
+has_synchronized_multiview_rig: false
 has_camera_calibration: true
 depth_coverage: full
 additional_modalities: []
@@ -22,47 +27,113 @@ num_task_types: 54
 urdf_available: false
 urdf_source: not_found
 expected_num_episodes: 4000
+expected_duration_hours: 22.2
+num_subjects: 9
+num_scenes: 610
+num_objects: 800
 review_status: pending_human_review
 field_sources:
-  license: 'https://hoi4d.github.io/ (footer: ''HOI4D is licensed under CC BY-NC 4.0'')'
+  paper_url: 'CVPR 2022 paper, same publication as collection_method/fps sources --
+    https://arxiv.org/abs/2203.01577 (arXiv v3, matches the CVPR camera-ready text:
+    2.4M frames / 4000 sequences / 800 objects / 16 categories / 610 rooms)'
+  license: 'https://hoi4d.github.io/ (footer: ''HOI4D is licensed under CC BY-NC 4.0'')
+    -- re-verified 2026-07-10 by re-fetching the live project page'
   raw_format: 'https://github.com/leolyliu/HOI4D-Instructions README ''Data Organization''
     section: custom per-sequence folder tree of align_rgb/image.mp4, align_depth/depth_video.avi,
-    objpose/*.json, action/color.json, 3Dseg/*.pcd, 2Dseg/mask (not RLDS/HDF5/LeRobot)'
-  collection_method: 'HOI4D CVPR2022 paper (arXiv:2203.01577) Sec 3.1 ''Hardware Setup
-    and Data Collection'': participants wear a head-mounted helmet rig (Kinect v2
-    + Intel RealSense D455 RGB-D sensors) while performing tasks egocentrically; no
-    robot involved'
+    objpose/*.json, action/color.json, 3Dseg/*.pcd, 2Dseg/mask (not RLDS/HDF5/LeRobot)
+    -- re-verified 2026-07-10 by re-fetching the live README, structure unchanged'
+  release_type: Re-derived 2026-07-10 -- HOI4D is a fixed, pre-recorded collection
+    of 4000 sequences released once (plus a held-out test set for two challenge tasks),
+    not a procedural generation framework, simulation platform, or RL benchmark env,
+    so fixed_episode_dataset is the correct enum value
+  collection_method: 'HOI4D CVPR2022 paper (arXiv:2203.01577, camera-ready v3 PDF)
+    Sec 3.1 ''Hardware Setup and Data Collection'': participants wear a head-mounted
+    helmet rig (Kinect v2 + Intel RealSense D455 RGB-D sensors) while performing tasks
+    egocentrically; no robot involved -- re-verified 2026-07-10 against the downloaded
+    arXiv v3 PDF full text'
+  secondary_collection_methods: Re-checked 2026-07-10 against the full paper text
+    -- no evidence of any additional collection method (e.g. teleop, simulation);
+    egocentric_human is the only method used throughout
+  is_multi_embodiment: 'HOI4D paper (arXiv:2203.01577) full text, checked 2026-07-10:
+    the entire dataset is captured with a single embodiment -- the bare human hand
+    via a head-mounted egocentric rig -- with no robot or second embodiment type anywhere
+    in the collection'
   embodiment_class: 'HOI4D paper Sec 3.4 ''Hand Pose Annotation'': 3D hand pose annotated
     via MANO parametric hand model from RGB-D frames of human participants; no robot
-    arm/gripper present'
+    arm/gripper present -- re-verified 2026-07-10 against arXiv v3 PDF'
   gripper_type: Inferred from paper Sec 3.4 (MANO bare-hand model) and Sec 3.1 (human
     participants, no robot/gripper hardware) -- interaction is via bare human hand
-  fps: 'HOI4D paper Sec 4 ''Dataset Statistics'': ''Each video is captured at 15fps
-    for 20 seconds. As a result, HOI4D contains 2.4M frames in total.'''
+    -- re-verified 2026-07-10, unchanged
+  hand_pose_representation: 'HOI4D paper Sec 3.4 ''Hand Pose Annotation'' (arXiv v3
+    PDF, checked 2026-07-10): ''We represent hand pose by the MANO parametric hand
+    model [39]''; https://github.com/leolyliu/HOI4D-Instructions README ''Human Hand
+    Pose'' section confirms per-frame .pickle files store MANO poseCoeff/beta/trans
+    parameters -- schema enum "mano" is the correct match'
+  dof_per_hand: 'HOI4D paper Sec 3.4 (arXiv v3 PDF): ''we optimize hand pose theta_h
+    = {theta_m, R, t} in R^51 that consists of the pose coefficient theta_m in R^45
+    (3 DoF for each of the 15 hand joints) plus global rotation R in SO(3) and translation
+    t in R^3'' -- 45 DoF is the per-hand finger/joint pose dimensionality (global
+    rotation+translation counted separately, not included here)'
+  rotation_representation: 'https://github.com/leolyliu/HOI4D-Instructions README
+    ''Human Hand Pose'' section: ''poseCoeff: refers to 3 global rotation + 45 mano
+    pose parameters''; paper Sec 3.4 confirms theta_m pose coefficients are 3-DoF
+    axis-angle rotation vectors per joint -- re-verified 2026-07-10, unchanged'
+  fps: 'HOI4D paper Sec 4 ''Dataset Statistics'' (arXiv v3 PDF, checked 2026-07-10):
+    ''Each video is captured at 15fps for 20 seconds. As a result, HOI4D contains
+    2.4M frames in total.'''
   fps_variable: Same as fps source -- fixed 15fps capture rate stated for all videos,
-    no mention of variable frame rate
-  num_camera_views: 'HOI4D paper Fig. 2 / Sec 3.1: single head-mounted egocentric
-    viewpoint (two RGB-D sensor models -- Kinect v2 and RealSense D455 -- are used
-    across the dataset, but each captures the same single egocentric head viewpoint)'
-  camera_views: 'HOI4D paper Sec 3.1 Fig. 2: ''we build up a simple head-mounted data
-    capturing suite consists of a bicycle helmet, a Kinect v2 RGB-D sensor, and an
-    Intel RealSense D455 RGB-D sensor'''
+    no mention of variable frame rate -- re-verified 2026-07-10, unchanged
+  num_camera_views: 'HOI4D paper Sec 3.1 (arXiv v3 PDF, checked 2026-07-10): ''A RealSense
+    D455 and a KinectV2 are used to capture human-object interaction simultaneously'';
+    both sensors are co-located on the same head-mounted helmet rig (Fig. 2), i.e.
+    two sensor modalities at one single egocentric viewpoint, not two distinct viewpoints
+    -- so num_camera_views=1 (viewpoint count) is correct'
+  camera_views: 'HOI4D paper Sec 3.1 Fig. 2 (arXiv v3 PDF): ''we build up a simple
+    head-mounted data capturing suite consists of a bicycle helmet, a Kinect v2 RGB-D
+    sensor, and an Intel RealSense D455 RGB-D sensor'' -- re-verified 2026-07-10,
+    unchanged'
+  has_synchronized_multiview_rig: 'HOI4D paper Sec 3.1 (arXiv v3 PDF, checked 2026-07-10):
+    ''Two RGB-D sensors are pre-calibrated and synchronized before the data capturing
+    process'' -- but this describes two co-located sensors synchronized with each
+    other at ONE viewpoint, not a multi-viewpoint camera rig (num_camera_views=1),
+    so has_synchronized_multiview_rig is false'
   has_camera_calibration: 'HOI4D paper Sec 3.1: ''Two RGB-D sensors are pre-calibrated
     and synchronized before the data capturing process''; project page also provides
-    a ''Camera Parameters'' download'
+    a ''Camera Parameters'' download -- re-verified 2026-07-10, unchanged'
   depth_coverage: 'HOI4D paper abstract: ''HOI4D consists of 2.4M RGB-D egocentric
-    video frames'' -- RGB-D captured for every frame'
+    video frames'' -- RGB-D captured for every frame -- re-verified 2026-07-10, unchanged'
+  additional_modalities: Checked 2026-07-10 by full-text search of the arXiv v3 PDF
+    for audio/microphone/eye-gaze/tactile/force-torque/glove terms -- no matches found;
+    only RGB-D video + hand/object pose annotations are provided, so left empty
   has_language_instruction: 'https://github.com/leolyliu/HOI4D-Instructions definitions/task/task_definitions.csv:
     54 short natural-language task descriptions (e.g. ''Put it in the drawer'', ''Pour
-    water into a mug'') mapped per-sequence via the Task ID (T*) in the folder path'
-  num_task_types: 'HOI4D paper Sec 4 ''Dataset Statistics'': ''We have defined 54
-    tasks across all 16 categories'''
-  rotation_representation: 'https://github.com/leolyliu/HOI4D-Instructions README
-    ''Human Hand Pose'' section / paper Sec 3.4: hand pose poseCoeff = 3 global rotation
-    + 45 MANO pose parameters, i.e. axis-angle (rotation vector) representation'
+    water into a mug'') mapped per-sequence via the Task ID (T*) in the folder path
+    -- re-verified 2026-07-10, unchanged'
+  num_task_types: 'HOI4D paper Sec 4 ''Dataset Statistics'' (arXiv v3 PDF): ''We have
+    defined 54 tasks across all 16 categories'' -- re-verified 2026-07-10, unchanged'
   urdf_available: No robot is present in HOI4D (egocentric human-hand dataset); only
     human MANO hand model and scanned object CAD meshes are provided, no robot URDF
+    -- re-verified 2026-07-10, unchanged
   urdf_source: Same as urdf_available -- no robot / no URDF exists for this dataset
-  expected_num_episodes: 'HOI4D paper abstract: ''HOI4D consists of ... 4000 sequences
-    collected by 9 participants'''
+    -- re-verified 2026-07-10, unchanged
+  expected_num_episodes: 'HOI4D paper abstract (arXiv v3 PDF, camera-ready CVPR text,
+    checked 2026-07-10): ''HOI4D consists of ... 4000 sequences'' -- re-verified 2026-07-10,
+    unchanged'
+  expected_duration_hours: 'Derived 2026-07-10 from paper Sec 4: 4000 sequences x
+    20 seconds/sequence (''Each video is captured at 15fps for 20 seconds'') = 80,000
+    s = 22.2 hours'
+  num_subjects: 'HOI4D paper Sec 1 Introduction (arXiv v3 PDF, checked 2026-07-10):
+    ''HOI4D consists of 2.4M RGB-D egocentric video frames over 4000 sequences of
+    9 participants interacting with 800 object instances''; project page hoi4d.github.io
+    also states dataset was ''collected by 9 participants''. UNRESOLVED CONTRADICTION:
+    the same paper''s Abstract (and arXiv abstract page) instead states ''collected
+    by 4 participants'' -- likely an editing error in the abstract left over from
+    an earlier draft, since the Introduction body text and the official project page
+    agree on 9 and all other stats (4000 seqs/800 objs/16 cats/610 rooms) match the
+    final numbers exactly. Went with 9 (majority/authoritative-source agreement) but
+    flagging as not fully resolved'
+  num_scenes: 'HOI4D paper abstract and Sec 1 (arXiv v3 PDF, checked 2026-07-10):
+    ''over 610 different indoor rooms'''
+  num_objects: 'HOI4D paper abstract (arXiv v3 PDF, checked 2026-07-10): ''interacting
+    with 800 different object instances from 16 categories'''
 suggested_new_enum_values: {}

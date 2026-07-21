@@ -1,0 +1,212 @@
+id: robogene
+name: RoboGene
+source_url: https://huggingface.co/datasets/X-Humanoid/RoboGene
+paper_url: https://arxiv.org/abs/2602.16444
+license: Apache-2.0
+raw_format: LeRobot
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods:
+- scene_asset_curation
+is_multi_embodiment: false
+embodiment_class: dual_arm
+robot_platform: franka_fr3
+dof_per_hand: 1
+gripper_type: parallel_jaw
+hand_pose_representation: none
+has_mobile_base: false
+action_space: mixed
+action_frame: absolute
+rotation_representation: quaternion
+fps: 30.0
+fps_variable: false
+num_camera_views: 6
+camera_views:
+- front
+- side
+- top
+- left_wrist
+- right_wrist
+has_synchronized_multiview_rig: true
+depth_coverage: full
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 271
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 431.57
+expected_num_episodes: 3752
+expected_duration_hours: 13.95
+num_scenes: 8
+review_status: pending_human_review
+field_sources:
+  paper_url: 'HF dataset card (README raw) links arXiv badge and "Paper" entry both
+    to arxiv.org/abs/2602.16444; fetched that URL and citation_title/citation_abstract
+    confirm "RoboGene: Boosting VLA Pre-training via Diversity-Driven Agentic Framework
+    for Real-World Task Generation" (Zhang, Wu, Gao et al., arXiv 2602.16444, 2026),
+    consistent with the HF page and BibTeX entry.'
+  license: 'HF API (https://huggingface.co/api/datasets/X-Humanoid/RoboGene) cardData.license=apache-2.0,
+    and README.md front-matter license: apache-2.0; badge in README also shows License-Apache--2.0.'
+  raw_format: 'README.md "structure of the dataset" section: "Each task follows the
+    LeRobot format" with data/meta/videos layout; re-fetched meta/info.json for all
+    274 task folders, every one reports codebase_version: v2.1 (standard LeRobot v2.1
+    parquet+mp4+jsonl layout).'
+  release_type: HF repo (X-Humanoid/RoboGene) is a static collection of 274 task folders
+    each containing parquet episodes, mp4 videos, and jsonl metadata at a fixed commit
+    -- no simulator, generation code, or RL env is shipped in this dataset repo itself
+    (the generation framework/code lives in the separate paper/project, not this data
+    release) -- matches ReleaseType.FIXED_EPISODE_DATASET.
+  collection_method: 'arXiv:2602.16444 (HTML full text) Evaluation section: "Physical
+    Feasibility reports the average success rate of tasks executed via human teleoperation
+    (5 trials per task)." Confirms the released robot trajectories are physically
+    collected via human teleoperation on real Franka FR3 arms; the RoboGene agentic
+    framework itself generates the diverse task instructions/scenes rather than the
+    motion data.'
+  secondary_collection_methods: 'README.md "Dataset Description": task instructions
+    are produced by "the RoboGene Agent Loop -- which integrates retrieval, generation,
+    and self-reflection" using foundation models (e.g. GPT-4o) to ensure generated
+    tasks are diverse and physically executable in structured environments. CollectionMethod.SCENE_ASSET_CURATION
+    is the closest existing enum value for this agentic task/scene diversity-curation
+    step that precedes human teleoperation; it is an imperfect fit (the framework
+    curates task instructions/scene configs, not physical scene assets per se) --
+    flagged for human review.'
+  is_multi_embodiment: 'False: re-fetched all 274 meta/info.json files -- robot_type
+    field takes only two values, franka_fr3_dualArm-gripper-6cameras_2 and ...-6cameras_4,
+    both naming the same Franka FR3 dual-arm-capable rig (the _2/_4 suffix tracks
+    the recording schema version -- single-active-arm vs two-active-arm -- not a different
+    robot brand or platform). Unlike XR-1 (which bundles AGX/Franka/UR/Tien-Kung),
+    this release uses one physical platform throughout.'
+  embodiment_class: 'Physical rig is a stationary dual-arm Franka FR3 station (robot_type
+    string "franka_fr3_dualArm-..." in every one of 274 meta/info.json files, plus
+    README: "Dual-arm Coordination Research: Contains high-quality trajectories for
+    sophisticated dual-arm manipulation."). Caveat: aggregated action.arm_joint_position
+    shapes across all 274 info.json show 143 tasks recording only a single active
+    arm (8-dim vector: 124 of these are under the single_arm/ top-level folder, but
+    19 are under dual_arm/ despite the folder name, e.g. dual_arm/robogene_twoArm_franka_adjust_black_computer_stand
+    is described as "Both arms coordinate..." yet its info.json shows the 8-dim single-arm
+    schema) vs 131 tasks (all under dual_arm/) recording a genuine 16-dim two-arm
+    schema. embodiment_class reflects the physical platform (dual_arm); num_arms/dof_per_arm
+    are left blank below because per-task arm usage is genuinely heterogeneous and,
+    for at least 19 tasks, inconsistent with the folder name -- flagged for human
+    review.'
+  robot_platform: 'Left blank: RobotPlatform enum has FRANKA_PANDA but not the FR3
+    variant actually used here -- every meta/info.json robot_type string is franka_fr3_dualArm-gripper-6cameras_[2|4],
+    i.e. Franka Research 3 (FR3), not a Panda. See suggested_new_enum_values.'
+  num_arms: 'Left blank: genuinely heterogeneous per-task. Aggregated action.arm_joint_position
+    shape across all 274 meta/info.json: 143 tasks use an 8-dim single-active-arm
+    schema (1 arm), 131 tasks use a 16-dim schema (2 x 8-dim = 2 arms). The 8-dim/16-dim
+    split does not align cleanly with the single_arm/ vs dual_arm/ top-level folders
+    either (19 of the 143 single-arm-schema tasks live under dual_arm/) -- no single
+    value represents the release. See dof_per_arm and embodiment_class notes.'
+  dof_per_arm: 'Left blank: measured action.arm_joint_position is 8-dim per active
+    arm (verified via direct pyarrow read of dual_arm/robogene_twoArm_franka_adjust_black_computer_stand/data/chunk-000/episode_000000.parquet:
+    action.arm_joint_position = [0.0107, 0.0208, 0.0226, -1.607, 0.0520, 1.555, 0.125,
+    0.0]). The Franka FR3 arm itself has 7 revolute joints per manufacturer spec,
+    so the 8th recorded channel''s meaning (extra joint, redundant gripper duplicate,
+    or padding) is not confidently resolvable from the data alone -- left blank rather
+    than guessed, flagged for human review.'
+  dof_per_hand: 'Consistent across every one of the 274 meta/info.json files regardless
+    of the 8-dim/16-dim arm split: action.hand_joint_position is shape [1] for the
+    143 single-active-arm tasks (1 gripper) and shape [2] for the 131 two-arm tasks
+    (2 grippers x 1 DoF each) -- uniformly 1 DoF per gripper.'
+  gripper_type: action.hand_joint_position is a single scalar per gripper (see dof_per_hand)
+    in every task, consistent with a standard Franka parallel two-finger gripper;
+    sample parquet value observed in [0, ~1] range typical of an open/close scalar.
+    No dexterous/multi-finger hand channels found anywhere in the 274 info.json files.
+  hand_pose_representation: Not applicable -- gripper_type is a simple 1-DoF parallel
+    jaw (see above), not a dexterous multi-finger hand, so there is no finger/hand-shape
+    encoding to report.
+  has_mobile_base: Re-fetched meta/info.json feature lists for all 274 task folders
+    -- only arm_joint_position/hand_joint_position/end_effector/camera channels are
+    present; no base, leg, or torso state/action channel appears in any task, consistent
+    with a fixed tabletop Franka FR3 rig (paper abstract separately mentions "mobile
+    robots" as part of the framework's intended scope, but no mobile-base data is
+    present in this specific HF release).
+  action_space: Every one of 274 meta/info.json files exposes both action.arm_joint_position
+    (joint-level) and action.end_effector (pose-level) simultaneously for the same
+    episodes -- a mixed joint+eef action representation, matching ActionSpace.MIXED.
+  action_frame: 'Downloaded and inspected dual_arm/robogene_twoArm_franka_adjust_black_computer_stand/data/chunk-000/episode_000000.parquet
+    via pyarrow: action.arm_joint_position values are physically-scaled joint angles
+    (e.g. -1.607, 1.555 rad, within real arm limits) and action.end_effector values
+    are absolute robot-frame poses (position ~[0.56, 0.02, 0.59] m matching a tabletop
+    workspace, with a unit-norm quaternion in the last 4 components: sum of squares
+    = 1.0) that persist/vary smoothly frame-to-frame rather than reading as small
+    delta increments -- consistent with ActionFrame.ABSOLUTE.'
+  rotation_representation: 'Same parquet inspection as action_frame: action.end_effector
+    is 7-dim per active arm (position[3] + quaternion[4], with the last 4 values verified
+    to have L2-norm-squared = 1.0, i.e. a genuine unit quaternion) in both the 8-dim/1-arm
+    and 16-dim/2-arm (=2 x 7-dim eef) schema groups -- uniformly RotationRepresentation.QUATERNION
+    across the whole release.'
+  state_dim: 'Left blank: same heterogeneity as action_dim/num_arms -- observation.state.arm_joint_position
+    is 8-dim for 143 tasks and 16-dim for 131 tasks (plus hand_joint_position 1 or
+    2-dim, end_effector 7 or 14-dim) -- no single scalar represents the release.'
+  action_dim: 'Left blank: mirrors state_dim -- action feature shapes are 8/7/1-dim
+    (arm/eef/hand) for 143 tasks and 16/14/2-dim for 131 tasks, per aggregated meta/info.json
+    across all 274 task folders. Not a single value.'
+  fps: 'Re-fetched all 274 meta/info.json files: every single one reports "fps": 30
+    (integer), with matching per-camera "video.fps": 30.0 in every video feature entry
+    -- no variation found.'
+  fps_variable: Same 274-file re-fetch as fps shows a single constant value (30) with
+    no per-episode or per-task variation field anywhere in the release.
+  num_camera_views: Re-fetched meta/info.json feature keys for all 274 task folders
+    -- every single one lists exactly the same 6 observation.rgb_images.* keys (camera_front,
+    camera_left, camera_right, camera_top, camera_wrist_left, camera_wrist_right),
+    confirmed by README's "camera configuration (six RGB cameras)" section listing
+    the same 6 names.
+  camera_views: 'README.md "camera configuration" section names camera_front, camera_left,
+    camera_right, camera_top, camera_wrist_left, camera_wrist_right (confirmed present
+    in all 274 meta/info.json). Mapped to schema enum as: camera_front->front, camera_top->top,
+    unqualified camera_left/camera_right (fixed external views, not wrist-mounted)->side,
+    camera_wrist_left/camera_wrist_right->left_wrist/right_wrist.'
+  has_synchronized_multiview_rig: All 6 RGB (and 6 depth) camera feature entries in
+    every meta/info.json report the identical fps (30.0) and are stored per-episode
+    alongside the same joint/eef state stream under one LeRobot episode index, consistent
+    with a fixed, synchronized multi-camera rig rather than independently-timed captures.
+  depth_coverage: Re-fetched meta/info.json feature keys for all 274 task folders
+    -- every one of the 6 observation.rgb_images.* keys has a matching observation.depth_images.*
+    entry (same camera name), with no exceptions found across the release.
+  additional_modalities: Checked meta/info.json feature lists for all 274 task folders
+    -- only rgb_images/depth_images/arm_joint_position/hand_joint_position/end_effector/timestamp/frame_index/episode_index/index/task_index
+    channels present anywhere; no force_torque, tactile, audio, or eye_gaze channels
+    found.
+  has_language_instruction: 'meta/episodes.jsonl re-fetched for a sample task (dual_arm/robogene_twoArm_franka_adjust_black_computer_stand):
+    every episode entry has a non-empty "tasks" field with a natural-language description
+    (e.g. "Both arms coordinate: left arm secures laptop stand base; right arm places
+    laptop onto laptop stand and adjusts its posture."). README also states dataset
+    card Language(s) (NLP): "Chinese (Task Instructions)" and describes "Verified,
+    high-quality natural language task descriptions."'
+  num_task_types: 'Re-fetched and summed the total_tasks field across all 274 meta/info.json
+    files: 271 folders report total_tasks=1 (271 distinct task descriptions with data),
+    and 3 folders (e.g. dual_arm/robogene_Twoarm_franka_press_seal_on_A4_plate_clamp)
+    report total_tasks=0/total_episodes=0 and contain no data/videos subfolders (metadata-only
+    placeholders with no released episodes). README''s "100+ Diverse Skills" is a
+    coarser marketing description of skill categories, not a literal task-description
+    count -- 271 is the directly measured, more precise figure.'
+  urdf_available: Complete HF file listing (27354 siblings, via HF Hub API) contains
+    no .urdf/.xacro files anywhere in the repository, and none are referenced in README.md.
+  urdf_source: Same evidence as urdf_available -- no URDF is bundled with or linked
+    from this dataset release.
+  expected_size_gb: HF Hub API (https://huggingface.co/api/datasets/X-Humanoid/RoboGene)
+    usedStorage field = 463395346602 bytes = 431.57 GB (using 1024^3 GiB convention).
+  expected_num_episodes: 'Counted directly from the HF API file listing: 3752 files
+    matching */data/chunk-*/episode_*.parquet across all 274 task folders. Cross-checked
+    by summing the total_episodes field across all 274 re-fetched meta/info.json files,
+    which also sums to exactly 3752.'
+  expected_duration_hours: 'Summed the total_frames field across all 274 re-fetched
+    meta/info.json files = 1,507,018 frames; all 274 files report fps=30 (see fps
+    note) -> 1,507,018 / 30 / 3600 = 13.95 hours. Spot-checked for inflation risk
+    (a known issue in a sibling X-Humanoid release, XR-1): re-fetched meta/episodes.jsonl
+    for the sample task dual_arm/robogene_twoArm_franka_adjust_black_computer_stand
+    and summed its 15 per-episode "length" values (1008+802+...+1038=14061), which
+    exactly matches that task''s own meta/info.json total_frames=14061 -- no inflation
+    found here, unlike XR-1.'
+  num_scenes: 'README.md "Task Highlights" section: "Rich Scenarios: Comprehensive
+    coverage of Kitchen, Laboratory, Medical, Office, Retail, Education, Industrial,
+    and Daily Life environments" -- 8 named scenario categories. README also separately
+    describes this as "8+ major scenarios" in the Limitations section, so 8 is a documented
+    lower bound rather than a precise total count.'
+suggested_new_enum_values:
+  robot_platform: 'franka_fr3 -- every one of the 274 meta/info.json robot_type strings
+    is franka_fr3_dualArm-gripper-6cameras_[2|4] (Franka Research 3), which is a distinct
+    arm model from the existing RobotPlatform.FRANKA_PANDA enum value. Source: HF
+    file listing, meta/info.json re-fetched for all 274 task folders.'

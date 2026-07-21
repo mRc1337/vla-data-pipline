@@ -1,16 +1,20 @@
 id: mimicgen
 name: MimicGen
 source_url: https://github.com/NVlabs/mimicgen
+paper_url: https://arxiv.org/abs/2310.17596
 license: CC-BY-4.0
 raw_format: HDF5
 release_type: fixed_episode_dataset
 collection_method: human_to_robot_synthesis
-secondary_collection_methods: []
+secondary_collection_methods:
+- teleop
+is_multi_embodiment: true
 embodiment_class: single_arm
 robot_platform: franka_panda
 num_arms: 1
 dof_per_arm: 7
 gripper_type: parallel_jaw
+hand_pose_representation: none
 has_mobile_base: false
 action_space: eef_pose
 action_frame: delta
@@ -21,7 +25,8 @@ fps_variable: false
 num_camera_views: 2
 camera_views:
 - third_person
-- other
+- wrist
+has_synchronized_multiview_rig: true
 has_camera_calibration: true
 depth_coverage: none
 additional_modalities: []
@@ -31,10 +36,16 @@ urdf_available: true
 urdf_source: manufacturer_official
 expected_size_gb: 149.0
 expected_num_episodes: 50120
+num_scenes: 12
 review_status: pending_human_review
 field_sources:
   source_url: https://github.com/NVlabs/mimicgen (official NVlabs code+data release
-    repo for the CoRL 2023 MimicGen paper; stub had no source_url recorded)
+    repo for the CoRL 2023 MimicGen paper; re-confirmed reachable and current on re-verification
+    pass)
+  paper_url: 'https://arxiv.org/abs/2310.17596 -- CoRL 2023 paper "MimicGen: A Data
+    Generation System for Scalable Robot Learning using Human Demonstrations" (Mandlekar
+    et al.), confirmed via GitHub README "Paper:" link and HF dataset card citation
+    block; field was previously blank (added in latest schema refinement).'
   license: 'https://github.com/NVlabs/mimicgen#license and README ''Latest Updates'':
     ''[04/04/2024] v0.1.1: Dataset license changed to CC-BY 4.0''; also https://huggingface.co/datasets/amandlek/mimicgen_datasets
     (license tag: cc-by-4.0). Note: the mimicgen *code* is separately released under
@@ -44,12 +55,34 @@ field_sources:
     https://robomimic.github.io/docs/sources/datasets/overview.md.txt: generated/released
     data is ''a single dataset is a single HDF5 file'' compatible with robomimic'
   collection_method: 'https://mimicgen.github.io/docs/sources/datasets/mimicgen_corl_2023.md.txt
-    Dataset Types/Statistics: only 120 of ~50,120 demos (source, ~0.2%) are human
-    teleop; the remaining ~50,000 (core/object/robot/large_interpolation, ~99.8%)
-    are automatically synthesized in simulation by MimicGen from those small teleop
-    seed sets, matching the ''human_to_robot_synthesis'' semantics'
+    Dataset Types/Statistics, re-confirmed against arXiv:2310.17596 full text ("For
+    each task, one human operator collected a source dataset of 10 demonstrations
+    ... using a teleoperation system"): only 120 of ~50,120 demos (source, ~0.2%)
+    are human teleop; the remaining ~50,000 (core/object/robot/large_interpolation,
+    ~99.8%) are automatically synthesized in simulation by MimicGen from those small
+    teleop seed sets, matching the ''human_to_robot_synthesis'' semantics -- same
+    convention as configs/dexmimicgen.yaml'
+  secondary_collection_methods: 'Same source as collection_method: the 120 released
+    "source" demonstrations (source/*.hdf5 on https://huggingface.co/datasets/amandlek/mimicgen_datasets,
+    one file per of the 12 tasks) are themselves genuine human teleoperation data
+    (not synthesized), and are part of the same released dataset/episode count (50,120)
+    this config describes -- hence teleop is recorded as a secondary collection method
+    alongside the dominant human_to_robot_synthesis.'
+  is_multi_embodiment: 'https://huggingface.co/datasets/amandlek/mimicgen_datasets
+    file listing (robot/square_d0_{panda,sawyer,ur5e,iiwa}.hdf5 and robot/threading_d0_{panda,sawyer,ur5e,iiwa}.hdf5,
+    etc.) and arXiv:2310.17596 Appendix F: the released "robot" dataset type (16,000
+    of 50,120 episodes) was generated for 4 distinct robot arms (Franka Panda, Rethink
+    Sawyer, UR5e, KUKA IIWA) on the same 2 tasks, confirming the dataset is genuinely
+    multi-embodiment even though robot_platform records only the majority/default
+    platform.'
   embodiment_class: 'arXiv:2310.17596 and https://mimicgen.github.io/docs/introduction/overview.html:
-    all released tasks are single-arm robosuite manipulation tasks'
+    all released tasks are single-arm robosuite manipulation tasks. Re-verified against
+    the HF repo file listing (source/*.hdf5: coffee, coffee_preparation, hammer_cleanup,
+    kitchen, mug_cleanup, nut_assembly, pick_place, square, stack, stack_three, threading,
+    three_piece_assembly -- 12 files/tasks): the paper''s Mobile Kitchen task (mobile_manipulator
+    embodiment) and Factory tasks are experiments reported in the paper but are NOT
+    among the 12 tasks in the officially released HF/GitHub dataset, so single_arm
+    remains correct for the actual released data this config describes.'
   robot_platform: 'https://mimicgen.github.io/docs/sources/datasets/mimicgen_corl_2023.md.txt:
     ''robot'' dataset type = ''16,000 task demonstrations across 4 different robot
     arms on 2 tasks''; the source/core/object/large_interpolation datasets (~44,120
@@ -67,8 +100,16 @@ field_sources:
     (only UR5e used in the 'robot' variant is 6-DoF)
   gripper_type: Default MimicGen/robosuite grippers (Franka's PandaGripper, Robotiq85Gripper
     used with Sawyer/UR5e/IIWA) are all two-finger parallel-jaw grippers -- https://robosuite.ai/docs/modules/robots.html
+  hand_pose_representation: Re-derived from gripper_type/robot_platform evidence above
+    -- all released tasks use a simple two-finger parallel-jaw gripper (Franka PandaGripper
+    / Robotiq85Gripper), not a dexterous multi-finger hand, so there is no finger/hand-shape
+    encoding (MANO/keypoints/joint-angles) to record; 'none' is the correct explicit
+    value (field was previously blank).
   has_mobile_base: All MimicGen/robosuite tasks use a fixed-base arm mounted on/near
-    a table -- https://mimicgen.github.io/docs/introduction/overview.html
+    a table -- https://mimicgen.github.io/docs/introduction/overview.html. Re-verified
+    -- the paper's Mobile Kitchen task (which does use a mobile base) is not among
+    the 12 tasks in the officially released dataset (see embodiment_class note), so
+    false remains correct for the released data.
   action_space: 'https://robosuite.ai/docs/modules/controllers.html ''Operational
     Space Control - Pose with Fixed Impedance'', Controller Type OSC_POSE (robosuite/mimicgen
     default arm controller): action = desired 6D end-effector pose + gripper'
@@ -92,8 +133,15 @@ field_sources:
     agentview robot0_eye_in_hand'' (2 views)'
   camera_views: 'Same robomimic robosuite.md.txt source: fixed third-person ''agentview''
     camera mapped to third_person; wrist-mounted ''robot0_eye_in_hand'' camera mapped
-    to other, since MimicGen''s single, non-handed arm has no left/right wrist distinction
-    (same convention as configs/calvin.yaml and configs/dobb_e.yaml) -- see suggested_new_enum_values'
+    to wrist (schema.py CameraView now has a generic WRIST option as of the latest
+    schema refinement, so the earlier ''other'' placeholder used for MimicGen''s single,
+    non-handed wrist camera has been corrected to ''wrist''; the corresponding suggested_new_enum_values
+    entry has been removed since it is resolved).'
+  has_synchronized_multiview_rig: Both released camera views (agentview third-person
+    + robot0_eye_in_hand wrist) are rendered from the same underlying simulation state
+    at each control step when extracted via dataset_states_to_obs.py (see depth_coverage
+    note on post-hoc extraction), so the two views are inherently time-synchronized
+    -- https://robomimic.github.io/docs/sources/datasets/robosuite.md.txt
   has_camera_calibration: 'https://raw.githubusercontent.com/ARISE-Initiative/robosuite/master/robosuite/models/assets/arenas/table_arena.xml:
     ''agentview'' camera has a fixed, known pos/quat defined in the MJCF; robomimic''s
     HDF5 ''model_file'' attribute additionally stores the exact per-episode MJCF (including
@@ -108,28 +156,43 @@ field_sources:
     ''Dataset Structure'': the per-demo HDF5 schema only contains states/actions/rewards/dones/obs/next_obs
     -- no language/instruction field is part of the released MimicGen data format'
   num_task_types: 'https://github.com/NVlabs/mimicgen README and https://huggingface.co/datasets/amandlek/mimicgen_datasets:
-    ''over 48,000 task demonstrations across 12 tasks'''
+    ''over 48,000 task demonstrations across 12 tasks''. Re-confirmed by independently
+    counting the 12 distinct source/*.hdf5 filenames via the HF tree API (coffee,
+    coffee_preparation, hammer_cleanup, kitchen, mug_cleanup, nut_assembly, pick_place,
+    square, stack, stack_three, threading, three_piece_assembly).'
   urdf_available: https://github.com/frankaemika/franka_ros (develop branch) ships
     franka_description/robots/panda/panda.urdf.xacro for the Franka Panda arm, the
     default MimicGen robot (mimicgen itself uses MJCF/XML models via robosuite, not
     URDF, for simulation)
   urdf_source: https://github.com/frankaemika/franka_ros -- official manufacturer
     (Franka Emika/Franka Robotics) repository, not the mimicgen dataset repo itself
-  expected_size_gb: https://huggingface.co/datasets/amandlek/mimicgen_datasets (Files
+  expected_size_gb: 'https://huggingface.co/datasets/amandlek/mimicgen_datasets (Files
     and versions page reports total repo size 148,972,730,513 bytes, displayed as
-    '149 GB'; window.__hf_deferred size field confirms 148972730513)
+    ''149 GB''; window.__hf_deferred size field confirms 148972730513). Independently
+    re-verified by summing the ''size''/lfs.size of all 63 data files returned by
+    the HF tree API (datasets/amandlek/mimicgen_datasets/tree/main?recursive=true):
+    total = 148,972,730,513 bytes = 148.97 GB, confirming 149.0 (note: the HF repo-info
+    ''usedStorage'' API field reports a lower, stale-looking 142.0 GB, but the direct
+    per-file sum from the tree API is the more reliable figure and matches the previously
+    recorded value).'
   expected_num_episodes: 'https://mimicgen.github.io/docs/sources/datasets/mimicgen_corl_2023.md.txt
     ''Dataset Statistics'': source 120 + core 26,000 + object 2,000 + robot 16,000
     + large_interpolation 6,000 = 50,120 total released demonstrations (README''s
-    headline ''48,000+'' is a rounded lower bound on this same total)'
+    headline ''48,000+'' is a rounded lower bound on this same total). Re-confirmed
+    identically via the HF dataset card raw README and the GitHub docs mirror.'
+  num_scenes: Derived from the HF/GitHub source/*.hdf5 file listing and mimicgen.github.io
+    dataset docs -- the released dataset spans exactly 12 distinct tasks (coffee,
+    coffee_preparation, hammer_cleanup, kitchen, mug_cleanup, nut_assembly, pick_place,
+    square, stack, stack_three, threading, three_piece_assembly), each implemented
+    as its own distinct simulated robosuite/MuJoCo environment (scene); D0/D1/D2 reset-distribution
+    variants and O1/O2 object variants reuse the same underlying scene per task rather
+    than introducing new ones, so num_scenes = num_task_types = 12. This is an interpretive
+    derivation (no source states "12 scenes" verbatim), flagged as a residual uncertainty
+    for human review.
 suggested_new_enum_values:
-  camera_views: wrist (generic, non-handed) - MimicGen's single-arm robots (Panda/Sawyer/UR5e/IIWA)
-    each have one wrist-mounted 'robot0_eye_in_hand' camera with no left/right distinction;
-    the existing left_wrist/right_wrist options would force an incorrect handedness
-    label, so 'other' was used instead as a stand-in (same gap already noted in configs/calvin.yaml
-    and configs/dobb_e.yaml).
   robot_platform: kuka_iiwa - the mimicgen 'robot' dataset type (16,000 demos across
     4 robot-arm embodiments on 2 tasks, per the CoRL 2023 paper's robot-transfer/Appendix
     F experiments) includes a KUKA IIWA arm alongside Panda/Sawyer/UR5e, but the robot_platform
     enum has no IIWA/Kuka option; franka_panda was recorded as the default/majority-of-episodes
-    platform instead.
+    platform instead. Re-confirmed still missing from the current schema.py RobotPlatform
+    enum on this re-verification pass.

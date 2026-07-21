@@ -64,24 +64,29 @@ python3 some_future_script.py --data-root /mnt/big_disk/vla_data
 
 | id | name | priority | download_status | convert_status | process_status | review_status | collection_method | embodiment_class |
 |---|---|---|---|---|---|---|---|---|
+| 1x_world_model_dataset | 1X World Model Dataset | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | humanoid |
+| alfred | ALFRED | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | mobile_manipulator |
 | aloha_unleashed | ALOHA Unleashed | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | dual_arm |
 | arcap | ARCap | P2 | not_downloaded | not_converted | not_processed | pending_human_review | ar_haptic_guided_synthesis | single_arm |
+| agibot_digital_world | AgiBot Digital World | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | dual_arm |
 | agibot_world | AgiBot-World | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | dual_arm |
 | airexo_2 | AirExo-2 | P2 | not_downloaded | not_converted | not_processed | pending_human_review | human_to_robot_synthesis | dual_arm |
 | assembly101 | Assembly101 | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
+| autobag | AutoBag | P2 | not_downloaded | not_converted | not_processed | pending_human_review | scripted | dual_arm |
+| behavior_robot_suite | BEHAVIOR Robot Suite | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | mobile_manipulator |
 | behavior_1k | BEHAVIOR-1K | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | mobile_manipulator |
-| brmdata | BRMData | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | mobile_manipulator |
+| brmdata | BRMData | P2 | not_downloaded | not_converted | not_processed | confirmed | teleop | mobile_manipulator |
 | bigym | BiGym | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | humanoid |
 | bridgedata_v2 | BridgeData V2 | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | single_arm |
 | calvin | CALVIN | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | single_arm |
 | droid | DROID | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | single_arm |
 | dexcap | DexCap | P2 | not_downloaded | not_converted | not_processed | pending_human_review | human_to_robot_synthesis | human_hand |
-| dexmimicgen | DexMimicGen | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation |  |
+| dexmimicgen | DexMimicGen | P2 | not_downloaded | not_converted | not_processed | pending_human_review | human_to_robot_synthesis | dual_arm |
 | dobb_e | Dobb-E | P2 | not_downloaded | not_converted | not_processed | pending_human_review | umi | mobile_manipulator |
 | epic_kitchens_100 | EPIC-KITCHENS-100 | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
 | ego_exo4d | Ego-Exo4D | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
-| ego4d | Ego4d | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
-| egoallo | EgoAllo | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human |  |
+| ego4d | Ego4d | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_full_body |
+| egoallo | EgoAllo | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_full_body |
 | egodex | EgoDex | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
 | egoexolearn | EgoExoLearn | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
 | fastumi | FastUMI | P2 | not_downloaded | not_converted | not_processed | pending_human_review | umi | single_arm |
@@ -92,36 +97,54 @@ python3 some_future_script.py --data-root /mnt/big_disk/vla_data
 | galaxea_open_world_dataset | Galaxea Open-World Dataset | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | mobile_manipulator |
 | gensim2 | GenSim2 | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | single_arm |
 | h2o | H2O | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
+| handloom | HANDLOOM | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | dual_arm |
 | hd_epic | HD-EPIC | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
 | hoi4d | HOI4D | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
 | hot3d | HOT3D | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
-| humanoidbench | HumanoidBench | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | humanoid |
+| humanoid_x | Humanoid-X | P2 | not_downloaded | not_converted | not_processed | pending_human_review | human_to_robot_synthesis | humanoid |
+| humanoidbench | HumanoidBench | P2 | not_downloaded | not_converted | not_processed | confirmed | simulation | humanoid |
 | libero | LIBERO | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | single_arm |
 | libero_plus | LIBERO-plus | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | single_arm |
 | language_table | Language Table | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | single_arm |
 | mv_umi | MV-UMI | P2 | not_downloaded | not_converted | not_processed | pending_human_review | umi | single_arm |
 | maniskill3 | ManiSkill3 | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | single_arm |
+| meituan_libero_x | Meituan LIBERO-X | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | single_arm |
 | mimicgen | MimicGen | P2 | not_downloaded | not_converted | not_processed | pending_human_review | human_to_robot_synthesis | single_arm |
 | mobile_aloha | Mobile ALOHA | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | mobile_manipulator |
+| nvidia_gr00t_teleop_g1 | NVIDIA GR00T-Teleop-G1 | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | humanoid |
+| nvidia_gr00t_x_embodiment_sim | NVIDIA GR00T-X-Embodiment-Sim | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation |  |
+| nvidia_locomanipulation_grail | NVIDIA Locomanipulation-GRAIL | P2 | not_downloaded | not_converted | not_processed | pending_human_review | human_to_robot_synthesis | humanoid |
+| nvidia_physicalai_robotics_manipulation_kitchen | NVIDIA PhysicalAI-Robotics-Manipulation-Kitchen | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | mobile_manipulator |
+| nvidia_physicalai_robotics_manipulation_objects | NVIDIA PhysicalAI-Robotics-Manipulation-Objects | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | mobile_manipulator |
+| nvidia_physicalai_robotics_manipulation_singlearm | NVIDIA PhysicalAI-Robotics-Manipulation-SingleArm | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | single_arm |
+| oakink2 | OAKINK2 | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
+| ovmm | OVMM | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | mobile_manipulator |
 | omniumi | OmniUMI | P2 | not_downloaded | not_converted | not_processed | pending_human_review | umi | single_arm |
-| open_x_embodiment | Open X-Embodiment | P2 | not_downloaded | not_converted | not_processed | pending_human_review |  |  |
-| rh20t | RH20T | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | single_arm |
+| open_x_embodiment | Open X-Embodiment | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop |  |
+| partnr | PARTNR | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | mobile_manipulator |
+| ph2d | PH2D | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
+| pokeflex | PokeFlex | P2 | not_downloaded | not_converted | not_processed | pending_human_review |  | single_arm |
+| rh20t | RH20T | P2 | not_downloaded | not_converted | not_processed | confirmed | teleop | single_arm |
 | rt_1 | RT-1 | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | mobile_manipulator |
 | robocoin | RoboCOIN | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop |  |
 | robocasa | RoboCasa | P2 | not_downloaded | not_converted | not_processed | pending_human_review | human_to_robot_synthesis | mobile_manipulator |
-| robogen | RoboGen | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | single_arm |
+| robocook | RoboCook | P2 | not_downloaded | not_converted | not_processed | pending_human_review | autonomous_policy | single_arm |
+| robogen | RoboGen | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation |  |
+| robogene | RoboGene | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | dual_arm |
 | robomind | RoboMind | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop |  |
 | robonet | RoboNet | P2 | not_downloaded | not_converted | not_processed | pending_human_review | autonomous_policy |  |
 | roboomni | RoboOmni | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | single_arm |
 | roboset | RoboSet | P2 | not_downloaded | not_converted | not_processed | pending_human_review |  | single_arm |
 | robotwin | RoboTwin | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | dual_arm |
+| robovqa | RoboVQA | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human |  |
 | roboverse | RoboVerse | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | single_arm |
-| robotset | RobotSet | P2 | not_downloaded | not_converted | not_processed | pending_human_review |  |  |
+| taco | TACO | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
+| teach | TEACh | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop | mobile_manipulator |
 | the_colosseum | THE COLOSSEUM | P2 | not_downloaded | not_converted | not_processed | pending_human_review | simulation | single_arm |
 | umi_datasets | UMI datasets | P2 | not_downloaded | not_converted | not_processed | pending_human_review | umi | single_arm |
 | vitra | VITRA | P2 | not_downloaded | not_converted | not_processed | pending_human_review | egocentric_human | human_hand |
 | xr_1_dataset | XR-1 Dataset | P2 | not_downloaded | not_converted | not_processed | pending_human_review | teleop |  |
-| yubi | YUBI | P2 | not_downloaded | not_converted | not_processed | pending_human_review | umi | dual_arm |
+| yubi | YUBI | P2 | not_downloaded | not_converted | not_processed | confirmed | umi | dual_arm |
 | lerobot_ull_folding | lerobot/ull_folding | P2 | not_downloaded | not_converted | not_processed | pending_human_review |  |  |
 
 <!-- AUTO-GENERATED TABLE END -->

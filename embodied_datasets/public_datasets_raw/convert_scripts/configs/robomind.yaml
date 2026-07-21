@@ -1,72 +1,158 @@
 id: robomind
-name: RoboMind
+name: RoboMIND
 source_url: https://huggingface.co/datasets/x-humanoid-robomind/RoboMIND
+paper_url: https://arxiv.org/abs/2412.13877
 license: Apache-2.0
 raw_format: HDF5
 release_type: fixed_episode_dataset
 collection_method: teleop
-secondary_collection_methods: []
+secondary_collection_methods:
+- simulation
+is_multi_embodiment: true
+dof_per_hand: 6
+gripper_type: mixed
+hand_pose_representation: joint_angles
 has_mobile_base: false
-camera_views: []
-depth_coverage: full
+action_space: joint_position
+fps_variable: true
+camera_views:
+- top
+- side
+- head
+- body_worn
+- left_wrist
+- right_wrist
+- front
+has_synchronized_multiview_rig: true
+depth_coverage: partial
 additional_modalities: []
 has_language_instruction: true
 num_task_types: 6
+urdf_available: true
+urdf_source: manufacturer_official
 expected_size_gb: 12279.0
 expected_num_episodes: 107000
+expected_duration_hours: 305.5
+num_objects: 96
 review_status: pending_human_review
 field_sources:
+  name: Official capitalization is 'RoboMIND' (all-caps MIND) per arXiv:2412.13877
+    title, HF dataset page, project site x-humanoid-robomind.github.io, and GitHub
+    org x-humanoid-robomind. Corrected from 'RoboMind'.
   source_url: Verified via https://huggingface.co/api/datasets/x-humanoid-robomind/RoboMIND
-    (repo id matches https://huggingface.co/datasets/x-humanoid-robomind/RoboMIND);
-    paper project page https://x-humanoid-robomind.github.io/ also links to this HF
-    repo.
+    (repo id matches); note repo is now gated ('auto') as of this recheck, requiring
+    HF login to download files, though the dataset card/README remain publicly fetchable.
+  paper_url: 'arXiv:2412.13877 ''RoboMIND: Benchmark on Multi-embodiment Intelligence
+    Normative Data for Robot Manipulation'', linked from HF README arXiv badge and
+    project page. Accepted RSS 2025.'
   license: https://huggingface.co/api/datasets/x-humanoid-robomind/RoboMIND -> cardData.license
-    = 'apache-2.0'
-  raw_format: 'arXiv:2412.13877 ''RoboMIND: Benchmark on Multi-embodiment Intelligence
-    Normative Data for Robot Manipulation'', Section III.A ''Data Collection and Storage'':
-    trajectories are stored ''in a standardized H5 format'' / ''into a single H5 format
-    file''. Confirmed by HF repo file listing showing h5_franka_3rgb, h5_agilex_3rgb,
-    h5_ur_1rgb, h5_tienkung_xsens_1rgb directories.'
+    = 'apache-2.0'; also stated in HF README badge. Unchanged after recheck.
+  raw_format: 'arXiv:2412.13877 Sec III.A: trajectories packaged ''into a single H5
+    format file''; confirmed by HF repo folder names (h5_franka_3rgb, h5_agilex_3rgb,
+    h5_ur_1rgb, h5_tienkung_xsens_1rgb, h5_simulation). Unchanged after recheck.'
+  release_type: RoboMIND is a fixed collection of 107k pre-recorded demonstration
+    trajectories (arXiv:2412.13877 abstract), not a generation framework, scene platform,
+    or RL benchmark env -> fixed_episode_dataset. Field was unset in schema-sources
+    though value was already correct; source added now.
   collection_method: 'arXiv:2412.13877 abstract: ''RoboMIND is collected through human
-    teleoperation''; Section III.A describes Gello-style 3D-printed teleop rigs (Franka/UR5e),
-    bilateral leader-follower teleop (AgileX, similar to Mobile ALOHA), and motion-capture-suit
-    (Xsens) teleop for the Tien Kung humanoid, including for the digital-twin simulation
-    trajectories.'
-  has_mobile_base: 'arXiv:2412.13877 Section VII ''Limitations'': ''although RoboMIND
-    covers a broad range of robot tasks and environments, it currently lacks data
-    from mobile manipulation scenarios. However, since two of our robotic embodiments
-    are mobile, we plan to expand RoboMIND to include mobile manipulation tasks in
-    the future.'' -> no episode in the current release involves base motion, even
-    though 2 of the 4 platforms (AgileX, Tien Kung) physically have a mobile base.'
+    teleoperation''; Sec III.A describes Gello-style teleop (Franka/UR5e), bilateral
+    leader-follower teleop (AgileX, Mobile-ALOHA-style), and Xsens motion-capture-suit
+    teleop (Tien Kung). Unchanged after recheck.'
+  secondary_collection_methods: HF README directory listing includes an 'h5_simulation'
+    folder; arXiv:2412.13877 Sec III.A states RoboMIND 'contains teleoperation data
+    in real-world and simulation environments'; Sec IV.A cites ~30,035 simulation-based
+    trajectories from an Isaac Sim digital twin. Corrected from [] to ['simulation']
+    since a real, separately-flagged portion of the dataset is collected in a simulated
+    (not real-world) environment.
+  is_multi_embodiment: 'arXiv:2412.13877 title and abstract: ''covering four distinct
+    robotic embodiments: Franka Emika Panda, X-Humanoid Tien Kung humanoid, AgileX
+    Cobot Magic V2.0 dual-arm, and UR5e''. Newly filled = true.'
+  has_mobile_base: 'arXiv:2412.13877 Sec VII Limitations: no episode involves base
+    motion even though 2 of 4 platforms (AgileX, Tien Kung) physically have mobile
+    bases; authors state they plan to add mobile-manipulation data in future work.
+    Unchanged after recheck.'
+  dof_per_hand: 'arXiv:2412.13877 Fig. 3 (Tien Kung configuration diagram) labels
+    ''Hand: 6 DoF'' for each Inspire-Robots RH56DFX dexterous hand. Applies only to
+    the Tien Kung platform; the other 3 platforms use simple grippers with no hand
+    DOF. Newly filled = 6.'
+  hand_pose_representation: Inferred from arXiv:2412.13877 Fig. 3 describing the dexterous
+    hand via a fixed joint-DoF breakdown (6 DoF) and Sec III.A stating the H5 files
+    store 'proprioceptive robot state information' for all joints; no MANO or 3D-keypoint
+    hand tracking is described anywhere in the paper. Newly filled = joint_angles
+    (moderate confidence, not a fully explicit statement).
+  action_space: 'GitHub Open-X-Humanoid/RoboMIND-dataset-utils README: ''Our data
+    is primarily oriented towards VLA training, where the core feature utilized is
+    the joint_position. If the end effector pose is strictly required ... it can be
+    recalculated via forward kinematics.'' Newly filled = joint_position.'
+  camera_views: 'arXiv:2412.13877 Fig. 10 caption + Sec V.A ''Real-world Robotic Setup'':
+    Franka has 3 external RealSense D435i at top/left/right; UR5e has 1 top-mounted
+    RealSense D435i; AgileX has 2 hand-eye (wrist) Orbbec Astra cams + 1 front-facing
+    cam; Tien Kung has Orbbec Gemini 335 on the head and Gemini 335L on the chest/other
+    body parts. Newly filled with the union of view types across all 4 heterogeneous
+    platforms: top, side (left+right), head, body_worn (chest), left_wrist, right_wrist,
+    front.'
+  has_synchronized_multiview_rig: 'arXiv:2412.13877 abstract mentions ''multi-view
+    observations''; Sec III.A: each trajectory consolidates ''multi-view RGB-D data
+    ... into a single H5 format file'', i.e. simultaneous cameras per platform are
+    captured together per timestep. Newly filled = true.'
+  depth_coverage: 'CORRECTED from ''full'' to ''partial''. arXiv:2412.13877 Sec III.A
+    / Fig.10 confirms RGB-D cameras (RealSense D435i, Orbbec Gemini 335/335L, Orbbec
+    Astra) on all 4 real-world platforms, but HF README ''HDF5 File Format'' section
+    states: ''In the simulation data ... the depth image is not available temporarily.''
+    Since simulation trajectories (~28% of the v1.0/1.1 total, ~30k of 107k) lack
+    depth while all real-world trajectories have it, overall coverage is partial rather
+    than full.'
   has_language_instruction: 'arXiv:2412.13877 abstract: ''linguistic task descriptions'';
-    Section I: each of the 107k trajectories includes a task-level language description,
-    and 10k trajectories additionally have frame-level fine-grained language annotations.'
-  num_task_types: 'arXiv:2412.13877 Fig. 1 caption: trajectories are grouped into
-    6 task categories (Articulated Manipulations, Coordination Manipulations, Basic
-    Manipulations, Multiple Object Interactions, Precision Manipulations, Scene Understanding).'
-  depth_coverage: 'arXiv:2412.13877 Section III.A / ''Real-world Robotic Setup'':
-    all four platforms use RGB-D cameras (Intel RealSense D435i for Franka/UR5e, Orbbec
-    Gemini 335/335L for Tien Kung, Orbbec Astra for AgileX); Section I states the
-    data ''encompass RGB-D data from distinct viewpoints''.'
-  expected_num_episodes: 'arXiv:2412.13877 abstract and throughout: ''107k demonstration
-    trajectories'' (successful trajectories; a further 5k real-world failure trajectories
-    are distributed separately).'
+    Sec I: each of the 107k trajectories has a task-level language description, and
+    10k trajectories have additional frame-level fine-grained annotations. Unchanged
+    after recheck.'
+  num_task_types: 'arXiv:2412.13877 Sec IV.A / Fig. 1(c): tasks are grouped into 6
+    categories (Articulated Manipulations, Coordination Manipulations, Basic Manipulations,
+    Multiple Object Interactions, Precision Manipulations, Scene Understanding). Unchanged
+    after recheck (note: distinct from the 479 fine-grained tasks and 38 skills, which
+    have no corresponding schema field).'
+  urdf_available: GitHub org x-humanoid-robomind hosts a dedicated TienKung_URDF repo
+    (URDF + STL meshes + STEP CAD, including hand variants) published by the robot's
+    own manufacturer; RoboMIND-dataset-utils README states EE poses for h5_ur_1rgb/h5_simulation/h5_sim_franka_3rgb
+    can be 'recalculated via forward kinematics using the corresponding model's URDF',
+    implying URDFs exist for the other platforms too. Newly filled = true.
+  urdf_source: TienKung_URDF is published under the x-humanoid-robomind GitHub org
+    by X-Humanoid, the manufacturer of the Tien Kung robot itself; Franka/UR5e/AgileX
+    also have standard manufacturer-published URDFs used for the FK recalculation
+    described in RoboMIND-dataset-utils. Newly filled = manufacturer_official.
   expected_size_gb: https://huggingface.co/api/datasets/x-humanoid-robomind/RoboMIND
-    -> usedStorage = 12,278,955,507,251 bytes (~12279 GB / ~12.3 TB) for the HF repo
-    at source_url; note this repo hosts multiple compressed benchmark releases (benchmark1_0/1_1/1_2_compressed)
+    -> usedStorage ~= 12,278,955,507,251 bytes (~12279 GB) for the whole HF repo at
+    source_url; this repo hosts multiple compressed benchmark releases (benchmark1_0/1_1/1_2_compressed)
     plus failure_data and example_data, so this is the total size of everything hosted
-    there rather than necessarily one single canonical release.
+    there rather than one canonical release. Unchanged after recheck.
+  expected_num_episodes: 'arXiv:2412.13877 abstract/throughout: ''107k demonstration
+    trajectories'' (successful trajectories only; a further 5k real-world failure
+    trajectories are distributed separately). Unchanged after recheck.'
+  expected_duration_hours: 'arXiv:2412.13877 abstract/Sec I: ''107k demonstration
+    trajectories amounting to 305.5 hours of interaction data''. Newly filled = 305.5.'
+  num_objects: 'arXiv:2412.13877 abstract and Sec IV: ''96 object classes'' / ''96
+    distinct object classes'', consistently repeated throughout the paper and the
+    HF README (''96 unique object classes''). Newly filled = 96.'
+  fps_variable: 'HF README ''HDF5 File Format'' section: ''In the simulation data,
+    the acquisition frequency of the camera and the robotic arm is approximately 1:4'',
+    showing camera vs. proprioceptive-state sampling rates are not 1:1; combined with
+    4 heterogeneous camera models (D435i/Astra/Gemini 335/335L) across platforms with
+    differing native frame rates, no single fixed fps applies dataset-wide. Newly
+    filled = true (no explicit absolute fps number was found for any platform, so
+    ''fps'' itself is left blank).'
 suggested_new_enum_values:
   embodiment_class: 'multi_embodiment (or similar) -- RoboMIND deliberately spans
     4 heterogeneous platforms at once within one collection: single_arm (Franka Emika
     Panda, UR5e), dual_arm (AgileX Cobot Magic V2.0), and humanoid (Tien Kung with
     dual dexterous hands). None of the existing single-value options (single_arm/dual_arm/humanoid/mobile_manipulator/human_hand)
     correctly describes the collection as a whole, so the field was left blank instead
-    of arbitrarily picking one embodiment.'
+    of arbitrarily picking one embodiment. Also left robot_platform blank for the
+    same reason.'
   gripper_type: mixed -- 3 of the 4 embodiments (Franka, UR5e, AgileX) use Robotiq
     parallel-jaw grippers while the Tien Kung humanoid uses Inspire-Robots RH56DFX
-    dexterous hands (per arXiv:2412.13877 Section III.A / 'Real-world Robotic Setup').
-    The dataset as a whole therefore mixes parallel_jaw and dexterous_hand end-effectors
-    and doesn't fit either single existing enum value; a 'mixed' option analogous
-    to ActionSpace.MIXED would let this be represented without forcing a wrong single
-    choice.
+    dexterous hands (per arXiv:2412.13877 Sec III.A / Sec V.A). The dataset as a whole
+    therefore mixes parallel_jaw and dexterous_hand end-effectors and doesn't fit
+    either single existing enum value; a 'mixed' option analogous to ActionSpace.MIXED
+    would let this be represented without forcing a wrong single choice. Also left
+    num_arms and dof_per_arm blank for the analogous reason (1 vs 2 arms, 6 vs 7 DoF
+    depending on platform).

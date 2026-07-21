@@ -6,10 +6,14 @@ raw_format: HDF5
 release_type: fixed_episode_dataset
 collection_method: teleop
 secondary_collection_methods: []
+is_multi_embodiment: false
 embodiment_class: humanoid
-robot_platform: other
+robot_platform: fourier_gr1
 num_arms: 2
+dof_per_arm: 7
+dof_per_hand: 6
 gripper_type: dexterous_hand
+hand_pose_representation: joint_angles
 has_mobile_base: false
 action_space: joint_position
 action_frame: absolute
@@ -21,83 +25,195 @@ fps_variable: false
 num_camera_views: 1
 camera_views:
 - head
+has_synchronized_multiview_rig: false
 depth_coverage: none
 additional_modalities: []
 has_language_instruction: true
 num_task_types: 24
 expected_size_gb: 14.0
 expected_num_episodes: 24000
+expected_duration_hours: 80.84
 review_status: pending_human_review
 field_sources:
-  source_url: 'Stub had no usable source_url; corrected to the official Hugging Face
-    dataset page https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-Teleop-Sim
-    (found via HF datasets API search for nvidia org + ''teleop'': https://huggingface.co/api/datasets?search=teleop&author=nvidia).
-    This is the ''Simulation GR1 Tabletop Task 1K Dataset'', linked from NVIDIA''s
-    Isaac-GR00T GitHub repo (https://github.com/NVIDIA/Isaac-GR00T) as one of the
-    post-training/PhysicalAI datasets.'
-  license: 'Dataset card metadata (`license: cc-by-nc-4.0`) and README.md section
-    ''License/Terms of Use'': ''This dataset is licensed under the Creative Commons
-    Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0)'' -- https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-Teleop-Sim/raw/main/README.md'
-  raw_format: 'README.md ''Dataset Format'' section: ''HDF5 format and LeRobot-style
-    dataset''; repo file listing confirms 24 top-level HDF5/*.hdf5 files plus a parallel
-    LeRobot/ directory of per-task LeRobot v2.0 datasets (parquet+mp4). Chose HDF5
-    as the recorded raw_format since it is the native/original per-task capture format;
-    the LeRobot-style copy is a converted mirror also shipped in the same repo.'
-  collection_method: 'README.md ''Dataset Characterization'' section: ''Data Collection
-    Method: [Human Teleoperation in Simulation]'' -- human teleoperation performed
-    inside a simulator, closest enum match is teleop.'
-  embodiment_class: 'README.md Dataset Description: ''...trajectories in simulation
-    using the GR1 robot with upper body control...equipped with simulated Fourier
-    hands.'' GR1 is Fourier Intelligence''s full humanoid platform -> humanoid.'
-  robot_platform: GR1 (Fourier Intelligence humanoid) is not present in the given
-    robot_platform enum list; mapped to 'other' and flagged in suggested_new_enum_values.
-  num_arms: 'README.md: ''upper body control'' with ''44 dim of vectorized state (joint
-    positions of upper body + waist)'' on a humanoid platform -> two manipulation
-    arms (bimanual upper body).'
-  gripper_type: 'README.md Dataset Description: ''The robot is equipped with simulated
-    Fourier hands'' -- multi-fingered dexterous end effectors, not parallel grippers.'
-  has_mobile_base: README.md describes only 'upper body control' for tabletop manipulation
-    tasks; no leg/base locomotion or mobility is mentioned, consistent with a stationary
-    humanoid torso setup for tabletop tasks.
-  action_space: 'README.md ''Modality'' section: ''Action: 44 dim of vectorized action
-    (joint positions of upper body + waist)'' -- joint-space position control.'
-  action_frame: README.md 'Modality' section describes the action explicitly as 'joint
-    positions' (not deltas), consistent with absolute joint-position targets.
-  rotation_representation: 'README.md ''Modality'' section: both observation and action
-    are joint-position vectors (upper body + waist), not end-effector Cartesian/orientation
-    representations, so no rotation representation is used.'
-  state_dim: 'README.md ''Modality'' section: ''Observation: 44 dim of vectorized
-    state (joint positions of upper body + waist)''.'
-  action_dim: 'README.md ''Modality'' section: ''Action: 44 dim of vectorized action
-    (joint positions of upper body + waist)''.'
-  fps: 'README.md ''Modality'' section: ''Video: RGB video, 256x256 resolution (cropped
-    and padded; original resolution is 51x320), 20 fps''; confirmed by LeRobot meta/info.json
-    for gr1_unified.PnPBottleToCabinetClose showing ''fps'': 20.0.'
-  fps_variable: All tasks share the same 20 fps capture rate per README.md and the
-    LeRobot meta/info.json for the sampled task; no per-task rate variation is mentioned.
-  num_camera_views: LeRobot meta/info.json 'features' block lists a single video feature
-    key, 'observation.images.ego_view', matching README's description of 'a virtual
-    camera' (singular).
-  camera_views: LeRobot meta/info.json feature key 'observation.images.ego_view' --
-    an egocentric camera fixed to/aligned with the humanoid's own head/torso viewpoint
-    looking at the tabletop workspace, mapped to the 'head' enum value.
-  depth_coverage: README.md 'Modality' section only mentions RGB video observations
-    ('uses RGB observations with a virtual camera'); no depth channel or depth key
-    is listed in the LeRobot meta/info.json features.
-  has_language_instruction: README.md 'Modality' section explicitly gives 'Language
-    Instruction Example' entries, e.g. 'pick up the bottled water, place it into the
-    cabinet and close the cabinet'.
-  num_task_types: 'README.md ''Dataset Quantification'': ''1000 teleoperation trajectories
-    for each of the 24 tabletop tasks''; confirmed by the repo''s HDF5/ directory
-    containing exactly 24 distinct task .hdf5 files.'
-  expected_size_gb: 'README.md ''Dataset Quantification'': ''Total data storage (HDF5
-    format): ~14GB'' (the LeRobot-style mirror of the same data is ~39GB, recorded
-    here as 14GB to match the chosen HDF5 raw_format).'
-  expected_num_episodes: 'README.md ''Dataset Quantification'': ''1000 teleoperation
-    trajectories for each of the 24 tabletop tasks'' -> 1000 x 24 = 24000; cross-checked
-    against LeRobot meta/info.json for one task showing total_episodes: 1000.'
-suggested_new_enum_values:
-  robot_platform: 'Add ''fourier_gr1'' (Fourier Intelligence GR1 humanoid). This dataset
-    (and NVIDIA''s related PhysicalAI-Robotics-GR00T-* datasets: GR00T-Teleop-GR1,
-    GR00T-GR1, GR00T-Tuned-Tasks) all use the GR1 humanoid platform, which currently
-    has no dedicated enum value and had to be recorded as ''other''.'
+  source_url: 'RE-VERIFIED 2026-07-10: confirmed https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-Teleop-Sim
+    is correct and NOT a duplicate/mismatch of two other recently-discovered NVIDIA
+    PhysicalAI-Robotics-GR00T-* repos. Checked via HF datasets API (search=GR00T&author=nvidia):
+    (1) nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim is a DIFFERENT dataset --
+    cross-embodiment bimanual manipulation (Franka panda gripper/hand tasks like ''bimanual_panda_gripper.Threading''),
+    license cc-by-4.0 (not NC), not GR1-specific. (2) nvidia/PhysicalAI-Robotics-GR00T-Teleop-G1
+    is also a DIFFERENT dataset -- ''Unitree G1 Fruits Pick and Place 1K Dataset'',
+    a REAL-robot (not simulation) teleop dataset on a Unitree G1 (not Fourier GR1),
+    license cc-by-4.0 (not NC). Our source_url''s own README/API description (''Simulation
+    GR1 Tabletop Task 1K Dataset'', 24 tasks, ~14GB HDF5 / ~39GB LeRobot, license
+    cc-by-nc-4.0) matches every other field already in this config exactly, so the
+    entry is correctly scoped to this one repo. NOTE FOR HUMAN REVIEW: there is a
+    THIRD, separate repo nvidia/PhysicalAI-Robotics-GR00T-Teleop-GR1 which is unrelated
+    to all of the above -- as of this recheck it hosts the ''DreamDojo'' world-model
+    dataset (arXiv:2602.06949), not a GR1 teleop-sim dataset. Confusingly, THIS dataset''s
+    own README text still internally calls itself ''The PhysicalAI-Robotics-GR00T-Teleop-GR1
+    dataset...'' (apparent leftover/unrenamed text from before the repo was split/renamed
+    to -Teleop-Sim) -- a naming collision that could mislead a future onboarding pass
+    into conflating the two. Flagging for human awareness; no config change needed
+    since our source_url is verified correct.'
+  license: 'RE-VERIFIED 2026-07-10: dataset card metadata (`license: cc-by-nc-4.0`)
+    and README.md section ''License/Terms of Use'': ''This dataset is licensed under
+    the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC
+    4.0)'' -- https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-GR00T-Teleop-Sim/raw/main/README.md.
+    Also cross-checked against HF datasets API tag `license:cc-by-nc-4.0`. Unchanged.'
+  raw_format: 'RE-VERIFIED 2026-07-10: README.md ''Dataset Format'' section: ''HDF5
+    format and LeRobot-style dataset''; HF API sibling listing confirms exactly 24
+    top-level HDF5/*.hdf5 files plus a parallel LeRobot/gr1_unified.<Task> directory
+    per task (LeRobot v2.0 meta/info.json + parquet + mp4). HDF5 kept as the recorded
+    raw_format (native/original per-task capture format); the LeRobot-style copy is
+    a converted mirror shipped in the same repo. Unchanged.'
+  release_type: 'NEW FIELD, filled fixed_episode_dataset: this is a fixed, already-recorded
+    release of 24000 episodes (24 tasks x 1000 trajectories each), not a generation
+    framework, scene platform, or RL benchmark env.'
+  collection_method: 'RE-VERIFIED 2026-07-10: README.md ''Dataset Characterization''
+    section: ''Data Collection Method: [Human Teleoperation in Simulation]'' -- live
+    human teleoperation of a simulated robot, closest/correct enum match is teleop
+    (mechanism = human-driven), not simulation (which in this registry''s convention
+    is reserved for automated/scripted/motion-planning/RL-generated data, per e.g.
+    libero_plus.yaml, maniskill3.yaml, robotwin.yaml). Unchanged.'
+  secondary_collection_methods: 'RE-VERIFIED 2026-07-10: left empty. Precedent checked
+    against bigym.yaml (also 100% VR teleoperation of a humanoid entirely inside a
+    simulator, e.g. H1 in MuJoCo) which also leaves secondary_collection_methods empty
+    with the explicit rationale ''same mapping used for other human-teleoperation-in-simulation
+    datasets in this corpus''. The mixed-methods secondary=simulation pattern (e.g.
+    aloha_unleashed.yaml) is reserved for datasets that combine a REAL-robot-teleop
+    majority with a smaller simulated-teleop subset, which does not apply here (100%
+    simulated, no real-robot portion). Unchanged.'
+  is_multi_embodiment: 'NEW FIELD, filled false: every one of the 24 LeRobot task
+    directories inspected (meta/info.json ''robot_type'': ''GR1ArmsAndWaistFourierHands'')
+    uses the same single simulated GR1 embodiment; README describes only one robot
+    throughout. No other embodiment appears anywhere in this dataset.'
+  embodiment_class: 'RE-VERIFIED 2026-07-10: README.md Dataset Description: ''...trajectories
+    in simulation using the GR1 robot with upper body control...equipped with simulated
+    Fourier hands.'' GR1 is Fourier Intelligence''s full humanoid platform -> humanoid.
+    Unchanged.'
+  robot_platform: 'CORRECTED 2026-07-10: other -> fourier_gr1. The schema was extended
+    since the last pass and now has a dedicated `RobotPlatform.FOURIER_GR1 = "fourier_gr1"`
+    enum member (added per docs/superpowers/specs/2026-07-10-registry-schema-refinement-design.md
+    3.2, originally justified by dexmimicgen). Confirmed applicable here: LeRobot
+    meta/info.json ''robot_type'': ''GR1ArmsAndWaistFourierHands'' and README ''...GR1
+    robot...simulated Fourier hands'' both identify the Fourier Intelligence GR1 humanoid.
+    Removed the now-resolved suggested_new_enum_values entry for this field.'
+  num_arms: 'RE-VERIFIED 2026-07-10: confirmed via LeRobot meta/modality.json (task
+    gr1_unified.PnPBottleToCabinetClose) which explicitly slices the 44-dim state/action
+    vector into left_arm (dims 0-7) and right_arm (dims 22-29) -- exactly two manipulation
+    arms (bimanual upper body), matching README''s ''upper body control''. Unchanged.'
+  dof_per_arm: 'NEW FIELD, filled 7: LeRobot meta/modality.json slices left_arm as
+    dims [0,7) and right_arm as dims [22,29) of the 44-dim state/action vector --
+    7 dof per arm.'
+  dof_per_hand: 'NEW FIELD, filled 6: same modality.json slices left_hand as dims
+    [7,13) and right_hand as dims [29,35) -- 6 dof per simulated Fourier hand.'
+  gripper_type: 'RE-VERIFIED 2026-07-10: README.md Dataset Description: ''The robot
+    is equipped with simulated Fourier hands'' -- multi-fingered dexterous end effectors,
+    not parallel grippers; confirmed by modality.json left_hand/right_hand 6-dim slices
+    (consistent with an actuated multi-fingered hand, not a 1-dof parallel jaw). Unchanged.'
+  hand_pose_representation: 'NEW FIELD, filled joint_angles: the 6-dim left_hand/right_hand
+    slices in modality.json are part of the same joint-position vector as the rest
+    of the 44-dim state/action (action_space=joint_position), i.e. the simulated Fourier
+    hand shape is encoded as actuated joint angles, not MANO parameters or 3D keypoints.'
+  has_mobile_base: 'RE-VERIFIED 2026-07-10, WITH A CAVEAT FOR HUMAN REVIEW: kept false.
+    README describes only ''upper body control'' for stationary tabletop manipulation,
+    and robot_type ''GR1ArmsAndWaistFourierHands'' names only arms/waist/hands (no
+    wheeled or tracked mobile base is mentioned anywhere). HOWEVER: LeRobot meta/modality.json
+    unexpectedly also defines left_leg (dims 13-19) and right_leg (dims 35-41) slices
+    within the same 44-dim vector (7+6+6+3+7+6+6+3=44, confirming these leg dims are
+    real, not a miscount) -- this contradicts the README/robot_type''s ''upper body
+    only'' framing. Interpreted as: the full GR1-humanoid modality template is reused
+    across GR00T datasets with the leg dims present but held fixed/unused for this
+    stationary tabletop task (there is no locomotion or wheeled/tracked base described
+    anywhere), so has_mobile_base=false is still the best-supported reading, but the
+    leg-dims-vs-''upper body only'' text discrepancy is unresolved and worth a human''s
+    attention.'
+  action_space: 'RE-VERIFIED 2026-07-10: README.md ''Modality'' section: ''Action:
+    44 dim of vectorized action (joint positions of upper body + waist)'' -- joint-space
+    position control; confirmed by modality.json which slices the action vector into
+    per-body-part joint dims (arms/hands/legs/neck/waist), all joint-space, no Cartesian/eef
+    pose fields. Unchanged.'
+  action_frame: 'RE-VERIFIED 2026-07-10: README.md ''Modality'' section describes
+    the action explicitly as ''joint positions'' (not deltas); consistent with absolute
+    joint-position targets. Unchanged.'
+  rotation_representation: 'RE-VERIFIED 2026-07-10: both observation and action are
+    joint-position vectors per modality.json (arms/hands/legs/neck/waist all as joint
+    angles), not end-effector Cartesian/orientation representations, so no rotation
+    representation is used. Unchanged.'
+  state_dim: 'RE-VERIFIED 2026-07-10: LeRobot meta/info.json ''observation.state''
+    feature shape [44]; cross-checked against modality.json slice boundaries (7+6+6+3+7+6+6+3=44).
+    Unchanged.'
+  action_dim: 'RE-VERIFIED 2026-07-10: LeRobot meta/info.json ''action'' feature shape
+    [44]; same modality.json cross-check as state_dim. Unchanged.'
+  fps: 'RE-VERIFIED 2026-07-10: README.md ''Modality'' section: ''Video: RGB video,
+    256x256 resolution..., 20 fps''; confirmed by pulling LeRobot meta/info.json for
+    all 24 task directories -- every single one reports "fps": 20.0 with no variation.
+    Unchanged.'
+  fps_variable: 'RE-VERIFIED 2026-07-10: all 24 LeRobot meta/info.json files (one
+    per task) report fps: 20.0 with zero variation; no per-task rate variation. Unchanged.'
+  num_camera_views: 'RE-VERIFIED 2026-07-10: LeRobot meta/info.json ''features'' block
+    lists exactly one video feature key, ''observation.images.ego_view'', matching
+    README''s ''a virtual camera'' (singular). Unchanged.'
+  camera_views: 'RE-VERIFIED 2026-07-10: LeRobot meta/info.json feature key ''observation.images.ego_view''
+    -- an egocentric camera fixed to/aligned with the humanoid''s own head/torso viewpoint
+    looking at the tabletop workspace, mapped to the ''head'' enum value. Unchanged.'
+  has_synchronized_multiview_rig: 'NEW FIELD, filled false: only a single camera (''observation.images.ego_view'')
+    exists per LeRobot meta/info.json, so there is no multi-camera rig to synchronize.'
+  depth_coverage: 'RE-VERIFIED 2026-07-10: README.md ''Modality'' section only mentions
+    RGB video observations (''uses RGB observations with a virtual camera''); no depth
+    channel/key appears in any of the 24 LeRobot meta/info.json feature blocks checked.
+    Unchanged.'
+  additional_modalities: 'NEW FIELD, left empty (verified, not just defaulted): checked
+    LeRobot meta/info.json ''features'' block for task gr1_unified.PnPBottleToCabinetClose
+    -- only video/state/action/timestamp/reward/done/task_index/annotation/episode_index/index
+    keys exist; no force_torque, tactile, audio, or eye_gaze feature is present anywhere.'
+  has_language_instruction: 'RE-VERIFIED 2026-07-10: README.md ''Modality'' section
+    explicitly gives ''Language Instruction Example'' entries, e.g. ''pick up the
+    bottled water, place it into the cabinet and close the cabinet''; LeRobot meta/tasks.jsonl
+    also assigns a per-task task_index/task string (e.g. ''PnPBottleToCabinetClose'').
+    Unchanged.'
+  num_task_types: 'RE-VERIFIED 2026-07-10: README.md ''Dataset Quantification'': ''1000
+    teleoperation trajectories for each of the 24 tabletop tasks''; confirmed by directly
+    listing the repo''s HDF5/ directory (24 distinct *.hdf5 files) and the LeRobot/
+    directory (24 distinct gr1_unified.<Task> subdirectories) via the HF API. Unchanged.'
+  expected_size_gb: 'RE-VERIFIED 2026-07-10: README.md ''Dataset Quantification'':
+    ''Total data storage (HDF5 format): ~14GB'' (the LeRobot-style mirror of the same
+    data is ~39GB, recorded here as 14GB to match the chosen HDF5 raw_format). Unchanged.'
+  expected_num_episodes: 'RE-VERIFIED 2026-07-10 WITH EXACT COUNT: pulled LeRobot
+    meta/info.json for all 24 task directories individually and summed total_episodes
+    -- every task reports exactly 1000 episodes, for an exact total of 24000 (matches
+    README''s ''1000 x 24 tasks'' claim precisely, not just approximately). Unchanged.'
+  expected_duration_hours: 'NEW FIELD, filled 80.84: summed total_frames across all
+    24 LeRobot meta/info.json files (exact sum = 5,820,277 frames; per-task range
+    166,293-441,387 frames, i.e. episodes vary substantially in length by task) divided
+    by the confirmed uniform fps of 20.0 and by 3600 -> 5820277 / 20 / 3600 = 80.8372
+    hours, rounded to 80.84. This is an exact sum over the full dataset (all 24 task
+    directories fetched individually), not an extrapolation from a sample.'
+  num_subjects: 'Checked README.md and all fetched LeRobot meta/*.json files: no mention
+    anywhere of the number of human teleoperators who produced the demonstrations.
+    Left blank rather than fabricate.'
+  num_scenes: 'Checked README.md: describes a single simulated tabletop manipulation
+    setup across 24 tasks, but never states a discrete count of distinct scenes/environment
+    layouts. Left blank rather than fabricate.'
+  num_objects: 'Checked README.md and the 24 task names (e.g. PnPBottleToCabinetClose,
+    PosttrainPnPNovelFromTrayToTieredshelfSplitA): task names encode source/destination
+    receptacle nouns (bottle, can, cup, milk, potato, wine, cuttingboard, basket,
+    cardboardbox, pan, pot, tieredbasket, placemat, bowl, plate, tray, tieredshelf,
+    cabinet, drawer, microwave -- roughly 15-20 distinct nouns), but this is an interpretive
+    parse of task-name strings rather than a stated object count or inventory, and
+    does not reliably distinguish object types from object instances/variants. Left
+    blank rather than report a number I cannot cite to an explicit source statement.'
+  paper_url: 'Searched but left blank: the dataset''s own README.md (fetched in full,
+    54 lines) has no citation/BibTeX/paper section and no ''Github Repo'' line (unlike
+    the sibling nvidia/PhysicalAI-Robotics-GR00T-X-Embodiment-Sim dataset, which does
+    open with ''Github Repo: Isaac GR00T N1''). Found via arXiv API (export.arxiv.org/api/query,
+    ti:"GR00T N1") that NVIDIA''s general foundation-model paper is arXiv:2503.14734
+    (''GR00T N1: An Open Foundation Model for Generalist Humanoid Robots''), and this
+    dataset is plausibly one of the GR00T N1/N1.5 post-training data releases by the
+    same NVIDIA GEAR team -- but I could not find that paper, or any other paper,
+    explicitly citing/linking THIS specific HF dataset repo (checked README, HF API
+    dataset metadata, and the searchable HF "Physical AI" collection this dataset
+    belongs to). Per the ''never fabricate'' instruction, left paper_url blank rather
+    than assert an inferred-only link; a human with access to the GR00T N1.5 technical
+    report or Isaac-GR00T docs could confirm/deny this directly.'
+suggested_new_enum_values: {}

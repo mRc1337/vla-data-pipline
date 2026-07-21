@@ -201,13 +201,6 @@
   integrity_status: not_verified
   convert_status: not_converted
   process_status: not_processed
-- id: robotset
-  name: RobotSet
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
 - id: brmdata
   name: BRMData
   priority: P2
@@ -406,6 +399,174 @@
   process_status: not_processed
 - id: vitra
   name: VITRA
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: 1x_world_model_dataset
+  name: 1X World Model Dataset
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: humanoid_x
+  name: Humanoid-X
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: ph2d
+  name: PH2D
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: robogene
+  name: RoboGene
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: nvidia_gr00t_teleop_g1
+  name: NVIDIA GR00T-Teleop-G1
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: nvidia_gr00t_x_embodiment_sim
+  name: NVIDIA GR00T-X-Embodiment-Sim
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: nvidia_locomanipulation_grail
+  name: NVIDIA Locomanipulation-GRAIL
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: agibot_digital_world
+  name: AgiBot Digital World
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: ovmm
+  name: OVMM
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: robovqa
+  name: RoboVQA
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: partnr
+  name: PARTNR
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: alfred
+  name: ALFRED
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: teach
+  name: TEACh
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: behavior_robot_suite
+  name: BEHAVIOR Robot Suite
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: nvidia_physicalai_robotics_manipulation_singlearm
+  name: NVIDIA PhysicalAI-Robotics-Manipulation-SingleArm
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: nvidia_physicalai_robotics_manipulation_objects
+  name: NVIDIA PhysicalAI-Robotics-Manipulation-Objects
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: nvidia_physicalai_robotics_manipulation_kitchen
+  name: NVIDIA PhysicalAI-Robotics-Manipulation-Kitchen
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: meituan_libero_x
+  name: Meituan LIBERO-X
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: robocook
+  name: RoboCook
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: taco
+  name: TACO
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: oakink2
+  name: OAKINK2
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: pokeflex
+  name: PokeFlex
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: handloom
+  name: HANDLOOM
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed
+- id: autobag
+  name: AutoBag
   priority: P2
   download_status: not_downloaded
   integrity_status: not_verified

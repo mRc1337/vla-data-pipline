@@ -1,20 +1,23 @@
 id: droid
 name: DROID
 source_url: https://droid-dataset.github.io/
+paper_url: https://arxiv.org/abs/2403.12945
 license: CC-BY-4.0
 raw_format: RLDS
 release_type: fixed_episode_dataset
 collection_method: teleop
 secondary_collection_methods: []
+is_multi_embodiment: false
 embodiment_class: single_arm
 robot_platform: franka_panda
 num_arms: 1
 dof_per_arm: 7
 gripper_type: parallel_jaw
+hand_pose_representation: none
 has_mobile_base: false
 action_space: mixed
 action_frame: both
-rotation_representation: axis_angle
+rotation_representation: euler_xyz
 action_dim: 7
 fps: 15.0
 fps_variable: false
@@ -22,6 +25,7 @@ num_camera_views: 3
 camera_views:
 - third_person
 - left_wrist
+has_synchronized_multiview_rig: true
 has_camera_calibration: true
 depth_coverage: none
 additional_modalities: []
@@ -31,73 +35,171 @@ urdf_available: true
 urdf_source: manufacturer_official
 expected_size_gb: 1834.75
 expected_num_episodes: 92233
+expected_duration_hours: 350.0
+num_subjects: 50
+num_scenes: 564
 review_status: pending_human_review
 field_sources:
-  source_url: Corrected from a pasted Colab-notebook link (still functional, https://colab.research.google.com/drive/1b4PPH4XGht4Jve2xPKMCh-AXXAQziNQa)
-    to the official project homepage https://droid-dataset.github.io/
+  source_url: Re-verified https://droid-dataset.github.io/ loads and links to the
+    paper, GitHub org (droid-dataset), and dataset visualizer; unchanged from prior
+    pass.
+  paper_url: 'New field, filled with the official paper: https://arxiv.org/abs/2403.12945
+    (Khazatsky et al., "DROID: A Large-Scale In-The-Wild Robot Manipulation Dataset").
+    Note: the arXiv abstract-page HTML metadata (both v1 and v2 of the abs page) renders
+    ''84 tasks'' in the abstract text, but this is an arXiv metadata artifact -- the
+    actual paper PDF (arxiv.org/pdf/2403.12945) says ''86 tasks'' consistently in
+    the abstract, Fig. 1 teaser, Table I, and body text (see num_task_types below),
+    so 86 was trusted over the abs-page abstract rendering.'
   license: https://huggingface.co/datasets/KarlP/droid (tag license:cc-by-4.0) cross-checked
     against the license marker object at https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/CC-BY-4.0
+    and the paper PDF p.1 ("We open source the full dataset ... under CC-BY 4.0 license").
+    Re-confirmed, unchanged.
   raw_format: https://droid-dataset.github.io/ quickstart snippet (tfds.load('droid',
     data_dir='gs://gresearch/robotics')) and https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json,
-    which uses the RLDS episode/steps FeaturesDict schema
-  collection_method: 'arXiv:2403.12945 section III-A: ''we use the controllers of
-    a Meta Quest 2 headset to control the pose of the arm ... for teleoperation'''
-  embodiment_class: arXiv:2403.12945 section III-A (single Franka Panda arm hardware
-    setup, Fig. 2)
-  robot_platform: 'arXiv:2403.12945 section III-A: ''We chose the Franka Emika Panda
-    7 DoF robot arm as the base of our setup'''
-  num_arms: arXiv:2403.12945 section III-A (single-arm platform)
-  dof_per_arm: 'arXiv:2403.12945 section III-A: ''Franka Panda 7DoF robot arm'''
-  gripper_type: 'arXiv:2403.12945 section III-A: ''equipped with a Robotiq 2F-85 gripper''
-    (parallel-jaw gripper)'
-  has_mobile_base: 'arXiv:2403.12945 section III-A: arm is mounted on a height-adjustable
-    standing desk with wheels for moving between scenes, not an actively-actuated
-    mobile base used during task execution'
+    which uses the RLDS episode/steps FeaturesDict schema. Re-confirmed, unchanged.
+  release_type: DROID is a fixed, one-time released collection of 92233 pre-recorded
+    RLDS episodes (see expected_num_episodes) with no generation/simulation framework
+    or RL benchmark environment attached -- fits fixed_episode_dataset, consistent
+    with the batch classification in docs/superpowers/specs/2026-07-10-registry-schema-refinement-design.md
+    section 4B ("其余55个...→ fixed_episode_dataset").
+  collection_method: 'arXiv:2403.12945 PDF p.4 (Section III-A/B): ''For teleoperation,
+    we use the controllers of a Meta Quest 2 headset to control the pose of the arm
+    in 6D space as well as the gripper in continuous space.'' Re-confirmed against
+    the official PDF text, unchanged.'
+  secondary_collection_methods: No evidence of any non-teleop data collection method
+    in the paper -- the ~16k trajectories marked "not successful" (see expected_num_episodes)
+    are still human-teleoperated attempts, not autonomous-policy or other collection.
+    Left empty.
+  is_multi_embodiment: 'New field, set to false. arXiv:2403.12945 PDF p.4: ''all data
+    is collected on the same robot hardware stack based on the popular Franka Panda
+    robot arm'' and Fig. 2 caption: ''We use the same hardware setup across all 13
+    institutions.'' Single, standardized embodiment throughout the dataset.'
+  embodiment_class: arXiv:2403.12945 Section III-A / Fig. 2 (single Franka Panda arm
+    hardware setup). Re-confirmed, unchanged.
+  robot_platform: 'arXiv:2403.12945 PDF p.4: ''We chose the Franka Emika Panda 7 DoF
+    robot arm as the base of our setup.'' Re-confirmed, unchanged.'
+  num_arms: arXiv:2403.12945 Section III-A / Fig. 2 (single-arm platform). Re-confirmed,
+    unchanged.
+  dof_per_arm: 'arXiv:2403.12945 PDF p.4: ''Franka Panda 7 DoF robot arm.'' Re-confirmed,
+    unchanged.'
+  gripper_type: 'arXiv:2403.12945 PDF p.4: ''The robot arm is equipped with a Robotiq
+    2F-85 gripper'' -- a two-finger parallel-jaw gripper. Re-confirmed, unchanged.'
+  hand_pose_representation: New field, set to none. The end effector is a 1-DoF Robotiq
+    2F-85 parallel-jaw gripper (see gripper_type), not an articulated/dexterous hand,
+    so there is no MANO/keypoint/joint-angle hand-shape encoding to report; the explicit
+    none enum value applies.
+  has_mobile_base: 'arXiv:2403.12945 PDF p.4: arm is mounted on a height-adjustable
+    standing desk with wheels "so it can easily move between scenes and buildings."
+    The paper also mentions GUI-prompted "nudges to the mobile base" as a manual scene-augmentation
+    action performed by the human data collector between episodes, not an actively-actuated
+    base driven during task execution/inference. Re-confirmed false, unchanged.'
   action_space: https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json
     action_dict contains joint_position, joint_velocity, cartesian_position, cartesian_velocity,
-    gripper_position, gripper_velocity -- multiple action-space representations recorded
-    per step
+    gripper_position, gripper_velocity; cross-checked against droid/franka/robot.py
+    in github.com/droid-dataset/droid, which supports action_space in ["cartesian_position",
+    "joint_position", "cartesian_velocity", "joint_velocity"] -- multiple action-space
+    representations are recorded/supported. Re-confirmed, unchanged.
   action_frame: https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json
-    action_dict includes both absolute cartesian_position/joint_position and velocity-based
-    cartesian_velocity/joint_velocity fields
-  rotation_representation: 'Inferred from https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json:
-    cartesian_position/cartesian_velocity tensors have shape [6] (3 translation +
-    3 rotation dims), which rules out quaternion(4)/rotation_6d/rotation_matrix and
-    is consistent with the axis-angle (rotation-vector) convention used by the Polymetis
-    controller cited in arXiv:2403.12945 section III-A'
+    action_dict includes both absolute cartesian_position/joint_position and rate-based
+    cartesian_velocity/joint_velocity fields (approximated to the "both absolute and
+    non-absolute" both enum value, since the schema has no dedicated velocity-vs-delta
+    distinction). Re-confirmed, unchanged.
+  rotation_representation: 'CORRECTED from axis_angle to euler_xyz. Ground truth from
+    the official source code github.com/droid-dataset/droid: droid/franka/robot.py
+    line ~162 builds the exact "cartesian_position" feature as `pos.tolist() + quat_to_euler(quat.numpy()).tolist()`,
+    and droid/misc/transformations.py implements pose_diff/add_poses/change_pose_frame
+    entirely via `R.from_euler("xyz", pose[3:6])` / `.as_euler("xyz")` on dims [3:6]
+    of the 6-dim cartesian pose. This is direct, unambiguous evidence that the 3 rotation
+    dims in cartesian_position/cartesian_velocity are Euler XYZ angles, not axis-angle/rotation-vector
+    as the prior pass inferred from shape alone (shape=6 only rules out quaternion(4)
+    and rotation_6d/rotation_matrix; it does not distinguish euler_xyz from axis_angle,
+    and the actual repo code confirms euler_xyz).'
   action_dim: https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json
-    top-level 'action' tensor shape [7]
-  fps: 'arXiv:2403.12945 Appendix B: ''All DROID data is recorded at 15Hz.'''
-  fps_variable: arXiv:2403.12945 Appendix B (fixed 15Hz recording rate, no mention
-    of variable rate)
-  num_camera_views: 'arXiv:2403.12945 Appendix B: ''3 stereo RGB camera streams''
-    / https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json
-    lists exterior_image_1_left, exterior_image_2_left, wrist_image_left'
+    top-level 'action' tensor shape [7]; cross-checked against droid/robot_env.py
+    -- self.DoF = 7 if ("cartesian" in action_space) else 8 (6-dim cartesian pose
+    + 1-dim gripper = 7 for the default cartesian_velocity action space). Re-confirmed,
+    unchanged.
+  fps: 'arXiv:2403.12945 PDF p.4: ''We use the Polymetis controller ... and record
+    actions both in robot joint space and in end-effector space at a control frequency
+    of 15Hz.'' Re-confirmed, unchanged.'
+  fps_variable: Fixed 15Hz control/recording rate stated throughout the paper, no
+    mention of variable rate. Re-confirmed, unchanged.
+  num_camera_views: 'arXiv:2403.12945 PDF p.4 Fig. 2 caption: ''two adjustable Zed
+    2 stereo cameras, a wrist-mounted Zed Mini stereo camera'' (3 physical camera
+    units); https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json
+    lists exterior_image_1_left, exterior_image_2_left, wrist_image_left as the 3
+    released RGB streams. Re-confirmed, unchanged.'
   camera_views: 'https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json:
-    exterior_image_1_left and exterior_image_2_left are adjustable 3rd-person cameras
-    (third_person); wrist_image_left is the wrist-mounted camera (left_wrist)'
-  has_camera_calibration: 'arXiv:2403.12945 Appendix B: ''extrinsic camera calibration
-    matrices for both exterior cameras'' recorded per trajectory; homepage April 2025
-    update also released improved per-episode calibrations'
+    exterior_image_1_left and exterior_image_2_left are the two adjustable 3rd-person
+    Zed 2 cameras (third_person); wrist_image_left is the wrist-mounted Zed Mini camera
+    (left_wrist). Re-confirmed, unchanged.'
+  has_synchronized_multiview_rig: 'New field, set to true. arXiv:2403.12945 PDF p.1
+    Fig. 1 caption: ''Each DROID episode contains three synchronized RGB camera streams'';
+    p.4 Section III-A: ''We record image observations with three synchronized stereo
+    camera streams: two exterior Zed 2 cameras ... and a wrist-mounted Zed-Mini camera.''
+    The paper explicitly uses the word "synchronized" for the multi-camera capture
+    rig.'
+  has_camera_calibration: 'arXiv:2403.12945 PDF p.4/p.5 (Section III-B): data collectors
+    perform extrinsic camera calibration using a checkerboard and the OpenCV calibration
+    algorithm; the paper also describes an automatic post-hoc calibration process
+    providing "three comprehensive sets of camera calibration matrices" for the dataset.
+    Re-confirmed, unchanged.'
   depth_coverage: https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json
-    defines only RGB image features (no depth tensor) in the officially released dataset
-    schema; note the paper's Fig. 1 caption claims raw episodes include 'depth information'
-    from the stereo cameras, but this is not exposed as a depth channel in the released
-    RLDS features
+    defines only RGB image features (no depth tensor) in the officially released RLDS
+    schema; the paper's Fig. 1 caption and intro both claim episodes include "depth
+    information" from the stereo cameras, but this is not exposed as a depth channel
+    in the released RLDS features actually used by raw_format=RLDS. Re-confirmed,
+    unchanged.
+  additional_modalities: Checked the full RLDS features.json (only images + cartesian_position/joint_position/gripper_position/action
+    tensors + language_instruction strings -- no force/torque, tactile, audio, or
+    eye_gaze fields) and the paper PDF (no mention of force/torque sensing, tactile
+    sensing, audio recording, or eye-gaze tracking as a recorded modality). Left empty.
   has_language_instruction: 'https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/features.json:
     language_instruction, language_instruction_2, language_instruction_3 string fields
-    per step'
-  num_task_types: 'arXiv:2403.12945 abstract/Fig. 1: ''86 Tasks / Verbs'''
+    per step; cross-checked against arXiv:2403.12945 PDF p.4: "we label each episode
+    with natural language commands using crowdsourcing via the tasq.ai data labeling
+    platform ... up to three independently labeled instructions per episode." Re-confirmed,
+    unchanged.'
+  num_task_types: 'arXiv:2403.12945 PDF: "86 Tasks / Verbs" (Fig. 1 teaser), "86 tasks"
+    (abstract, p.1), "# Verbs" column = 86 in Table I. Verified directly against the
+    downloaded PDF text (arxiv.org/pdf/2403.12945), which is authoritative over the
+    arXiv abs-page abstract HTML that anomalously shows "84" (see paper_url note above).
+    Re-confirmed 86, unchanged.'
   urdf_available: https://github.com/frankaemika/franka_ros (develop branch) ships
     franka_description/robots/panda/panda.urdf.xacro for the Franka Panda arm used
-    by DROID
+    by DROID. Re-confirmed, unchanged.
   urdf_source: https://github.com/frankaemika/franka_ros franka_description package
-    is the manufacturer's official URDF for the Franka Emika Panda
+    is the manufacturer's official URDF for the Franka Emika Panda. Re-confirmed,
+    unchanged.
   expected_size_gb: https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/dataset_info.json
-    train split numBytes=1834749018029 (~1834.75 GB)
-  expected_num_episodes: https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/dataset_info.json
-    train split shardLengths sum to 92233 episodes in the current released RLDS build
-    (arXiv:2403.12945 reports 76k trajectories at paper-publication time; the dataset
-    has grown since, consistent with the ~95k trajectories cited by Qwen_RobotManip.pdf
-    section 2.1 as a secondary cross-check)
+    train split numBytes=1834749018029 (~1834.75 GB). Re-confirmed, unchanged.
+  expected_num_episodes: 'https://storage.googleapis.com/gresearch/robotics/droid/1.0.0/dataset_info.json
+    train split shardLengths sum to 92233 episodes in the released RLDS build. CORRECTED
+    EXPLANATION (value unchanged): the prior pass attributed the gap between this
+    and the paper''s "76k" figure to post-publication dataset growth. The paper itself
+    explains the gap directly (PDF p.5, Section III-B): "DROID consists of 76k successful
+    episodes; roughly 16k trajectories in our data collection were labeled as ''not
+    successful'', which we include in our dataset release but do not count towards
+    the size of DROID." 76k + 16k = ~92k, matching 92233 almost exactly -- the released
+    RLDS build includes both successful and failed episodes, while the paper''s "76k"/"350
+    hours" headline figures count only successful ones.'
+  expected_duration_hours: 'New field. arXiv:2403.12945 abstract/Fig. 1 teaser: "76k
+    demonstration trajectories or 350 hours of interaction data." Note this 350h figure
+    corresponds to the 76k successful trajectories, not the full 92233-episode released
+    build (see expected_num_episodes note).'
+  num_subjects: 'New field, set to 50. arXiv:2403.12945 abstract and PDF p.5 (Section
+    III-B): "Our dataset is collected by 50 data collectors across various research
+    institutions." INTERPRETIVE NOTE: num_subjects is mapped here to the count of
+    human teleoperators/data collectors, since DROID has no separate notion of human
+    "subjects" being recorded (unlike egocentric human-video datasets) -- flagging
+    this mapping for human review since the schema does not define num_subjects semantics
+    for teleop-collected robot datasets.'
+  num_scenes: 'New field, set to 564. arXiv:2403.12945 abstract/Fig. 1 teaser and
+    Table I: "collected across 564 scenes." This is the paper''s own diversity-tracking
+    scene count (distinct from the unrelated "~36k unique scenes" mentioned in PDF
+    p.5 Section III-B, which refers to the number of camera-calibration instances/episodes,
+    not the 564 unique physical environments metric used for dataset diversity reporting).'
+  num_objects: No specific numeric count of unique objects is stated anywhere in the
+    paper -- Fig. 3/Fig. 20 only show qualitative object-category distribution plots
+    without a total count. Left blank rather than guessing from the plots.
 suggested_new_enum_values: {}

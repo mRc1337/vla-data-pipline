@@ -1,0 +1,97 @@
+id: robovqa
+name: RoboVQA
+source_url: https://robovqa.github.io/
+paper_url: https://arxiv.org/abs/2311.00899
+license: CC-BY-4.0
+raw_format: TFRecord
+release_type: fixed_episode_dataset
+collection_method: egocentric_human
+secondary_collection_methods:
+- teleop
+is_multi_embodiment: true
+num_arms: 1
+hand_pose_representation: none
+has_mobile_base: true
+rotation_representation: none
+num_camera_views: 1
+camera_views: []
+has_synchronized_multiview_rig: false
+has_camera_calibration: false
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 8
+urdf_available: false
+urdf_source: not_found
+expected_num_episodes: 5246
+expected_duration_hours: 238.0
+num_scenes: 3
+num_objects: 2862
+review_status: pending_human_review
+field_sources:
+  paper_url: 'arXiv:2311.00899 (Sermanet et al., ''RoboVQA: Multimodal Long-Horizon
+    Reasoning for Robotics'', CoRL 2023)'
+  license: 'github.com/google-deepmind/robovqa README ''License and disclaimer'':
+    data/materials under CC-BY-4.0 (code separately under Apache-2.0)'
+  raw_format: 'github.com/google-deepmind/robovqa data_loading_and_eval.ipynb: loads
+    gs://anon_robovqa/tfrecord/{train,val}* with tf.data.TFRecordDataset; HF mirror
+    at huggingface.co/datasets/Tianli/robovqa/tree/main/tfrecord'
+  release_type: 'robovqa.github.io ''Dataset'' section: static public release of already-collected
+    (video, text) episodes, not a generative framework or sim platform'
+  collection_method: 'arXiv:2311.00899 Appendix IX-B stats table: human episodes are
+    55.2% (2,896/5,246) of the dataset, collected as first-person video with the operator
+    holding the camera (egocentric); robot episodes are 44.8% (2,274/5,246), collected
+    via human tele-operation of the robot (Fig.1 caption: ''a human operator teleoperates
+    a robot to fulfill the task'')'
+  secondary_collection_methods: same source as collection_method - robot-embodiment
+    subset (44.8% of episodes) uses teleop
+  is_multi_embodiment: 'arXiv:2311.00899 abstract and robovqa.github.io: dataset explicitly
+    spans 3 embodiments (robot, human, human with grasping tool) collected in the
+    same 3 office buildings'
+  num_arms: 'robovqa.github.io Limitations text: ''all tasks were accomplished in
+    unimanual manner'' (single arm, applies to both robot and human embodiments)'
+  has_mobile_base: task brief + arXiv:2311.00899 Sec.II describe the robot embodiment
+    as a wheeled mobile manipulator (Google 'Everyday Robots'-style fleet) operating
+    across 3 office buildings; the specific platform name is not stated verbatim in
+    the RoboVQA paper/site/repo text
+  hand_pose_representation: no MANO/keypoint/joint-angle hand annotations found in
+    HF dataset viewer or GitHub loader notebook; dataset is plain RGB video + text
+    only
+  rotation_representation: no end-effector/wrist orientation data found in HF dataset
+    viewer or GitHub loader notebook; dataset is plain RGB video + text only
+  num_camera_views: 'github.com/google-deepmind/robovqa data_loading_and_eval.ipynb:
+    each episode/example corresponds to a single video stream'
+  has_synchronized_multiview_rig: no mention of multi-camera rig anywhere in paper,
+    project site, or GitHub repo; single video per episode
+  has_camera_calibration: no calibration files or parameters released in GitHub repo
+    or HF dataset; dataset ships only video+text TFRecords
+  depth_coverage: HF dataset viewer (huggingface.co/datasets/Tianli/robovqa) and GitHub
+    loader show RGB video only, no depth modality
+  has_language_instruction: 'robovqa.github.io ''VQA Tasks'' section: core annotation
+    is multi-turn VQA text (instructions, questions, answers)'
+  num_task_types: 'robovqa.github.io ''VQA Tasks'' section lists exactly 8 task types:
+    Planning, Planning with Context, Planning Remaining Steps, Discriminative Affordance,
+    Generative Affordance, Success, Future Prediction, Past Description'
+  urdf_available: github.com/google-deepmind/robovqa repo contents (.gitignore, CONTRIBUTING.md,
+    LICENSE, README.md, data_loading_and_eval.ipynb) contain no URDF or robot model
+    files
+  urdf_source: same as urdf_available - no URDF found in official repo or dataset
+    mirrors
+  expected_num_episodes: 'arXiv:2311.00899 Appendix IX-B Fig.10 dataset-statistics
+    table: ''# episodes 5,246'' (5,046 train + 100 validation)'
+  expected_duration_hours: 'arXiv:2311.00899 Sec.II and Appendix IX-B Fig.10: ''238
+    hours of video (10 days)'' total duration; also stated on robovqa.github.io as
+    ''238h (10 days)'''
+  num_scenes: 'arXiv:2311.00899 Sec.II: data collected ''within the entirety of 3
+    office buildings''; Appendix IX-B breaks episodes down by Building 1/2/3 (+ unknown
+    building)'
+  num_objects: 'arXiv:2311.00899 Appendix IX-B Fig.10 language-analysis stats: ''#
+    unique objects 2862'''
+suggested_new_enum_values:
+  robot_platform: everyday_robots - RoboVQA's robot embodiment (44.8% of episodes,
+    arXiv:2311.00899 Appendix IX-B) uses a wheeled single-arm mobile manipulator from
+    Google's 'Everyday Robots' fleet, the same robot family used in concurrent Google
+    papers (RT-1, SayCan) collected in the same office buildings. The exact platform
+    name is not stated verbatim in the RoboVQA paper/site/repo text (only 'robot'
+    embodiment is used), and no matching value exists in the current RobotPlatform
+    enum.

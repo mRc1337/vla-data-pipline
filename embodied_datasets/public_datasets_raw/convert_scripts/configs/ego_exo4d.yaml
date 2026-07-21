@@ -1,58 +1,218 @@
 id: ego_exo4d
 name: Ego-Exo4D
 source_url: https://ego-exo4d-data.org/
+paper_url: https://arxiv.org/abs/2311.18259
+license: custom_research_eula
 raw_format: Custom
 release_type: fixed_episode_dataset
 collection_method: egocentric_human
 secondary_collection_methods: []
+is_multi_embodiment: false
 embodiment_class: human_hand
+num_arms: 2
+gripper_type: none
+hand_pose_representation: keypoints_3d
+has_mobile_base: false
 fps_variable: true
 camera_views:
 - head
 - third_person
+has_synchronized_multiview_rig: true
 has_camera_calibration: true
 depth_coverage: partial
-additional_modalities: []
+additional_modalities:
+- audio
+- eye_gaze
+- imu
+- point_cloud_3d_scan
 has_language_instruction: true
 num_task_types: 8
+urdf_available: false
+urdf_source: not_found
 expected_num_episodes: 5035
+expected_duration_hours: 1286.3
+num_subjects: 740
+num_scenes: 123
 review_status: pending_human_review
 field_sources:
-  source_url: https://ego-exo4d-data.org/ (official project homepage; stub had no
-    source_url, added the verified homepage)
-  raw_format: https://docs.ego-exo4d-data.org/data/takes/ and https://docs.ego-exo4d-data.org/overview/
-    - data is distributed as MP4 (GoPro) + Aria VRS files, a Meta-proprietary sensor-record
-    format, plus CSV/JSON metadata; does not match RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord
-    so classified as Custom
-  collection_method: https://ego-exo4d-data.org/ and https://docs.ego-exo4d-data.org/overview/
-    - participants wear Aria egocentric glasses while performing skilled activities,
-    filmed simultaneously by 4-5 stationary exocentric GoPro cameras; matches the
-    'egocentric_human' enum value directly
-  embodiment_class: https://docs.ego-exo4d-data.org/overview/ - this is human video
-    capture (camera wearer's hands/body), not a robot; closest enum value is human_hand
-    (dataset also provides 3D hand-joint annotations, consistent with this classification)
-  fps_variable: 'https://docs.ego-exo4d-data.org/overview/ - ''Video: 4k@60FPS (MP4)
-    for GoPro devices and 1404x1404@30FPS (VRS) for Aria devices'' - frame rate differs
-    by camera type, so left `fps` blank rather than pick one value'
-  camera_views: https://docs.ego-exo4d-data.org/overview/ and https://ego-exo4d-data.org/
-    - one head-mounted Aria egocentric camera (head) plus 4-5 stationary third-person
-    GoPro cameras (third_person) per take
-  has_camera_calibration: https://docs.ego-exo4d-data.org/overview/ - 'Calibrated
-    camera parameters (intrinsics) for all cameras (in VRS file)' and '3D camera poses
-    (trajectories/extrinsic parameters) for all cameras' via Aria MPS
-  depth_coverage: https://docs.ego-exo4d-data.org/overview/ - dataset provides only
-    'Sparse 3D point clouds of static environment' via Aria MPS, not dense per-frame
-    depth maps, so classified as partial rather than full
-  has_language_instruction: 'https://docs.ego-exo4d-data.org/overview/ and arXiv:2311.18259
-    abstract - multiple paired language descriptions per take: expert commentary,
-    atomic action text descriptions, and participant narrate-and-act narrations'
-  num_task_types: 'https://ego-exo4d-data.org/ (SCENARIOS section) and https://docs.ego-exo4d-data.org/overview/
-    - 8 scenario/task categories: Cooking, Music, Soccer, Health, Basketball, Dance,
-    Bike Repair, Rock Climbing/Bouldering'
-  expected_num_episodes: https://ego-exo4d-data.org/ ('5035 (# takes)') and https://docs.ego-exo4d-data.org/
-    intro page ('5035 takes') - number of takes (episodes) in the released dataset
+  source_url: 'RE-VERIFIED 2026-07-10, unchanged: https://ego-exo4d-data.org/ official
+    project homepage.'
+  paper_url: 'NEW FIELD, filled: https://arxiv.org/abs/2311.18259 (arXiv:2311.18259v4)
+    - K. Grauman et al., "Ego-Exo4D: Understanding Skilled Human Activity from First-
+    and Third-Person Perspectives", also published at CVPR 2024 and as a 2025 IJCV
+    journal version; linked from the homepage Q&A section ("For further detailed information
+    refer to our manuscript... ArXiv paper").'
+  license: 'RE-VERIFIED 2026-07-10, unchanged: https://docs.ego-exo4d-data.org/getting-started/
+    - "you must first review and accept the terms of our license agreement... covers
+    the use of the dataset for research purposes and commercial use, along with restrictions
+    on redistribution... There are no fees associated with using the dataset" via
+    ego4d.dev/request/ego-exo4d, approval takes ~48h, credentials expire in 14 days.
+    Confirmed this is a bespoke, signature-gated EULA, not any of MIT/Apache/BSD/CC-*/GPL/Proprietary/Unknown,
+    so left blank and kept in suggested_new_enum_values.'
+  raw_format: 'RE-VERIFIED 2026-07-10, unchanged: https://docs.ego-exo4d-data.org/data/takes/
+    and /overview/ - per-take data is frame-aligned per-camera MP4 (GoPro, H264) files,
+    trimmed Aria VRS files (image streams + IMU + audio), plus JSON/CSV metadata and
+    annotation files (confirmed exact JSON schemas via /annotations/ego_pose/, /annotations/relations/,
+    /annotations/keystep/). NOTE: schema.py now has an explicit RawFormat.VRS enum
+    value (used by the sibling hot3d.yaml, which is pure-VRS), but Ego-Exo4D''s take-level
+    video is majority plain MP4 with VRS only for the single Aria stream, so the mixed-format
+    Custom classification is kept rather than switched to VRS.'
+  release_type: 'RE-VERIFIED 2026-07-10, unchanged: fixed set of 5035 pre-recorded/released
+    takes (docs.ego-exo4d-data.org/overview/, ego-exo4d-data.org stats table), not
+    a generator/framework/scene-platform/RL-env - fits fixed_episode_dataset.'
+  collection_method: 'RE-VERIFIED 2026-07-10, unchanged: arXiv:2311.18259 abstract
+    - "Ego-Exo4D centers around simultaneously-captured egocentric and exocentric
+    video of skilled human activities" recorded by human participants wearing Aria
+    glasses (no robot/teleop involved). As with the sibling assembly101.yaml, no existing
+    CollectionMethod enum value captures the synchronized ego+exo half jointly, so
+    egocentric_human is kept as the closest available label (see suggested_new_enum_values).'
+  secondary_collection_methods: 'RE-VERIFIED 2026-07-10: no other CollectionMethod
+    enum (teleop/autonomous_policy/umi/simulation/human_to_robot_synthesis/ar_haptic_guided_synthesis/scene_asset_curation)
+    applies to this human-only, camera-only capture; left empty.'
+  is_multi_embodiment: 'NEW FIELD, filled false: arXiv:2311.18259 and docs.ego-exo4d-data.org/overview/
+    - all 740 participants are recorded with the same embodiment (bare human hands/body,
+    embodiment_class=human_hand); no robot or alternate embodiment variant of this
+    dataset was found on the project site, docs site, or GitHub (github.com/EGO4D).'
+  embodiment_class: 'RE-VERIFIED 2026-07-10, unchanged: docs.ego-exo4d-data.org/overview/
+    - dataset records the camera wearer''s (human participant''s) hands/body performing
+    skilled activities; no robot embodiment. 3D/2D hand-joint annotations (EgoPose)
+    are consistent with human_hand.'
+  num_arms: 'NEW FIELD, filled 2: https://docs.ego-exo4d-data.org/annotations/ego_pose/
+    - hand annotations cover "42 [joints] in total, 21 for left hand, 21 for right
+    hand" i.e. both hands/arms of the camera wearer are tracked in every take.'
+  gripper_type: 'NEW FIELD, filled none: no robot gripper is present; task performed
+    with bare human hands (docs.ego-exo4d-data.org/overview/, arXiv:2311.18259). Following
+    the same convention as the most-recently re-verified sibling bare-hand datasets
+    (assembly101.yaml, hot3d.yaml, hoi4d.yaml, egoexolearn.yaml all use none). NOTE:
+    sibling h2o.yaml instead used dexterous_hand for an analogous 21-keypoint/2-hand
+    bare-hand-tracking case - this is a registry-wide convention inconsistency, not
+    a fact about Ego-Exo4D itself; flagging for human reconciliation.'
+  hand_pose_representation: 'NEW FIELD, filled keypoints_3d: https://docs.ego-exo4d-data.org/annotations/ego_pose/
+    - EgoPose annotation3D provides per-joint (x,y,z) 3D keypoint coordinates for
+    21 named joints per hand x 2 hands (e.g. left_thumb_1..4, right_index_1..4, etc.),
+    not MANO parameters and not joint angles - matches keypoints_3d exactly, same
+    representation/reasoning as sibling assembly101.yaml.'
+  has_mobile_base: 'NEW FIELD, filled false: the camera wearer is a walking human,
+    not a robot with an actuated mobile base; docs.ego-exo4d-data.org/overview/ describes
+    only wearable (Aria) and stationary (GoPro) recording devices, no robot base.
+    Same reasoning/convention as sibling human-hand datasets (assembly101, h2o, egodex).'
+  fps_variable: 'RE-VERIFIED 2026-07-10, unchanged: docs.ego-exo4d-data.org/overview/
+    - "Video: 4k@60FPS (MP4) for GoPro devices and 1404x1404@30FPS (VRS) for Aria
+    devices" - frame rate differs by camera type, so fps is left blank and fps_variable=true.'
+  camera_views: 'RE-VERIFIED 2026-07-10, unchanged: docs.ego-exo4d-data.org/overview/
+    ("One Aria glass... 4-5 GoPro RGB camera") and ego-exo4d-data.org homepage ("The
+    ego camera is calibrated and time-synchronized with 4-5 (stationary) GoPros as
+    the exo capture devices") - one head-mounted Aria egocentric camera (head) plus
+    4-5 stationary third-person GoPro cameras (third_person) per take.'
+  has_synchronized_multiview_rig: 'NEW FIELD, filled true: arXiv:2311.18259 abstract
+    - "simultaneously-captured egocentric and exocentric video"; ego-exo4d-data.org
+    homepage - "Our goal is to capture simultaneous ego and multiple exo videos...
+    The ego camera is calibrated and time-synchronized with 4-5 (stationary) GoPros";
+    docs.ego-exo4d-data.org/data/takes/ describes per-capture timesync.csv aligning
+    all camera frames - this is a synchronized multi-camera rig per take.'
+  has_camera_calibration: 'RE-VERIFIED 2026-07-10, unchanged: docs.ego-exo4d-data.org/overview/
+    - "Calibrated camera parameters (intrinsics) for all cameras (in VRS file)" and
+    "3D camera poses (trajectories/extrinsic parameters) for all cameras" via Aria
+    MPS; confirmed by the ego_pose camera-pose JSON schema which ships explicit camera_intrinsics
+    and camera_extrinsics matrices per camera per take.'
+  depth_coverage: 'RE-VERIFIED 2026-07-10, unchanged: docs.ego-exo4d-data.org/overview/
+    - dataset provides only "Sparse 3D point clouds of static environment" via Aria
+    MPS, not dense per-frame depth maps, so classified as partial rather than full.'
+  additional_modalities: 'NEW FIELD, filled [audio, eye_gaze]: arXiv:2311.18259 abstract,
+    verbatim - "the video is accompanied by multichannel audio, eye gaze, 3D point
+    clouds, camera poses, IMU, and multiple paired language descriptions". Confirmed
+    by docs.ego-exo4d-data.org/overview/ - "7 x microphones" + GoPro stereo audio,
+    and Aria MPS "3D eye gaze vectors". No force_torque or tactile sensing is mentioned
+    anywhere, so only audio and eye_gaze are included (IMU and point clouds have no
+    corresponding SensorModality enum value; see suggested_new_enum_values).'
+  has_language_instruction: 'RE-VERIFIED 2026-07-10, unchanged: docs.ego-exo4d-data.org/overview/
+    ("Language-Video Aligned Data": Expert Commentary, Atomic Actions, Narrate and
+    Act) and arXiv:2311.18259 abstract - "multiple paired language descriptions including
+    a novel expert commentary".'
+  num_task_types: 'RE-VERIFIED 2026-07-10, unchanged: ego-exo4d-data.org SCENARIOS
+    stats table and docs.ego-exo4d-data.org/overview/ - 8 scenario/task categories:
+    Cooking, Music, Soccer, Health, Basketball, Dance, Bike Repair, Rock Climbing/Bouldering.'
+  urdf_available: 'NEW FIELD, filled false: no robot or URDF is involved anywhere
+    in the dataset (docs.ego-exo4d-data.org/overview/, arXiv:2311.18259) - camera-wearer
+    is a human participant, not a robot.'
+  urdf_source: 'NEW FIELD, filled not_found: same reasoning as urdf_available - no
+    robot/URDF exists for this human-only dataset.'
+  expected_num_episodes: 'RE-VERIFIED 2026-07-10, unchanged: ego-exo4d-data.org stats
+    table ("5035 (# takes)") and docs.ego-exo4d-data.org/overview/ - number of takes
+    (episodes) in the released dataset.'
+  expected_duration_hours: 'NEW FIELD, filled 1286.3: ego-exo4d-data.org homepage
+    stats table, verbatim "1286.3 (# ego+exo hours)" (per-scenario breakdown: Cooking
+    564.13h + Music 180.08h + Soccer 66.97h + Health 114.5h + Basketball 78.01h +
+    Dance 106.57h + Bike Repair 82.15h + Rock Climbing 93.90h sums to ~1286.3h); corroborated
+    by arXiv:2311.18259 abstract rounding to "1,286 hours of video combined".'
+  num_subjects: 'NEW FIELD, filled 740: arXiv:2311.18259 abstract, verbatim "740 participants
+    from 13 cities worldwide"; corroborated by ego-exo4d-data.org homepage stats table
+    ("740 (# participants)") and Q&A section ("The data was collected from 740 participants").'
+  num_scenes: 'NEW FIELD, filled 123: arXiv:2311.18259 abstract, verbatim "740 participants
+    from 13 cities worldwide performed these activities in 123 different natural scene
+    contexts"; corroborated by ego-exo4d-data.org homepage stats table ("123 (# sites)").
+    Per-scenario site counts in that same table (60+8+14+24+5+7+8+2=128) exceed 123
+    because some physical sites hosted more than one scenario, consistent with 123
+    being the deduplicated total.'
+  num_objects: 'NEW FIELD, checked, left blank: no page (overview, data/*, annotations/*,
+    homepage, arXiv:2311.18259 abstract) states a total distinct-object count for
+    the dataset (unlike e.g. Assembly101''s explicit "101 unique toys"). The Relations
+    annotation schema (docs.ego-exo4d-data.org/annotations/relations/) tracks per-take
+    "active objects" by name/track_id but no dataset-wide object taxonomy size is
+    published.'
+  dof_per_arm: 'NEW FIELD, checked, left blank: EgoPose annotations provide only 3D/2D
+    keypoint positions (docs.ego-exo4d-data.org/annotations/ego_pose/), not joint-angle
+    or MANO-parameter encodings, so there is no stated per-arm DoF figure (same reasoning
+    as sibling assembly101.yaml, which also left this blank for an identical 21-keypoint-per-hand
+    representation).'
+  dof_per_hand: 'NEW FIELD, checked, left blank: same reasoning as dof_per_arm - hand
+    pose is released purely as 3D keypoint coordinates (21 joints/hand), not a DoF/joint-angle
+    parameterization; no dof figure is stated anywhere in the docs.'
+  action_space: 'NEW FIELD, checked, left blank: Ego-Exo4D is a human-activity video+annotation
+    dataset with no robot control action vector (no joint/eef position/velocity/torque
+    action is defined or distributed anywhere in docs.ego-exo4d-data.org); none of
+    the ActionSpace enum values apply.'
+  action_frame: 'NEW FIELD, checked, left blank: same reasoning as action_space -
+    no action representation of any frame (delta/absolute/etc.) exists for this dataset.'
+  rotation_representation: 'NEW FIELD, checked, left blank: EgoPose hand/body annotations
+    are 3D keypoint positions only (x,y,z per joint), with no per-joint or per-limb
+    rotation encoding published; camera_extrinsics matrices exist per camera (docs.ego-exo4d-data.org/annotations/ego_pose/)
+    but that encodes camera pose, not the tracked human''s orientation, so left blank
+    rather than conflated with camera rotation.'
+  state_dim: 'NEW FIELD, checked, left blank: although 21 joints x 2 hands x 3 coords
+    = 126 numeric values per frame could be derived (the same arithmetic sibling h2o.yaml
+    used to fill state_dim=126), Ego-Exo4D''s docs never frame this keypoint annotation
+    as a robot/agent "state" vector (there is also a separate 17-keypoint body annotation
+    not included in that count), so left blank rather than infer a value the source
+    does not explicitly state as such. Flagging this judgment call for human review
+    since the sibling h2o.yaml made the opposite choice for an analogous case.'
+  action_dim: 'NEW FIELD, checked, left blank: no action vector is defined for this
+    dataset (see action_space).'
+  num_camera_views: 'NEW FIELD, checked, left blank: the per-take exocentric camera
+    count varies ("4-5 GoPro RGB camera" per docs.ego-exo4d-data.org/overview/; the
+    ego_pose camera-pose JSON sample shows cam01-cam04 + aria = 5), so unlike fixed-camera-count
+    sibling datasets (assembly101=12, h2o=5) there is no single correct integer; left
+    blank for the same reason fps is left blank (fps_variable=true).'
+  expected_size_gb: 'NEW FIELD, checked, left blank: docs.ego-exo4d-data.org/getting-started/
+    states only that the default "recommended" partial download subset is "approximately
+    14 TiB" - this is explicitly a subset, not the full released dataset size, and
+    no page states a total size for all parts (takes, VRS, captures, annotations,
+    features, point clouds) combined; left blank rather than report a partial-download
+    figure as if it were the total.'
 suggested_new_enum_values:
   license: Ego4D-EULA (custom Meta/Ego4D license agreement, signed per-institution
     via ego4d.dev/request/ego-exo4d; per https://docs.ego-exo4d-data.org/getting-started/
     it covers both research and commercial use with restrictions on redistribution,
     and is free but requires signature/approval - does not map to MIT/Apache/BSD/CC-*/GPL/Proprietary/Unknown)
+  collection_method: 'RE-VERIFIED 2026-07-10, same issue as sibling assembly101.yaml:
+    Ego-Exo4D simultaneously records one egocentric Aria camera AND 4-5 exocentric
+    GoPro cameras per take (synchronized ego+exo capture of unassisted human activity).
+    The existing egocentric_human value only captures the egocentric half; consider
+    adding a value like ego_exo_human or multiview_human for datasets that jointly
+    capture synchronized first-person + third-person human views (this affects multiple
+    datasets in the registry: ego_exo4d, assembly101, egoexolearn).'
+  additional_modalities: Ego-Exo4D also provides IMU (2x1kHz on Aria) and dense 3D
+    point cloud / camera-pose (6DoF localization) data, per arXiv:2311.18259 abstract
+    ("camera poses, IMU") and docs.ego-exo4d-data.org/overview/. The current SensorModality
+    enum (force_torque/tactile/audio/eye_gaze) has no value for IMU or point-cloud/SLAM
+    data; consider adding imu and point_cloud values.

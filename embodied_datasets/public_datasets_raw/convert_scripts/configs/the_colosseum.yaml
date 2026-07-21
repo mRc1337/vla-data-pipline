@@ -1,11 +1,13 @@
 id: the_colosseum
 name: THE COLOSSEUM
 source_url: https://robot-colosseum.github.io/
-license: Unknown
+paper_url: https://arxiv.org/abs/2402.08191
+license: MIT
 raw_format: Custom
 release_type: fixed_episode_dataset
 collection_method: simulation
 secondary_collection_methods: []
+is_multi_embodiment: false
 embodiment_class: single_arm
 robot_platform: franka_panda
 num_arms: 1
@@ -16,12 +18,12 @@ action_space: eef_pose
 action_frame: absolute
 rotation_representation: quaternion
 action_dim: 8
-num_camera_views: 5
+num_camera_views: 4
 camera_views:
 - front
-- top
 - third_person
 - wrist
+has_synchronized_multiview_rig: true
 has_camera_calibration: true
 depth_coverage: full
 additional_modalities: []
@@ -29,126 +31,86 @@ has_language_instruction: true
 num_task_types: 20
 urdf_available: true
 urdf_source: manufacturer_official
+expected_size_gb: 280.6
 expected_num_episodes: 2000
 review_status: pending_human_review
 field_sources:
-  source_url: 'Verified reachable and on-topic: https://robot-colosseum.github.io/
-    (title ''The COLOSSEUM: A Benchmark for Evaluating Generalization for Robotic
-    Manipulation''). Stub value confirmed correct; also cross-checked against arXiv:2402.08191
-    and GitHub repo https://github.com/robot-colosseum/robot-colosseum which both
-    link back to this same site.'
-  license: 'Checked https://github.com/robot-colosseum/robot-colosseum for LICENSE/LICENSE.md/LICENSE.txt
-    at repo root -- all return HTTP 404, and the GitHub repos API (api.github.com/repos/robot-colosseum/robot-colosseum)
-    reports license: null. No SPDX license identifier found in setup.py or pyproject.toml
-    either. Recorded as Unknown rather than guessing.'
-  raw_format: 'https://robot-colosseum.readthedocs.io/en/latest/quickstart.html ''Collect
-    demonstrations'' section: demos are saved under a save_path folder as per-episode
-    directories containing per-camera numbered PNG image files (e.g. %d.png) plus
-    RLBench''s own pickled low-dim observation/variation-description files -- this
-    is RLBench''s own custom on-disk layout, not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord.'
-  collection_method: 'https://robot-colosseum.github.io/ / arXiv:2402.08191 Sec III:
-    Colosseum is ''a novel simulation benchmark'' built on RLBench (PyRep + CoppeliaSim);
-    paper Sec III/IV-D: ''Demonstrations data for training and testing can be generated
-    via scripted experts from RLBench... collected automatically through motion planners
-    that navigate through manually defined waypoints'' -- fully simulated, non-human-teleoperated
-    generation.'
-  embodiment_class: 'arXiv:2402.08191 Sec II-A and Sec III (real-world section): ''we
-    employed a Franka Panda manipulator equipped with a parallel gripper'' -- single
-    7-DoF arm, no second arm or mobile base mentioned anywhere in paper or docs.'
-  robot_platform: 'arXiv:2402.08191: ''we employed 3D printed objects to test with
-    a Franka Panda robot arm'' (Sec II-A) and ''Our real-world experiments utilized
-    a Franka Panda robot arm, replicating the setup in RLBench'' (Sec III); RLBench/PyRep
-    (which Colosseum is built directly on top of, per github.com/robot-colosseum/robot-colosseum
-    README) use the Franka Panda as their default/only arm (pyrep/robots/arms/panda.py).'
-  num_arms: Same sources as embodiment_class/robot_platform -- single Franka Panda
-    arm throughout, both in simulation (RLBench/PyRep default) and the real-world
-    replication experiments.
-  dof_per_arm: 'PyRep source https://github.com/stepjam/PyRep/blob/master/pyrep/robots/arms/panda.py:
-    Panda(Arm) is instantiated with 7 joints (Franka Emika Panda is a 7-DoF arm);
-    consistent with arXiv:2402.08191 Sec IV-B.1 ''we predict raw 7-DoF keypoint pose
-    of the robot arm''.'
-  gripper_type: 'arXiv:2402.08191 Sec II-A / Appendix XII-A: ''Franka Panda manipulator
-    equipped with a parallel gripper'' -- the Franka Panda''s stock 2-finger parallel-jaw
-    gripper, used both in sim (RLBench default) and the real-world setup.'
-  has_mobile_base: No mention of any mobile base or navigation in arXiv:2402.08191
-    or the project docs/README; Colosseum's Franka Panda is fixed to a tabletop mount
-    in both simulation (RLBench scene) and the real-world replica setup (Appendix
-    XII-A).
-  action_space: 'arXiv:2402.08191 Sec IV-A/IV-B.1: ''we use keypoint-based action
-    prediction instead of predicting continuous 7-DoF actions... we predict raw 7-DoF
-    keypoint pose of the robot arm in continuous space'' -- actions are target end-effector
-    poses (translation+rotation) rather than joint-space commands, consistent with
-    RLBench''s Observation.gripper_pose representation used as the action target for
-    keyframe-based baselines (PerAct/RVT) evaluated on this benchmark.'
-  action_frame: arXiv:2402.08191 Sec IV-B.1/IV-B.2 describes predicting the next keypoint/keyframe
-    target pose of the end-effector (translation heatmaps + discretized rotation for
-    RVT, raw pose regression for 2D baselines), i.e. an absolute target pose in the
-    robot/world frame at each keyframe, not a relative delta motion -- consistent
-    with RLBench's underlying Observation.gripper_pose (absolute world-frame pose)
-    used by PerAct/RVT-style keyframe baselines on this benchmark.
-  rotation_representation: 'RLBench backend (https://github.com/stepjam/RLBench/blob/master/rlbench/backend/observation.py)
-    defines gripper_pose as a 7-element array (3 position + 4 quaternion); arXiv:2402.08191
-    Sec IV-B.1''s ''7-DoF keypoint pose'' (2D baselines: R3M/MVP) matches this position+quaternion
-    representation exactly.'
-  action_dim: Derived from RLBench's 7-DoF gripper_pose (3 position + 4 quaternion,
-    per rlbench/backend/observation.py and arXiv:2402.08191 Sec IV-B.1 '7-DoF keypoint
-    pose') plus 1 binary gripper open/close dimension predicted alongside it by all
-    evaluated baselines (Sec IV-B.1 PerAct/RVT description of 'gripper's binary state')
-    = 8.
-  num_camera_views: 'https://robot-colosseum.readthedocs.io/en/latest/quickstart.html
-    data.cameras config block lists exactly 5 camera slots: left_shoulder, right_shoulder,
-    overhead, wrist, front; matches RLBench''s rlbench/backend/observation.py Observation
-    class which stores rgb/depth/mask/point_cloud for these same 5 camera names.'
-  camera_views: 'Same quickstart cameras list mapped to enum categories: front ->
-    front; overhead -> top; left_shoulder and right_shoulder (fixed angled 3rd-person
-    views of the scene, not gripper-mounted) -> third_person; wrist (single camera
-    mounted on the single Franka arm''s wrist, no left/right handedness since there
-    is only one arm) has no exact enum match -> other (see suggested_new_enum_values).'
-  has_camera_calibration: 'https://github.com/stepjam/RLBench/blob/master/rlbench/backend/scene.py
-    lines ~544-547: for every camera name the Observation.misc dict stores ''%s_extrinsics'',
-    ''%s_intrinsics'', ''%s_near'', ''%s_far'' (camera pose matrix, intrinsic matrix,
-    and clipping planes) -- full per-frame calibration data for all 5 camera views.'
-  depth_coverage: 'https://robot-colosseum.readthedocs.io/en/latest/quickstart.html
-    data.images config block exposes a ''depth: True/False'' toggle independently
-    for every one of the 5 cameras, and RLBench''s Observation class (backend/observation.py)
-    defines a *_depth array for each of the same 5 cameras -- depth is a fully supported,
-    per-camera output across all views (off by default in the example config, but
-    architecturally available for every camera, unlike ''partial'' which would imply
-    some views structurally lack depth support).'
-  has_language_instruction: 'arXiv:2402.08191 Sec IV-A: ''Each trajectory is paired
-    with a template-generated English language instruction l''; Sec IV-D also references
-    RLBench task variations ''changing language instruction and task target'' (e.g.
-    ''open bottom drawer'').'
-  num_task_types: 'arXiv:2402.08191 abstract and Sec III: ''a novel simulation benchmark,
-    with 20 diverse manipulation tasks''; https://robot-colosseum.github.io/ task
-    selector/leaderboard section lists exactly 20 named tasks (basketball, close_box,
-    close_laptop, empty_dishwasher, get_ice, hockey, meat_on_grill, move_hanger, wipe_desk,
-    open_drawer, slide_block, reach_and_drag, put_money_in_safe, place_wine, insert_peg,
-    stack_cups, turn_oven_on, straighten_rope, setup_chess, scoop_with_spatula).'
-  urdf_available: The robot used throughout (sim and real) is a stock Franka Emika
-    Panda arm (arXiv:2402.08191 Sec II-A/III); the manufacturer publishes an official
-    URDF/xacro description for this exact arm in https://github.com/frankaemika/franka_ros
-    (franka_description package), the same source cited for other Franka-Panda-based
-    benchmarks in this repo (e.g. droid.yaml, functional_manipulation_benchmark_fmb.yaml).
-  urdf_source: Colosseum's own repo (github.com/robot-colosseum/robot-colosseum) and
-    RLBench/PyRep ship CoppeliaSim .ttm scene/robot models rather than a bundled URDF
-    file, so the applicable URDF reference is the manufacturer's own franka_description
-    package (https://github.com/frankaemika/franka_ros), not the dataset repo itself
-    -- recorded as manufacturer_official.
-  expected_num_episodes: 'arXiv:2402.08191 Sec III (Challenge description) and Sec
-    IV-D: ''Participants generate a standard training dataset from 20 tasks with 100
-    demonstrations each, without perturbation_factors'' -- 20 tasks x 100 demos =
-    2000 standard training episodes. Note: the benchmark additionally defines a much
-    larger test protocol (25 held-out episodes per task per perturbation factor across
-    14 perturbation axes, plus a No-Perturbation test set of 25 episodes/task -- roughly
-    7,500 further test episodes per Sec IV-D), but Colosseum is primarily a procedural
-    generator (users run collect_demo.py themselves) rather than a single fixed downloadable
-    corpus, so 2000 (the explicitly specified standard training-set size) was recorded
-    as the clearest single figure.'
-suggested_new_enum_values:
-  camera_views: wrist (generic, non-handed) -- Colosseum/RLBench is a single-arm (Franka
-    Panda) robot with exactly one gripper-mounted wrist camera. The existing left_wrist/right_wrist
-    enum values presume a bimanual robot with per-arm wrist cameras and would misleadingly
-    assign handedness to a single-arm setup; 'other' was used as the closest existing
-    fallback (same convention already used for this case in calvin.yaml and bridgedata_v2.yaml
-    in this repo).
+  source_url: Reconfirmed reachable, on-topic (RSS 2024 project page for THE COLOSSEUM),
+    links to arXiv:2402.08191 and github.com/robot-colosseum/robot-colosseum.
+  paper_url: arxiv.org/abs/2402.08191 -- official paper link, also linked from project
+    site and HF dataset card.
+  license: 'CORRECTED from Unknown. huggingface.co/datasets/colosseum/colosseum-challenge
+    dataset card metadata declares license: mit (tag license:mit, cardData.license=mit).
+    Note: the benchmark CODE repo (github.com/robot-colosseum/robot-colosseum) still
+    has no LICENSE file (GitHub API license=null) -- MIT applies specifically to the
+    released dataset, which is what this field tracks.'
+  raw_format: 'Confirmed via readthedocs quickstart AND huggingface.co/datasets/colosseum/colosseum-challenge
+    README: per-episode folders with per-camera PNG rgb/depth images plus RLBench
+    pickle files (low_dim_obs.pkl, variation_description.pkl) packaged as per-task
+    tar.gz -- custom RLBench layout, not RLDS/HDF5/LeRobot.'
+  release_type: 'Confirmed via huggingface.co/datasets/colosseum/colosseum-challenge:
+    a canonical fixed corpus is published (train: 100 demos x 20 tasks; test: 25 demos
+    x 20 tasks x applicable perturbations), distributed as downloadable tar.gz files
+    -- a real fixed release, not just a generation framework.'
+  collection_method: 'arXiv:2402.08191 Sec III: demonstrations generated by RLBench
+    scripted motion planners navigating manually defined waypoints in simulation (PyRep/CoppeliaSim)
+    -- fully simulated, non-human-teleoperated.'
+  is_multi_embodiment: 'arXiv:2402.08191 Sec II-A, III, and Appendix X-A (real-world):
+    single Franka Panda arm with parallel gripper used throughout both simulation
+    and the real-world replica; no other embodiment mentioned anywhere.'
+  embodiment_class: 'Reconfirmed: arXiv:2402.08191 Sec II-A/III -- single 7-DoF Franka
+    Panda arm, no mobile base or second arm.'
+  robot_platform: 'Reconfirmed: arXiv:2402.08191 Sec II-A/III/Appendix X-A -- Franka
+    Panda used in both sim (RLBench default) and real-world replica.'
+  num_arms: 'Reconfirmed: single Franka Panda arm throughout (arXiv:2402.08191).'
+  dof_per_arm: 'Reconfirmed: PyRep pyrep/robots/arms/panda.py -- Franka Panda is a
+    7-DoF arm.'
+  gripper_type: 'Reconfirmed: arXiv:2402.08191 Sec II-A/Appendix X-A -- stock Franka
+    parallel-jaw gripper.'
+  has_mobile_base: 'Reconfirmed: no mobile base mentioned in paper or docs; fixed
+    tabletop mount in sim and real-world replica.'
+  action_space: 'Reconfirmed: arXiv:2402.08191 Sec IV-A/IV-B.1 -- keypoint-based end-effector
+    pose targets (PerAct/RVT baselines), not joint-space commands.'
+  action_frame: 'Reconfirmed: RLBench Observation.gripper_pose is an absolute world-frame
+    pose used as the keyframe target by PerAct/RVT baselines evaluated on this benchmark.'
+  rotation_representation: 'Reconfirmed: RLBench backend/observation.py gripper_pose
+    = 3 position + 4 quaternion.'
+  action_dim: 'Reconfirmed: 7-DoF pose (3 pos + 4 quat) + 1 binary gripper state =
+    8 (arXiv:2402.08191 Sec IV-B.1).'
+  num_camera_views: 'CORRECTED from 5 to 4. huggingface.co/datasets/colosseum/colosseum-challenge
+    README states the released train/test dataset captures exactly 4 camera views:
+    front, left shoulder, right shoulder, wrist (no overhead/top). The readthedocs
+    quickstart lists overhead as a 5th *optional* camera slot in the general data-collection
+    tool config, but it is NOT one of the 4 views actually included in the released
+    HF corpus, so the released-dataset figure (4) is used.'
+  camera_views: 'CORRECTED: removed top (overhead), which quickstart config exposes
+    as an optional camera slot but which the actually-released HF dataset (huggingface.co/datasets/colosseum/colosseum-challenge
+    README, camera-views figure) does not include. Released dataset uses front->front,
+    left_shoulder+right_shoulder->third_person, wrist->wrist (CameraView.WRIST enum
+    value used directly; no longer mapped to other -- confirming the prior backfill
+    pass correctly added the wrist literal).'
+  has_synchronized_multiview_rig: 'Simulation-derived: RLBench (github.com/stepjam/RLBench
+    backend/scene.py) renders all enabled camera views from the same CoppeliaSim physics
+    timestep on each get_observation() call, so all views are inherently frame-synchronized
+    (no hardware sync issue applicable to a simulator).'
+  has_camera_calibration: 'Reconfirmed: RLBench backend/scene.py stores per-camera
+    extrinsics/intrinsics/near/far for every camera name each frame.'
+  depth_coverage: 'Reconfirmed and refined: huggingface.co/datasets/colosseum/colosseum-challenge
+    README states RGB+Depth is collected for all 4 released camera views.'
+  has_language_instruction: 'Reconfirmed: arXiv:2402.08191 Sec IV-A -- template-generated
+    English instruction per trajectory; HF README variation_description.pkl stores
+    per-task language instructions.'
+  num_task_types: 'Reconfirmed: arXiv:2402.08191 abstract/Sec III and project site
+    -- 20 diverse manipulation tasks.'
+  urdf_available: 'Reconfirmed: stock Franka Emika Panda; manufacturer publishes official
+    URDF (github.com/frankaemika/franka_ros franka_description).'
+  urdf_source: 'Reconfirmed: Colosseum/RLBench ship CoppeliaSim .ttm models, not a
+    bundled URDF; manufacturer_official (franka_ros) is the applicable source.'
+  expected_size_gb: 'NEW. Computed from huggingface.co/api/datasets/colosseum/colosseum-challenge/tree/main
+    (recursive): sum of all task test tar.gz files plus training_dataset/train.tar.gz_part00+01
+    = ~280.6 GB total across the full released corpus (train+test).'
+  expected_num_episodes: 'Reconfirmed: arXiv:2402.08191 Sec III/IV-D and HF dataset
+    card -- standard training set = 100 demos x 20 tasks = 2000 episodes. Test set
+    (25 demos x 20 tasks x applicable perturbations) is additional and not folded
+    into this single figure.'
+suggested_new_enum_values: {}

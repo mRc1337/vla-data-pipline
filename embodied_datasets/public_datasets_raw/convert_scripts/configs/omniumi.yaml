@@ -1,10 +1,12 @@
 id: omniumi
 name: OmniUMI
-source_url: https://sites.google.com/view/omniumi
+source_url: https://baai-aether.github.io/OmniUMI/
+paper_url: https://arxiv.org/abs/2604.10647
 license: Unknown
 release_type: fixed_episode_dataset
 collection_method: umi
 secondary_collection_methods: []
+is_multi_embodiment: false
 embodiment_class: single_arm
 num_arms: 1
 gripper_type: parallel_jaw
@@ -16,101 +18,173 @@ action_dim: 13
 num_camera_views: 1
 camera_views:
 - wrist
+has_synchronized_multiview_rig: false
 depth_coverage: full
-additional_modalities: []
+additional_modalities:
+- force_torque
+- tactile
 has_language_instruction: false
 num_task_types: 3
 urdf_available: false
+urdf_source: not_found
 review_status: pending_human_review
 field_sources:
-  source_url: 'The stub-provided sites.google.com/view/omniumi URL redirects to a
-    Google sign-in wall (curl -L returns an accounts.google.com/v3/signin page, HTTP
-    200 on the login page itself), i.e. it is not publicly reachable without a Google
-    account. Research was therefore based on the paper arXiv:2604.10647 (OmniUMI:
-    Towards Physically Grounded Robot Learning via Human-Aligned Multimodal Interaction,
-    Luo/Li/Hu/Yu et al., submitted 12 Apr 2026, v3 5 May 2026) and its public project
-    mirror https://baai-aether.github.io/OmniUMI/ (same paper, same figures, ''Code
-    (Coming Soon)'' banner).'
-  license: No dataset/code license is stated anywhere in arXiv:2604.10647 or on the
-    project page; the project page footer only licenses the *website template* itself
-    under CC-BY-SA-4.0 (boilerplate inherited from the Nerfies template), which does
-    not apply to any dataset/code. The project page explicitly shows 'Code (Coming
-    Soon)', so no dataset has been released with a license yet. Recorded as Unknown
-    rather than guessed.
-  raw_format: 'Left blank: no dataset files, HuggingFace/GitHub data repo, or format
-    documentation exist yet - project page shows ''Code (Coming Soon)'' and the paper
-    contains no data-release/format section.'
-  collection_method: 'arXiv:2604.10647 abstract and Sec.3 ''System Architecture'':
-    OmniUMI is explicitly a ''compact handheld system'' / ''unified multimodal handheld
-    interface'', i.e. a UMI-style (Universal Manipulation Interface) robot-free handheld
-    data-collection device, per the task instructions'' note that UMI-style datasets
-    use collection_method: umi.'
-  embodiment_class: arXiv:2604.10647 Sec.3.3 'Collection-Deployment Consistency via
-    a Motorized Gripper' and the three demonstrated tasks (Wipe Whiteboard, Pick-Place
-    Water, Drop Cup) all involve a single handheld/quick-swap gripper reused on a
-    single end-effector for both collection and deployment; there is no mention anywhere
-    in the paper of a second arm, bimanual coordination, a humanoid body, or a mobile
-    base, so the deployment embodiment is single_arm.
-  num_arms: Same evidence as embodiment_class - a single motorized quick-swap gripper
-    / single end-effector is described and used across all three tasks; no second
-    arm is mentioned.
-  gripper_type: arXiv:2604.10647 Sec.3.3 'Biomimetic Finger Design with Integrated
-    Tactile Sensing' describes a 'motorized quick-swap gripper' with a 'biomimetic
-    finger design'; consistent with the entire cited UMI-family lineage (UMI, FastUMI,
-    TacUMI, UMI-FT) which all use 2-finger parallel-jaw grippers, and no dexterous
-    multi-finger hand or suction end-effector is described anywhere.
-  has_mobile_base: No mention of a mobile base, wheels, or a mobile manipulator anywhere
-    in arXiv:2604.10647; all three tasks (whiteboard erasing, cup pick-place, bottle
-    pick-and-place) are tabletop-stationary manipulation.
-  action_space: 'arXiv:2604.10647 Sec.3.5 Eq.(8): the policy action a_t = [Delta x_t,
-    Delta y_t, Delta z_t, r^6D_t, f^x_t, f^y_t, f^z_t, w^g_t] is explicitly described
+  source_url: 'CORRECTED from https://sites.google.com/view/omniumi (stub value; re-verified
+    via curl -L, still redirects HTTP 200 to an accounts.google.com sign-in wall)
+    to https://baai-aether.github.io/OmniUMI/, which is the project page URL the paper
+    itself designates: arXiv:2604.10647 p.1 footnote ''1 Project page: https://baai-aether.github.io/OmniUMI'',
+    and matches the ''Project page'' link on the arXiv abstract-page mirror. Page
+    fetched live (curl), HTML confirmed matches paper title/authors/figures; footer
+    shows ''Code (Coming Soon)''.'
+  paper_url: 'Newly filled (field did not exist in prior schema pass): https://arxiv.org/abs/2604.10647
+    -- confirmed live via arXiv export API (export.arxiv.org/api/query?id_list=2604.10647):
+    title ''OmniUMI: Towards Physically Grounded Robot Learning via Human-Aligned
+    Multimodal Interaction'', authors Shaqi Luo et al., submitted 12 Apr 2026, v3
+    5 May 2026, cs.RO.'
+  license: 'Re-verified unchanged: no dataset/code license is stated anywhere in arXiv:2604.10647
+    or on https://baai-aether.github.io/OmniUMI/. The project page''s only license
+    mention is boilerplate CC-BY-SA-4.0 for the *website template* (inherited Nerfies
+    template), not for any dataset/code artifact. The page explicitly shows ''Code
+    (Coming Soon)'', i.e. nothing has been released yet. Recorded as Unknown rather
+    than guessed.'
+  raw_format: 'Re-verified, left blank: no dataset files, HF/GitHub data repo, or
+    format documentation exist yet -- project page footer button reads ''Code (Coming
+    Soon)'' and arXiv:2604.10647 contains no data-release/format section anywhere
+    in Secs 3-4 or the Experiments section.'
+  release_type: 'Re-confirmed unchanged: arXiv:2604.10647 Sec.4 describes OmniUMI''s
+    data as a set of demonstrations collected for 3 fixed benchmark tasks (Sec.4.3:
+    ''Policies trained using multimodal data collected with OmniUMI''), not a procedural
+    generation framework, scene-asset platform, or RL benchmark environment -- fixed_episode_dataset
+    is the correct category once/if the data is released.'
+  collection_method: 'Re-confirmed unchanged: arXiv:2604.10647 Abstract and Sec.1
+    describe OmniUMI as a ''compact handheld system'' / robot-free UMI-style interface
+    (''Systems such as UMI ... and its variants have shown that handheld interfaces
+    can support scalable, portable, and embodiment-agnostic data acquisition''); Sec.3.3
+    ''Collection-Deployment Consistency via a Motorized Gripper'' confirms the handheld,
+    robot-free nature of data acquisition. collection_method: umi.'
+  secondary_collection_methods: 'Re-confirmed empty: arXiv:2604.10647 Sec.4.2 additionally
+    records ''direct human demonstration'' and ''teleoperation without bilateral force
+    feedback'' trajectories, but only as comparison baselines for a human-alignment
+    ablation study, not as part of the data used to train the downstream policies
+    (Sec.4.3 states policies are trained on data ''collected with OmniUMI''). Consistent
+    with the same exclusion logic already applied to fastumi.yaml/mv_umi.yaml for
+    their own teleoperation ablation baselines.'
+  is_multi_embodiment: 'Newly filled: false. arXiv:2604.10647 describes exactly one
+    data-collection embodiment throughout (the custom OmniUMI handheld master-slave
+    device); no second differing collection embodiment or multiple robot deployment
+    platforms are named anywhere (unlike e.g. original UMI''s UR5/Franka/ARX X5 deployment
+    diversity). Fig.1''s ''Unified Isomorphic Deployment'' panel shows a single generic
+    robot arm receiving the reused quick-swap gripper.'
+  embodiment_class: 'Re-confirmed unchanged: arXiv:2604.10647 Sec.3.3 ''Collection-Deployment
+    Consistency via a Motorized Gripper'' and Fig.1 (''Unified Isomorphic Deployment'')
+    show the same quick-swap gripper reused on a single robot arm for deployment;
+    no second arm, bimanual coordination, humanoid body, or mobile base is mentioned
+    anywhere. Kept consistent with sibling configs fastumi.yaml/umi_datasets.yaml/mv_umi.yaml,
+    which all classify handheld UMI-style devices deployed on a single robot arm as
+    single_arm.'
+  num_arms: 'Re-confirmed unchanged: same evidence as embodiment_class -- a single
+    motorized quick-swap gripper / single end-effector described and shown mounted
+    on one robot arm in Fig.1; no second arm mentioned.'
+  gripper_type: 'Re-confirmed unchanged, now with added visual evidence: Fig.2 (hardware
+    exploded view, extracted directly from the arXiv PDF) labels ''Finger Root'',
+    ''Finger Levers'', ''Fingertip'', ''Finger Pad & Tactile Sensor'' consistent with
+    a 2-finger design; the project page''s Fig.1 hero image shows the handheld device
+    and the robot-mounted ''Quick-swap actuated gripper'' with a visibly 2-pronged
+    (orange) finger structure. Consistent with the entire cited UMI-family lineage
+    (UMI, FastUMI, TacUMI, UMI-FT), which all use 2-finger parallel-jaw grippers;
+    no dexterous multi-finger hand or suction end-effector is described or shown anywhere.'
+  has_mobile_base: 'Re-confirmed unchanged: no mention of a mobile base, wheels, or
+    mobile manipulator anywhere in arXiv:2604.10647; all three tasks (whiteboard erasing,
+    water-bottle pick-place, nested-cup selective release) are tabletop-stationary
+    manipulation.'
+  action_space: 'Re-confirmed unchanged: arXiv:2604.10647 Sec.3.5 Eq.(8), a_t = [Delta
+    x_t, Delta y_t, Delta z_t, r6D_t, f^x_t, f^y_t, f^z_t, w^g_t], described in-text
     as ''end-effector translation in xyz, a 6D rotation representation, a predicted
-    Cartesian interaction force, and a virtual gripper width'' - i.e. an end-effector-pose
-    action space (plus auxiliary force/gripper channels), not joint-space.'
-  action_frame: 'arXiv:2604.10647 Sec.3.5 Eq.(8) writes the translation components
-    with an explicit delta prefix (Delta x_t, Delta y_t, Delta z_t), so translation
-    is delta. CAVEAT for human reviewer: the accompanying 6D rotation term r^6D_t
-    is written without a delta prefix in the same equation, so it may be absolute
-    rather than relative rotation (the paper does not clarify this explicitly) - recorded
-    as ''delta'' based on the translation component, but this could plausibly be a
-    mixed delta-translation/absolute-rotation action that doesn''t cleanly fit any
-    single enum value.'
-  rotation_representation: 'arXiv:2604.10647 Sec.3.5 Eq.(8): action explicitly includes
-    ''r^6D_t'' described in-text as ''a 6D rotation representation''.'
-  action_dim: 'Sum of the components explicitly listed in arXiv:2604.10647 Eq.(8):
-    3 (Delta x,y,z) + 6 (r^6D) + 3 (f^x,f^y,f^z interaction force) + 1 (virtual gripper
-    width w^g) = 13.'
-  num_camera_views: arXiv:2604.10647 Sec.3.3 'Hardware overview' (Fig.2 caption) and
-    Sec.3.5 (Fig.3 caption 'visual inputs (fisheye RGB and depth)') consistently describe
-    a single fisheye camera (co-located with the depth sensor) integrated into the
-    handheld unit; no second camera is mentioned.
-  camera_views: Single fisheye+depth sensor mounted directly on the handheld gripper
-    unit (same physical position as the gripper/end-effector), analogous to a wrist-mounted
-    camera on a single-arm robot with no left/right distinction. The existing enum
-    only offers handed left_wrist/right_wrist, so 'other' was used as a stand-in (same
-    convention already used in configs/dobb_e.yaml and configs/calvin.yaml for non-handed
-    wrist cameras) - see suggested_new_enum_values.
-  depth_coverage: arXiv:2604.10647 Sec.3.3 Fig.2 caption and Sec.3.5 Fig.3 caption
-    both list 'depth sensing' / 'depth' as one of the modalities synchronously captured
-    by the handheld unit at every frame alongside RGB, i.e. full per-frame depth coverage.
-  has_language_instruction: arXiv:2604.10647 describes a diffusion-policy conditioned
-    only on visual, tactile, and force-related observations (Sec.3.5, Eq.6-7); tasks
-    are fixed, hand-designed benchmarks (Wipe Whiteboard, Pick-Place Water, Drop Cup)
-    with no mention of natural-language task instructions or a language encoder anywhere
-    in the paper.
-  num_task_types: 'arXiv:2604.10647 ''Tasks'' section explicitly enumerates exactly
-    three tasks: Task 1 Wipe Whiteboard, Task 2 Pick-Place Water, Task 3 Drop Cup.'
-  urdf_available: No URDF is mentioned anywhere in arXiv:2604.10647 or on the project
-    page; the released artifacts so far are only the paper and a hardware design (code/data
-    'Coming Soon'), so no URDF is currently available.
-suggested_new_enum_values:
-  camera_views: wrist (generic, non-handed) - OmniUMI's single fisheye+depth camera
-    sits at the gripper/wrist of a single-arm/handheld device with no left/right distinction,
-    so the existing left_wrist/right_wrist options would force an incorrect handedness
-    label; 'other' was used instead as a stand-in (same gap already flagged in configs/dobb_e.yaml
-    and configs/calvin.yaml).
-  action_frame: mixed_delta_absolute (or similar) - arXiv:2604.10647 Eq.(8)'s action
-    vector combines an explicitly delta translation (Delta x,y,z) with a 6D rotation
-    term written without a delta prefix (possibly absolute), plus auxiliary force/gripper
-    channels; none of delta/absolute/both/unknown cleanly captures a per-component
-    mixed delta-translation + non-delta-rotation action representation.
+    Cartesian interaction force, and a virtual gripper width'' -- an eef_pose action
+    space (plus auxiliary force/gripper channels), not joint-space. Note: deployment
+    executes this via a joint-space impedance controller (Sec.3.6), but that is a
+    downstream translation, not the policy''s native action space.'
+  action_frame: 'Re-confirmed unchanged (mixed_delta_absolute is now an official schema
+    enum value, no longer only a suggestion): arXiv:2604.10647 Sec.3.5 Eq.(8) writes
+    the translation components with an explicit delta prefix (Delta x_t, Delta y_t,
+    Delta z_t), so translation is delta. CAVEAT for human reviewer: the accompanying
+    6D rotation term r6D_t is written without a delta prefix in the same equation
+    and the paper''s Related-Work/Method text never explicitly clarifies whether it
+    is absolute or relative -- recorded as mixed_delta_absolute (delta translation
+    + non-delta rotation) based on the literal equation notation, but this remains
+    an inference rather than an explicit statement.'
+  rotation_representation: 'Re-confirmed unchanged: arXiv:2604.10647 Sec.3.5 Eq.(8)
+    action explicitly includes ''r6D_t'', described in-text as ''a 6D rotation representation''.'
+  action_dim: 'Re-confirmed unchanged: sum of the components explicitly listed in
+    arXiv:2604.10647 Eq.(8): 3 (Delta x,y,z) + 6 (r6D) + 3 (f^x,f^y,f^z interaction
+    force) + 1 (virtual gripper width w^g) = 13.'
+  num_camera_views: 'Re-confirmed unchanged: arXiv:2604.10647 Fig.2 (hardware exploded
+    view, verified directly from the PDF) labels one ''Fisheye Camera'' and one ''Depth
+    Camera'' co-located on the same handheld mount (i.e. one RGB-D viewpoint, not
+    two independent camera positions); Sec.3.5 Eq.(7) lists a single I_rgb_t / I_depth_t
+    pair per timestep. No second camera viewpoint is described.'
+  camera_views: 'Re-confirmed unchanged (wrist is now an official schema enum value,
+    no longer only a suggestion): the single fisheye+depth sensor is mounted directly
+    on the handheld gripper unit at the same physical position as the end-effector
+    (Fig.2), analogous to a wrist-mounted camera on a single-arm robot with no left/right
+    distinction. Rewritten to remove stale wording from a prior pass that described
+    mapping to ''other'' as a stand-in -- ''wrist'' is now a real enum value and is
+    used directly; the corresponding stale suggested_new_enum_values entry has been
+    removed.'
+  has_synchronized_multiview_rig: 'Newly filled: false. Follows directly from num_camera_views=1:
+    arXiv:2604.10647 Fig.2/Eq.(7) document exactly one synchronized RGB-D viewpoint
+    per timestep, so there is no multi-camera synchronized rig.'
+  depth_coverage: 'Re-confirmed unchanged: arXiv:2604.10647 Fig.2 hardware diagram
+    and Fig.3 caption (''visual inputs (fisheye RGB and depth)'') both list depth
+    sensing as one of the modalities synchronously captured by the handheld unit at
+    every frame alongside RGB, i.e. full per-frame depth coverage.'
+  additional_modalities: 'CORRECTED from [] (empty) to [force_torque, tactile]. This
+    is a clear error in the prior pass: arXiv:2604.10647''s entire framing is built
+    around capturing ''internal grasping force, external interaction wrench'' (Sec.3.4,
+    measured via ''a 6-axis Force Sensor'' per Fig.2, and modeled explicitly via Eq.(1)
+    and Eq.(4)) plus ''tactile sensing'' (Sec.3.3 ''Biomimetic Finger Design with
+    Integrated Tactile Sensing'', Fig.2 ''Finger Pad & Tactile Sensor'', Sec.3.5 Eq.(5)
+    tactile encoder z_tac_t). Both force_torque and tactile are core, explicitly instrumented
+    sensor modalities of this dataset, not merely post-hoc analysis artifacts.'
+  has_language_instruction: 'Re-confirmed unchanged: arXiv:2604.10647 Sec.3.5 Eq.(6)-(7)
+    conditions the diffusion policy only on visual, tactile, and force-related/kinematic
+    observations; the three tasks (Wipe Whiteboard, Pick-Place Water, Drop Cup) are
+    fixed hand-designed benchmarks with no mention of natural-language task instructions
+    or a language encoder anywhere in the paper.'
+  num_task_types: 'Re-confirmed unchanged: arXiv:2604.10647 Sec.4 evaluates exactly
+    three tasks: ''force-sensitive pick-and-place'' (Sec.4.3, water bottle), ''interactive
+    surface erasing'' (Sec.4.3, whiteboard eraser), and ''tactile-informed selective
+    release'' (Sec.4.3, nested transparent cups).'
+  urdf_available: 'Re-confirmed unchanged: no URDF is mentioned anywhere in arXiv:2604.10647
+    or on https://baai-aether.github.io/OmniUMI/; the only released artifacts so far
+    are the paper and a hardware design description (code/data ''Coming Soon'').'
+  urdf_source: 'Newly filled: not_found. Same evidence as urdf_available -- no URDF
+    file has been published in any repository yet, consistent with ''Code (Coming
+    Soon)'' on the project page.'
+  dof_per_hand: 'Left blank: OmniUMI''s end effector is a 2-finger motorized quick-swap
+    gripper (see gripper_type), not a dexterous multi-finger hand; dof_per_hand does
+    not cleanly apply, consistent with the same decision already made for sibling
+    gripper-based UMI-family configs (fastumi.yaml, mv_umi.yaml).'
+  hand_pose_representation: 'Left blank: no MANO/3D-keypoint/joint-angle hand-shape
+    tracking is used anywhere in arXiv:2604.10647; the gripper''s actuation is a single
+    motorized aperture (grasp width) transmitted electrically, not a hand-pose representation.
+    Consistent with the same decision made for fastumi.yaml/mv_umi.yaml for gripper-only
+    (non-dexterous-hand) UMI-family datasets.'
+  expected_duration_hours: 'Left blank: arXiv:2604.10647 gives no total episode count
+    or total recording duration for the demonstrations used in Sec.4''s experiments
+    (no released dataset yet, ''Code Coming Soon''); only qualitative per-task descriptions
+    are given, with no numeric duration statistics of any kind.'
+  num_subjects: 'Left blank: arXiv:2604.10647 does not state how many human operators/demonstrators
+    were used to collect the OmniUMI, direct-human, or teleoperation-baseline trajectories
+    in Sec.4.2''s alignment study or Sec.4.3''s downstream experiments.'
+  num_scenes: 'Left blank: no explicit count of distinct scenes/environments is given
+    anywhere in arXiv:2604.10647; all three tasks appear to be conducted in a single
+    lab/tabletop setting (no ''in-the-wild'' multi-location claim like UMI/FastUMI
+    is made for this system).'
+  num_objects: 'Left blank: no explicit aggregate object/object-category count is
+    stated. arXiv:2604.10647 Sec.4.3 names specific objects per task (a whiteboard
+    eraser, a full unopened bottle of mineral water, two nested transparent plastic
+    cups), but never gives a summary tally like FastUMI''s stated ''19 object categories'',
+    so an aggregate number would have to be inferred/counted by hand rather than cited
+    directly -- left blank rather than fabricating a derived figure.'
+suggested_new_enum_values: {}

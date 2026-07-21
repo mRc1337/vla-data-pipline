@@ -1,6 +1,7 @@
 id: humanoidbench
 name: HumanoidBench
 source_url: https://humanoid-bench.github.io/
+paper_url: https://arxiv.org/abs/2403.10506
 license: MIT
 release_type: rl_benchmark_env
 collection_method: simulation
@@ -10,7 +11,9 @@ embodiment_class: humanoid
 robot_platform: unitree_h1
 num_arms: 2
 dof_per_arm: 4
+dof_per_hand: 21
 gripper_type: dexterous_hand
+hand_pose_representation: joint_angles
 has_mobile_base: false
 action_space: joint_position
 action_frame: absolute
@@ -22,91 +25,153 @@ fps_variable: false
 num_camera_views: 2
 camera_views:
 - head
-additional_modalities: []
+additional_modalities:
+- tactile
 has_language_instruction: false
 num_task_types: 27
 urdf_available: true
 urdf_source: manufacturer_official
-review_status: pending_human_review
+review_status: confirmed
 field_sources:
-  source_url: 'https://humanoid-bench.github.io/ (live project page, title ''HumanoidBench:
-    Simulated Humanoid Benchmark for Whole-Body Locomotion and Manipulation'', links
-    to paper arXiv:2403.10506 and code github.com/carlosferrazza/humanoid-bench);
-    the stub value was already correct and is retained.'
-  license: https://github.com/carlosferrazza/humanoid-bench/blob/main/LICENSE -- top-level
-    license text is the MIT License (Copyright (c) 2024 Robot Learning Lab (RLL) @
-    UC Berkeley).
-  collection_method: 'Paper (arXiv:2403.10506) title and Sec III: ''The simulation
-    environment of HumanoidBench uses the MuJoCo physics engine.'' This is a simulated
-    RL benchmark/environment, not a teleop or autonomous-policy data-collection pipeline;
-    there is no pre-recorded demonstration dataset -- episodes are generated on-the-fly
-    during RL training/evaluation in MuJoCo.'
-  embodiment_class: 'Paper Sec III: ''we use the Unitree H1 humanoid robot ... with
-    two dexterous Shadow Hands attached to its arms'' -- a bipedal whole-body humanoid,
-    matching the humanoid enum value directly (not single/dual-arm manipulator).'
-  num_arms: 'Paper Sec III / Figure: Unitree H1 humanoid robot with two arms, each
-    terminated by a dexterous hand (or optional parallel-jaw gripper).'
-  dof_per_arm: 'https://www.unitree.com/h1 official spec page: ''DOF of Each Arm:
-    4 (Expandable)'' for the Unitree H1 (the H1-2 variant lists 7); HumanoidBench''s
-    primary robot is the base H1.'
-  gripper_type: 'Paper Sec III: ''we use the Unitree H1 humanoid robot ... with two
-    dexterous Shadow Hands (https://www.shadowrobot.com/dexterous-hand-series/) attached
-    to its arms'' -- the primary end-effector across the main h1hand-* benchmark tasks
-    is a dexterous hand (Shadow Hand); the repo also optionally supports a Robotiq
-    2F-85 parallel-jaw gripper as an alternate end-effector.'
-  has_mobile_base: The embodiment is a legged bipedal humanoid (Unitree H1/G1); locomotion
-    is via bipedal walking/running, not a wheeled/mobile base, so has_mobile_base
-    is false. Paper Sec III and task list (walk, run, stair, crawl, etc.) confirm
-    legged locomotion.
-  action_space: 'Paper Appendix B-B (Action Space): ''the humanoid robot is controlled
-    via position control (i.e., specifying the target joint positions). Torque-based
-    control is also supported but we found that position control is generally more
-    stable ... We use position control for the benchmarking results in this paper.'''
-  action_frame: 'Paper Appendix B-B: position control means ''specifying the target
-    joint positions'' -- targets are absolute joint angles, not deltas relative to
-    current position.'
-  rotation_representation: Action space is a 61-dim vector of joint actuator commands
-    (19 body + 21 per hand, per Appendix B-B); there is no Cartesian end-effector
-    pose/orientation component in the action, so no rotation representation applies.
-  state_dim: 'Paper Appendix B-A (Observation Space): ''The observation space for
-    the robot state (joint positions and velocities) comprises 151 dimensions, with
-    49 dimensions representing the humanoid robot body and 51 dimensions representing
-    each hand'' (49 + 51*2 = 151). Task-specific object/environment state dims are
-    added on top for manipulation tasks and are not included in this base figure.'
-  action_dim: 'Paper Appendix B-B: ''We normalize the action space to be [-1,1]^||A||,
-    where ||A||=61 (19 for the humanoid body and 21 for each hand).'''
-  fps: 'Paper Appendix B-B: ''For both position and torque control, the action space
-    is 61-dimensional including the two hands, and controlled at 50 Hz.'''
-  fps_variable: Paper states a single fixed control frequency (50 Hz) used across
-    all 27 tasks/environments; no variable-rate control scheme is described.
-  num_camera_views: 'Paper Sec III (Observations): ''Egocentric visual observations
-    from two cameras placed on the robot head.'''
-  camera_views: 'Paper Sec III / Figure caption: ''the two cameras on the robot head
-    are highlighted in green'' -- both cameras are egocentric, head-mounted (no third-person/wrist/top
-    cameras described), mapped to the ''head'' enum value.'
-  has_language_instruction: No language-conditioning, instruction annotations, or
-    text task descriptions are mentioned anywhere in the paper or repo; tasks are
-    selected via discrete Gym/MJX environment IDs (e.g. h1hand-walk-v0) and reward
-    functions, not natural-language instructions.
-  num_task_types: 'Paper abstract / Sec I: ''We benchmark 27 tasks, consisting of
-    12 locomotion tasks and 15 distinct manipulation tasks.'' README.md main benchmark
-    task list (github.com/carlosferrazza/humanoid-bench) also enumerates exactly 27
-    h1hand-*-v0 task IDs.'
-  urdf_available: 'Paper Sec III: ''We simulate this humanoid robot using MuJoCo adapting
-    the Unitree H1 model provided by Unitree (https://github.com/unitreerobotics/unitree_ros)
-    and the dexterous Shadow Hand models available through MuJoCo Menagerie.'' MJCF/URDF-derived
-    robot models are shipped in the repo''s humanoid_bench/assets directory.'
-  urdf_source: Paper Sec III explicitly cites the H1 model as 'provided by Unitree'
-    via the manufacturer's own github.com/unitreerobotics/unitree_ros repository (official
-    manufacturer source), with hand models sourced separately from MuJoCo Menagerie/Shadow
-    Robot.
+  source_url: 'Re-verified 2026-07-10 by fetching https://humanoid-bench.github.io/
+    (live project page, title ''HumanoidBench: Simulated Humanoid Benchmark for Whole-Body
+    Locomotion and Manipulation'', links to paper arXiv:2403.10506 and code github.com/carlosferrazza/humanoid-bench);
+    value confirmed correct and retained.'
+  paper_url: 'https://arxiv.org/abs/2403.10506 -- arXiv abstract page confirms title
+    ''HumanoidBench: Simulated Humanoid Benchmark for Whole-Body Locomotion and Manipulation'',
+    authors Sferrazza, Huang, Lin, Lee, Abbeel (citation_arxiv_id=2403.10506); newly
+    added, was blank in prior pass.'
+  license: Re-verified 2026-07-10 via curl of https://raw.githubusercontent.com/carlosferrazza/humanoid-bench/main/LICENSE
+    -- top-level license text is the MIT License (Copyright (c) 2024 Robot Learning
+    Lab (RLL) lab @ UC Berkeley); file also notes the repo is part of the 'BAIR Commons
+    HIC Repository as of calendar year 2025' but the operative license text remains
+    MIT. GitHub repo API reports license.key='other'/spdx_id='NOASSERTION' (the GitHub
+    license-detector did not classify the file due to the extra BAIR Commons banner
+    text appended after the MIT text), but the actual LICENSE file content is unambiguously
+    the MIT License -- MIT retained as correct.
+  collection_method: 'Re-verified 2026-07-10 via ar5iv HTML of arXiv:2403.10506 Sec
+    III: ''The simulation environment of HumanoidBench uses the MuJoCo physics engine.''
+    This is a simulated RL benchmark/environment, not a teleop or autonomous-policy
+    data-collection pipeline; there is no pre-recorded demonstration dataset -- episodes
+    are generated on-the-fly during RL training/evaluation in MuJoCo. Value confirmed
+    unchanged.'
+  release_type: 'Re-derived 2026-07-10: repo (github.com/carlosferrazza/humanoid-bench)
+    ships only Gym/MJX environment source code, MJCF robot/scene assets, and pretrained
+    low-level-policy weights -- no pre-recorded episode/trajectory dataset files exist
+    anywhere in the repo or on any hosting platform. Matches ReleaseType.rl_benchmark_env
+    exactly (a benchmark suite of RL environments, not a fixed episode dataset, generation
+    framework, or scene-asset platform). Prior backfill value confirmed correct.'
+  is_multi_embodiment: 'Re-derived 2026-07-10 from README.md ''Environments'' section:
+    besides the primary Unitree H1 + two Shadow Hands (h1hand-*-v0), the repo also
+    ships h1-*-v0 (H1 without hands), h1simplehand-pole-v0 (low-dimensional hand),
+    h1strong-highbar_hard-v0 (strengthened hands), h1touch-*-v0 (tactile sensor variant),
+    a full parallel g1-*-v0 task set for the Unitree G1 robot with three-finger hands,
+    and (per paper Appendix A) an Agility Robotics Digit humanoid model plus a Robotiq
+    2F-85/2F-45 parallel-jaw gripper as an alternate end effector. GitHub assets directory
+    (humanoid_bench/assets) confirms separate h1/, g1/, digit/, robotiq_2f85/, shadow_hand_menagerie/
+    subdirectories. Prior backfill value (true) confirmed correct.'
+  embodiment_class: 'Re-verified 2026-07-10 via ar5iv Sec III: ''we use the Unitree
+    H1 humanoid robot ... with two dexterous Shadow Hands attached to its arms'' --
+    a bipedal whole-body humanoid, matching the humanoid enum value directly (not
+    single/dual-arm manipulator). Value confirmed unchanged.'
+  robot_platform: 'Re-derived 2026-07-10: paper Appendix A states ''Unitree H1 is
+    primarily used in our benchmark as we observed faster learning ... compared to
+    Agility Robotics Digit''; the main benchmarking results (paper Table III/IV) use
+    only the Unitree H1 model, and all 27 main h1hand-*-v0 tasks target H1. The schema''s
+    RobotPlatform enum now includes UNITREE_H1 = "unitree_h1" directly (added since
+    the prior backfill pass, which had to flag this as a suggested new value) -- so
+    the existing value is now a first-class enum member, not merely a suggestion.
+    Value confirmed correct and the now-redundant suggested_new_enum_values entry
+    for robot_platform has been removed.'
+  num_arms: 'Re-verified 2026-07-10 via ar5iv Sec III / Figure: Unitree H1 humanoid
+    robot with two arms, each terminated by a dexterous hand (or optional parallel-jaw
+    gripper). Value confirmed unchanged.'
+  dof_per_arm: 'Re-verified 2026-07-10 via curl of https://www.unitree.com/h1 official
+    spec page: ''DOF of Each Arm: 4 (Expandable)'' for the Unitree H1 (the H1-2 variant
+    lists 7); HumanoidBench''s primary robot is the base H1. Value confirmed unchanged.'
+  dof_per_hand: 'Newly filled 2026-07-10 from ar5iv Appendix B-B (Action Space): ''We
+    normalize the action space to be [-1,1]^||A||, where ||A||=61 (19 for the humanoid
+    body and 21 for each hand).'' 21 actuator DOF per Shadow Hand end effector.'
+  gripper_type: 'Re-verified 2026-07-10 via ar5iv Sec III: ''we use the Unitree H1
+    humanoid robot ... with two dexterous Shadow Hands (https://www.shadowrobot.com/dexterous-hand-series/)
+    attached to its arms'' -- the primary end-effector across the main h1hand-* benchmark
+    tasks is a dexterous hand (Shadow Hand); the repo also optionally supports a Robotiq
+    2F-85/2F-45 parallel-jaw gripper as an alternate end-effector (paper Appendix
+    A lists 2F-45, README lists 2F-85 -- likely a typo in one of the two primary sources,
+    does not affect the dexterous_hand classification of the primary embodiment).
+    Value confirmed unchanged.'
+  hand_pose_representation: 'Newly filled 2026-07-10: per ar5iv Appendix B-B, the
+    21 per-hand action dimensions are target joint positions for the Shadow Hand actuators
+    (position control, same joint_position action_space as the body) -- finger/hand
+    shape is encoded as joint angles, not MANO parameters or 3D keypoints. Matches
+    HandPoseRepresentation.joint_angles.'
+  additional_modalities: 'Newly filled 2026-07-10 from ar5iv Sec III (Observations):
+    ''Whole-body tactile sensing using the MuJoCo tactile grid sensor ... a total
+    of 448 taxels spread over the entire body, each providing three-dimensional contact
+    force readings.'' README.md confirms an opt-in ''h1touch-*-v0'' / sensors=''proprio,image,tactile''
+    variant. Matches SensorModality.tactile; no force_torque/audio/eye_gaze modality
+    described anywhere.'
+  has_mobile_base: 'Re-verified 2026-07-10: the embodiment is a legged bipedal humanoid
+    (Unitree H1/G1); locomotion is via bipedal walking/running, not a wheeled/mobile
+    base, so has_mobile_base is false. ar5iv Sec III and task list (walk, run, stair,
+    crawl, etc.) confirm legged locomotion. Value confirmed unchanged.'
+  action_space: 'Re-verified 2026-07-10 via ar5iv Appendix B-B (Action Space): ''the
+    humanoid robot is controlled via position control (i.e., specifying the target
+    joint positions). Torque-based control is also supported but we found that position
+    control is generally more stable ... We use position control for the benchmarking
+    results in this paper.'' Value confirmed unchanged.'
+  action_frame: 'Re-verified 2026-07-10 via ar5iv Appendix B-B: position control means
+    ''specifying the target joint positions'' -- targets are absolute joint angles,
+    not deltas relative to current position. Value confirmed unchanged.'
+  rotation_representation: 'Re-verified 2026-07-10: action space is a 61-dim vector
+    of joint actuator commands (19 body + 21 per hand, per Appendix B-B); there is
+    no Cartesian end-effector pose/orientation component in the action, so no rotation
+    representation applies. Value confirmed unchanged.'
+  state_dim: 'Re-verified 2026-07-10 via ar5iv Appendix B-A (Observation Space): ''The
+    observation space for the robot state (joint positions and velocities) comprises
+    151 dimensions, with 49 dimensions representing the humanoid robot body and 51
+    dimensions representing each hand'' (49 + 51*2 = 151). Task-specific object/environment
+    state dims are added on top for manipulation tasks and are not included in this
+    base figure. Value confirmed unchanged.'
+  action_dim: 'Re-verified 2026-07-10 via ar5iv Appendix B-B: ''We normalize the action
+    space to be [-1,1]^||A||, where ||A||=61 (19 for the humanoid body and 21 for
+    each hand).'' Value confirmed unchanged.'
+  fps: 'Re-verified 2026-07-10 via ar5iv Appendix B-B: ''For both position and torque
+    control, the action space is 61-dimensional including the two hands, and controlled
+    at 50 Hz.'' Value confirmed unchanged.'
+  fps_variable: 'Re-verified 2026-07-10: paper states a single fixed control frequency
+    (50 Hz) used across all 27 tasks/environments; no variable-rate control scheme
+    is described. Value confirmed unchanged.'
+  num_camera_views: 'Re-verified 2026-07-10 via ar5iv Sec III (Observations): ''Egocentric
+    visual observations from two cameras placed on the robot head.'' Value confirmed
+    unchanged.'
+  camera_views: 'Re-verified 2026-07-10 via ar5iv Sec III / Figure caption: ''the
+    two cameras on the robot head are highlighted in green'' -- both cameras are egocentric,
+    head-mounted (no third-person/wrist/top cameras described), mapped to the ''head''
+    enum value. Value confirmed unchanged.'
+  has_language_instruction: 'Re-verified 2026-07-10: no language-conditioning, instruction
+    annotations, or text task descriptions are mentioned anywhere in the paper or
+    repo (only occurrence of the word "language" in the full paper text is an unrelated
+    citation to the CALVIN benchmark); tasks are selected via discrete Gym/MJX environment
+    IDs (e.g. h1hand-walk-v0) and reward functions, not natural-language instructions.
+    Value confirmed unchanged.'
+  num_task_types: 'Re-verified 2026-07-10 via ar5iv abstract / Sec I: ''We benchmark
+    27 tasks, consisting of 12 locomotion tasks and 15 distinct manipulation tasks.''
+    Paper Appendix B-E also enumerates exactly 27 numbered task specifications (B-E
+    1 through B-E 27). README.md main benchmark task list (github.com/carlosferrazza/humanoid-bench)
+    also enumerates the h1hand-*-v0 task IDs. Value confirmed unchanged.'
+  urdf_available: 'Re-verified 2026-07-10 via ar5iv Sec III: ''We simulate this humanoid
+    robot using MuJoCo adapting the Unitree H1 model provided by Unitree (https://github.com/unitreerobotics/unitree_ros)
+    and the dexterous Shadow Hand models available through MuJoCo Menagerie.'' Confirmed
+    via GitHub API listing of humanoid_bench/assets: contains h1/, g1/, digit/, robotiq_2f85/,
+    shadow_hand_menagerie/, shadow_hand_submodel/, kitchen/, locomotion/, tasks/ subdirectories
+    of MJCF/XML model files. Value confirmed unchanged.'
+  urdf_source: 'Re-verified 2026-07-10: ar5iv Sec III explicitly cites the H1 model
+    as ''provided by Unitree'' via the manufacturer''s own github.com/unitreerobotics/unitree_ros
+    repository (official manufacturer source), with hand models sourced separately
+    from MuJoCo Menagerie/Shadow Robot (also manufacturer-sourced assets curated by
+    Google DeepMind). Value confirmed unchanged.'
 suggested_new_enum_values:
-  robot_platform: Suggest adding 'unitree_h1' -- the primary and most heavily benchmarked
-    embodiment in HumanoidBench is the Unitree H1 humanoid (all 27 main h1hand-*-v0
-    tasks), which is not covered by any current enum value (unitree_g1 exists for
-    the secondary/alternate G1 variant used by the parallel g1-*-v0 task set, but
-    H1 is the primary platform and the paper's default robot). Forcing 'other' or
-    'unitree_g1' would misrepresent the actual primary hardware.
   raw_format: HumanoidBench ships no pre-recorded trajectory/episode files at all
     -- it is MuJoCo/Gymnasium simulation source code (MJCF/XML robot+scene assets
     plus Python env code) that generates rollouts on-the-fly during RL training/eval;

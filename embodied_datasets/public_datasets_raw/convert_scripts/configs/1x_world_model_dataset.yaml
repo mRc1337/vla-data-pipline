@@ -1,0 +1,115 @@
+id: 1x_world_model_dataset
+name: 1X World Model Dataset
+source_url: https://huggingface.co/datasets/1x-technologies/world_model_raw_data
+paper_url: https://www.1x.tech/discover/1x-world-model
+license: CC-BY-NC-SA-4.0
+raw_format: Custom
+release_type: fixed_episode_dataset
+collection_method: teleop
+secondary_collection_methods: []
+is_multi_embodiment: false
+embodiment_class: humanoid
+robot_platform: 1x_eve
+num_arms: 2
+dof_per_arm: 7
+gripper_type: unknown
+hand_pose_representation: none
+has_mobile_base: true
+action_space: mixed
+rotation_representation: none
+state_dim: 25
+fps: 30.0
+fps_variable: false
+num_camera_views: 1
+camera_views:
+- head
+has_synchronized_multiview_rig: false
+has_camera_calibration: false
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: false
+urdf_available: true
+urdf_source: manufacturer_official
+expected_size_gb: 23.97
+expected_duration_hours: 104.67
+review_status: pending_human_review
+field_sources:
+  license: 'HF dataset card metadata (cardData.license = cc-by-nc-sa-4.0): https://huggingface.co/api/datasets/1x-technologies/world_model_raw_data
+    and README.md front matter'
+  raw_format: 'Dataset consists of video_{shard}.mp4 + segment_idx_{shard}.bin + states_{shard}.bin
+    + metadata JSON (custom binary/video layout, not RLDS/HDF5/LeRobot/etc): README.md
+    and unpack_data_train_val.py in the HF repo'
+  release_type: 'Fixed set of 100 train shards + 1 val shard + 250-sample test set,
+    no generation framework/sim platform: HF repo file listing (train_v2.0_raw, val_v2.0_raw,
+    test_v2.0)'
+  collection_method: '1X blog: ''A human operator can control a fleet of EVEs, tap
+    into their cameras and control their movement to take action from a distance.''
+    https://web.archive.org/web/20241204001902/https://www.1x.tech/eve ; corroborated
+    by 1X World Model blog post describing data gathered from ''operating EVE'' https://www.1x.tech/discover/1x-world-model'
+  is_multi_embodiment: All data collected on 1X EVE humanoid only, per 1X World Model
+    blog post and dataset README (no other robot mentioned)
+  embodiment_class: '1X World Model blog post: ''thousands of hours of data on EVE
+    humanoids doing diverse mobile manipulation tasks'' https://www.1x.tech/discover/1x-world-model'
+  robot_platform: EVE is a 1X Technologies humanoid, not present in RobotPlatform
+    enum; see suggested_new_enum_values
+  num_arms: 'State vector index-to-state mapping lists LEFT_SHOULDER_* / LEFT_ELBOW_*
+    / LEFT_WRIST_* and RIGHT_SHOULDER_* / RIGHT_ELBOW_* / RIGHT_WRIST_* (dual arm):
+    README.md Index-to-State Mapping table'
+  dof_per_arm: 'Each arm has SHOULDER_PITCH/ROLL/YAW (3) + ELBOW_PITCH/YAW (2) + WRIST_PITCH/ROLL
+    (2) = 7 joint values in the state vector: README.md Index-to-State Mapping table
+    (indices 6-12 left, 13-19 right)'
+  gripper_type: State vector includes only a binary 'hand closure state (0=open,1=closed)'
+    per hand; exact gripper/hand hardware type (parallel jaw vs dexterous) not confirmed
+    from available sources, hence unknown
+  hand_pose_representation: 'State vector encodes hand state as a single binary open/closed
+    flag per hand, not MANO/3D keypoints/joint angles: README.md Index-to-State Mapping
+    (indices 21, 22)'
+  has_mobile_base: 'State vector includes ''Linear Velocity'' and ''Angular Velocity''
+    (base motion) and 1X EVE product page describes ''multi-terrain wheels'': README.md
+    Index-to-State Mapping (indices 23,24) and https://web.archive.org/web/20241204001902/https://www.1x.tech/eve'
+  action_space: '25-dim state vector combines joint positions (hip/knee/ankle/shoulder/elbow/wrist
+    angles) with base linear/angular velocity -> mixed action space: README.md Index-to-State
+    Mapping table'
+  rotation_representation: 'State vector is joint-angle based (per-joint pitch/roll/yaw),
+    not a Cartesian end-effector orientation encoding: README.md Index-to-State Mapping
+    table'
+  state_dim: 'unpack_data_train_val.py: states array shape [25] per frame; README.md
+    Index-to-State Mapping lists indices 0-24'
+  fps: 'train_v2.0_raw/metadata.json and val_v2.0_raw/metadata.json both report {"hz":
+    30}'
+  fps_variable: Single constant hz=30 reported for both train and val metadata.json,
+    no variable-rate mention
+  num_camera_views: Only one video_{shard}.mp4 per shard is defined in README.md and
+    unpack_data_train_val.py (single first-person camera)
+  camera_views: '1X World Model blog describes ''first-person observations of the
+    EVE Android'' recorded from the robot''s own onboard camera: https://github.com/1x-technologies/1xgpt
+    README and https://www.1x.tech/discover/1x-world-model'
+  has_synchronized_multiview_rig: Only a single camera stream (video_{shard}.mp4)
+    exists per shard, no multi-camera rig described
+  has_camera_calibration: No calibration/intrinsics/extrinsics files present in HF
+    repo file listing (only video/segment_idx/states/metadata)
+  depth_coverage: Only RGB video (video_{shard}.mp4) is provided; no depth files in
+    HF repo file listing
+  additional_modalities: No force/torque, tactile, audio, or eye-gaze streams found
+    in HF repo file listing (video + segment_idx + states + metadata only)
+  has_language_instruction: 'No task/language instruction fields in metadata.json
+    or states mapping; challenge framing is pure next-frame video prediction: README.md
+    and GitHub 1xgpt README'
+  urdf_available: '1x-technologies GitHub org hosts halodi-robot-models, ''Repository
+    of Halodi robot models in urdf format'' (Halodi Robotics = former name of 1X Technologies
+    / EVE): https://github.com/1x-technologies/halodi-robot-models'
+  urdf_source: URDF is published by 1X Technologies' own GitHub org (formerly Halodi),
+    i.e. manufacturer-official, not bundled in the dataset repo itself
+  expected_size_gb: 'Computed by summing file sizes for all 913 files (train_v2.0_raw
+    + val_v2.0_raw + test_v2.0) via HF API tree endpoint (paginated): https://huggingface.co/api/datasets/1x-technologies/world_model_raw_data/tree/main?recursive=true&expand=true
+    -> 23,972,490,851 bytes = 23.97 GB'
+  expected_duration_hours: 'Computed as (train 11,254,161 frames + val 50,300 frames)
+    / 30 hz / 3600 = 104.67 hours; consistent with 1X blog claim of ''over 100 hours
+    of vector-quantized video'': train_v2.0_raw/metadata.json, val_v2.0_raw/metadata.json,
+    https://www.1x.tech/discover/1x-world-model'
+  paper_url: 'No peer-reviewed paper found; using 1X''s technical blog post announcing
+    the dataset and challenge as the closest technical writeup: https://www.1x.tech/discover/1x-world-model'
+suggested_new_enum_values:
+  robot_platform: '1x_eve — 1X Technologies EVE humanoid (wheeled mobile base, dual
+    7-DoF arms, single-DoF-per-hand open/close gripper); not present in current RobotPlatform
+    enum. Refs: https://www.1x.tech/eve , https://github.com/1x-technologies/halodi-robot-models'

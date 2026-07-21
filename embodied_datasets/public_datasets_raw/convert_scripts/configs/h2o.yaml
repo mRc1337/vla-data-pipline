@@ -1,23 +1,28 @@
 id: h2o
 name: H2O
 source_url: https://h2odataset.ethz.ch/
+paper_url: https://arxiv.org/abs/2104.11181
+license: custom_research_eula
 raw_format: Custom
 release_type: fixed_episode_dataset
 collection_method: egocentric_human
 secondary_collection_methods: []
+is_multi_embodiment: false
 embodiment_class: human_hand
 num_arms: 2
-dof_per_arm: 48
-gripper_type: dexterous_hand
+dof_per_hand: 48
+gripper_type: none
+hand_pose_representation: mano
 has_mobile_base: false
-rotation_representation: rotation_matrix
-state_dim: 126
+action_space: mixed
+rotation_representation: axis_angle
 fps: 30.0
 fps_variable: false
 num_camera_views: 5
 camera_views:
 - third_person
 - head
+has_synchronized_multiview_rig: true
 has_camera_calibration: true
 depth_coverage: full
 additional_modalities: []
@@ -26,64 +31,201 @@ num_task_types: 36
 urdf_available: false
 urdf_source: not_found
 expected_num_episodes: 24
+num_subjects: 4
+num_scenes: 3
+num_objects: 8
 review_status: pending_human_review
 field_sources:
-  source_url: https://h2odataset.ethz.ch/ (official ETH Zurich project/download page;
-    stub had no usable source_url)
-  raw_format: https://github.com/taeinkwon/h2odataset README - data is distributed
-    as raw per-frame RGB/depth images plus plain-text pose files in a custom directory
-    layout, not RLDS/HDF5/LeRobot/TFRecord
-  collection_method: https://arxiv.org/abs/2104.11181 abstract - egocentric interaction
-    recognition dataset of real human hands (no teleop/robot involved)
-  embodiment_class: https://arxiv.org/abs/2104.11181 abstract - '3D pose of two hands
-    ... manipulating objects', i.e. human hands, no robot
-  num_arms: https://github.com/taeinkwon/h2odataset README hand_pose section - left
-    and right hand pose both annotated (2 hands)
-  dof_per_arm: https://github.com/taeinkwon/h2odataset README hand_pose_MANO section
-    - MANO fit uses 48 pose values per hand (16 joints x 3 axis-angle params)
-  gripper_type: https://github.com/taeinkwon/h2odataset README hand_pose/hand_pose_MANO
-    sections - 21-keypoint / MANO multi-finger hand model, i.e. a dexterous hand rather
-    than a parallel-jaw gripper
-  has_mobile_base: arxiv 2104.11181 paper section 4.1 Capture Setup - fixed multi-camera
-    rig plus a head-mounted egocentric camera, no robot base present
-  rotation_representation: https://github.com/taeinkwon/h2odataset README obj_pose_RT/cam_pose
-    sections - poses stored as explicit 4x4 (rotation matrix + translation) matrices
-  state_dim: https://github.com/taeinkwon/h2odataset README hand_pose section - 21
-    joints x 3 coords x 2 hands = 126 numeric pose values (excluding per-hand annotated
-    flags)
-  fps: arxiv 2104.11181 paper section 4.1 - 'We record videos ... with a frame rate
-    of 30 fps'
-  fps_variable: arxiv 2104.11181 paper section 4.1 - single fixed 30 fps capture rate
-    stated for the whole dataset
-  num_camera_views: https://github.com/taeinkwon/h2odataset README/download_script.py
-    - 'five views (four fixed views, one egocentric view)'
-  camera_views: https://github.com/taeinkwon/h2odataset README dataset structure -
-    cam0-cam3 are fixed (third_person) cameras, cam4 is the head-mounted (head) egocentric
-    camera
-  has_camera_calibration: arxiv 2104.11181 paper Figure 2/Section 3 (IR-sphere-marker
-    + PnP camera calibration) and README cam_intrinsics.txt / cam_pose fields
-  depth_coverage: https://github.com/taeinkwon/h2odataset README dataset structure
-    - every cam0-cam4 folder (fixed and egocentric) includes an RGB and a depth subfolder
-  has_language_instruction: https://github.com/taeinkwon/h2odataset README verb_label/action_label
-    sections - labels are integer verb/noun/action class ids, not natural-language
-    instructions
-  num_task_types: arxiv 2104.11181 paper section 4 - 'features four participants performing
-    36 distinct action classes'
-  urdf_available: arxiv 2104.11181 paper section 4 - dataset ships object meshes and
-    MANO hand fits, no robot URDF is provided or applicable
-  urdf_source: same as urdf_available - no robot/URDF exists for this human-hand dataset
-  expected_num_episodes: https://github.com/taeinkwon/h2odataset README train/val/test
-    sequence lists - 15 train + 3 val + 6 test = 24 total recorded sequences across
-    4 subjects
+  source_url: 'RE-VERIFIED 2026-07-10, unchanged: https://h2odataset.ethz.ch/ official
+    ETH Zurich (D-INFK) registration/download page, confirmed reachable via curl and
+    still describing the same H2O dataset.'
+  paper_url: 'NEW FIELD, filled: https://arxiv.org/abs/2104.11181 (arXiv:2104.11181v2)
+    - Kwon, Tekin, Stuhmer, Bogo, Pollefeys, "H2O: Two Hands Manipulating Objects
+    for First Person Interaction Recognition", ICCV 2021; linked from the GitHub repo
+    (github.com/taeinkwon/h2odataset) citation block.'
+  raw_format: 'RE-VERIFIED 2026-07-10, unchanged: https://github.com/taeinkwon/h2odataset
+    README dataset-structure listing - per-sequence, per-camera folders (cam0-cam4)
+    each containing raw rgb/ and depth/ image subfolders plus plain-text pose files
+    (cam_pose, hand_pose, hand_pose_MANO, obj_pose, obj_pose_RT, verb_label, action_label,
+    cam_intrinsics.txt) in a bespoke directory layout - not RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord/VRS,
+    so Custom is correct.'
+  release_type: 'RE-VERIFIED 2026-07-10, unchanged: fixed set of 24 pre-recorded sequences
+    (train/val/test splits fixed in the README''s sequence lists), not a generator/framework/scene-platform/RL-env
+    - fits fixed_episode_dataset.'
+  collection_method: 'RE-VERIFIED 2026-07-10, unchanged but re-scoped: arXiv:2104.11181
+    Sec 4.1 "Capture Setup" - "We place four different static cameras at arbitrary
+    locations... An egocentric camera is further mounted on the forehead of a helmet
+    and adjusted by the participants" - real human subjects perform the actions (no
+    robot/teleop). Like sibling assembly101.yaml/ego_exo4d.yaml, H2O simultaneously
+    records one egocentric (head-mounted) view AND four static/exocentric views per
+    sequence; no existing CollectionMethod enum value captures this synchronized ego+exo
+    combination, so egocentric_human is kept as the closest available label (see suggested_new_enum_values;
+    this is the same registry-wide gap already flagged by assembly101.yaml and ego_exo4d.yaml).'
+  secondary_collection_methods: 'RE-VERIFIED 2026-07-10, unchanged: no other CollectionMethod
+    enum (teleop/autonomous_policy/umi/simulation/human_to_robot_synthesis/ar_haptic_guided_synthesis/scene_asset_curation)
+    applies to this human-only, camera-only capture; left empty.'
+  is_multi_embodiment: 'NEW FIELD, filled false: arXiv:2104.11181 Sec 4 - the dataset
+    is captured entirely with one embodiment (bare human hands of four participants,
+    embodiment_class=human_hand); no robot or alternate embodiment variant is described
+    anywhere in the paper, project page, or GitHub repo (github.com/taeinkwon/h2odataset,
+    github.com/taeinkwon/h2oplayer).'
+  embodiment_class: 'RE-VERIFIED 2026-07-10, unchanged: arXiv:2104.11181 abstract/Sec
+    4 - "3D pose of two hands... manipulating objects", i.e. human hands, no robot
+    embodiment.'
+  num_arms: 'RE-VERIFIED 2026-07-10, unchanged: github.com/taeinkwon/h2odataset README
+    hand_pose section - both left and right hand pose are annotated per frame (2 hands),
+    consistent with arXiv:2104.11181 abstract ("3D pose of two hands").'
+  dof_per_arm: CORRECTED 2026-07-10 (removed; was 48). This dataset has no robot arm
+    and no arm-level DoF figure is stated anywhere; the 48-value figure previously
+    stored here belongs to the MANO *hand* pose parameterization (see dof_per_hand),
+    not an arm. Moved to the newly-added dof_per_hand field, which is the semantically
+    correct slot for this figure.
+  dof_per_hand: 'NEW FIELD, filled 48: github.com/taeinkwon/h2odataset README hand_pose_MANO
+    section, verbatim: "1 (whether annotate or not...) + 3 translation values + 48
+    pose values + 10 shape values... (right hand)" - the MANO fit''s pose parameter
+    vector is 48 values per hand (16 joints x 3 axis-angle components, matching the
+    standard MANO pose parameterization), i.e. 48 DoF per hand.'
+  gripper_type: CORRECTED 2026-07-10 from dexterous_hand to none. No robot or actuated
+    gripper hardware is present anywhere in H2O - manipulation is performed with bare
+    human hands (arXiv:2104.11181 Sec 4/4.1; github.com/taeinkwon/h2odataset README
+    hand_pose/hand_pose_MANO sections describe a MANO/keypoint *annotation* of the
+    human hand, not a robot end effector). This now follows the same registry-wide
+    convention used by every other embodiment_class=human_hand sibling dataset (assembly101,
+    hot3d, hoi4d, egoexolearn, ego_exo4d, egodex all use gripper_type=none regardless
+    of whether the hand pose is stored as raw keypoints or as a richer MANO parametric
+    fit) - the previous dexterous_hand value was an outlier inconsistent with that
+    convention and has been fixed. The multi-finger/MANO richness of the hand annotation
+    is now captured separately via hand_pose_representation=mano instead.
+  hand_pose_representation: 'NEW FIELD, filled mano: github.com/taeinkwon/h2odataset
+    README hand_pose_MANO section - dataset ships explicit MANO parametric hand fits
+    (3 translation + 48 pose + 10 shape values per hand) for both hands, matching
+    HandPoseRepresentation.MANO exactly. Same reasoning/pattern as sibling hoi4d.yaml
+    (rotation_representation=axis_angle for an analogous MANO pose vector), though
+    hoi4d.yaml itself left this specific field unset. Note: H2O additionally ships
+    a second, simpler hand_pose field of raw 21-joint x,y,z 3D keypoints per hand
+    (README hand_pose section) alongside the MANO fit; mano was chosen as the single
+    enum value here since it is the richer parametric representation (keypoints are
+    derivable from it, not vice versa).'
+  has_mobile_base: 'RE-VERIFIED 2026-07-10, unchanged: arXiv:2104.11181 Sec 4.1 "Capture
+    Setup" - four static cameras plus one head-mounted egocentric camera worn by the
+    human participant; no robot base of any kind is present.'
+  rotation_representation: 'CORRECTED 2026-07-10 from rotation_matrix to axis_angle.
+    The rotation_matrix value was derived from cam_pose/obj_pose_RT (camera and object
+    pose matrices), which are out of scope for this field - per schema.py, rotation_representation
+    specifically encodes wrist/end-effector orientation for the tracked embodiment,
+    not camera or object pose. The correct source for the hand/wrist orientation is
+    github.com/taeinkwon/h2odataset README hand_pose_MANO section: the MANO pose parameter
+    vector (48 values per hand) is a standard MANO axis-angle (rotation-vector) parameterization,
+    including the hand''s global/wrist orientation as one of its 16 joint rotations.
+    This matches the identical MANO-based case in sibling hoi4d.yaml, which independently
+    derived axis_angle from the same "3 global rotation + N pose values" MANO structure.'
+  state_dim: 'CORRECTED 2026-07-10 (removed; was 126). The prior value was derived
+    by arithmetic from the hand_pose field (21 joints x 3 coords x 2 hands = 126),
+    but neither the paper (arXiv:2104.11181) nor the GitHub README frames this keypoint/pose
+    annotation as a robot/agent "state" vector - it is a ground-truth pose *label*,
+    not a state representation for policy learning. This is the same judgment flagged
+    explicitly by the sibling ego_exo4d.yaml field_sources ("the same arithmetic sibling
+    h2o.yaml used to fill state_dim=126... left blank rather than infer a value the
+    source does not explicitly state as such... flagging this judgment call for human
+    review since the sibling h2o.yaml made the opposite choice for an analogous case").
+    Resolving that flagged inconsistency here: removed to match the convention used
+    by every other bare-hand sibling (assembly101, ego_exo4d, egodex all leave state_dim
+    blank for structurally identical or richer hand-pose annotations).'
+  fps: 'RE-VERIFIED 2026-07-10, unchanged: arXiv:2104.11181 Sec 4.1, verbatim: "We
+    record videos at a resolution of 1280x720 pixels for both RGB and depth images
+    with a frame rate of 30 fps."'
+  fps_variable: 'RE-VERIFIED 2026-07-10, unchanged: arXiv:2104.11181 Sec 4.1 - single
+    fixed 30 fps capture rate stated for the whole dataset (all five Azure Kinect
+    cameras hardware-synchronized).'
+  num_camera_views: 'RE-VERIFIED 2026-07-10, unchanged: arXiv:2104.11181 Sec 4.1,
+    verbatim: "We use five Azure Kinect cameras to acquire synchronized RGB and depth
+    images... four different static cameras... An egocentric camera is further mounted
+    on the forehead of a helmet" - 4 static + 1 egocentric = 5 views; corroborated
+    by github.com/taeinkwon/h2odataset README/download_script.py ("five views (four
+    fixed views, one egocentric view)").'
+  camera_views: 'RE-VERIFIED 2026-07-10, unchanged: README dataset structure - cam0-cam3
+    are fixed (third_person) cameras, cam4 is the head-mounted (head) egocentric camera;
+    matches arXiv:2104.11181 Sec 4.1 capture setup description.'
+  has_synchronized_multiview_rig: 'NEW FIELD, filled true: arXiv:2104.11181 Sec 4.1,
+    verbatim: "To ensure synchronization between multiple cameras, we use physical
+    cables between them. This results in less than 100 microseconds of lag between
+    cameras... a total maximum of only 0.74 ms of delay between cameras" - the five
+    Azure Kinect cameras (4 static + 1 egocentric) form a single hardware-synchronized
+    multi-view rig per sequence.'
+  has_camera_calibration: 'RE-VERIFIED 2026-07-10, unchanged: arXiv:2104.11181 Sec
+    3.1 "Camera Calibration" - factory-calibrated Azure Kinect intrinsics plus extrinsic
+    calibration via nine IR reflective spheres solved with PnP; README ships cam_intrinsics.txt
+    (fx, fy, cx, cy, width, height) and per-frame cam_pose extrinsics.'
+  depth_coverage: 'RE-VERIFIED 2026-07-10, unchanged: README dataset structure - every
+    cam0-cam4 folder (all 4 fixed cameras and the egocentric camera) includes both
+    an rgb/ and a depth/ subfolder, since all five are Azure Kinect RGB-D sensors
+    (arXiv:2104.11181 Sec 4.1) - full coverage across every view.'
+  additional_modalities: 'RE-VERIFIED 2026-07-10, left empty: full-text check of arXiv:2104.11181
+    and the GitHub README for audio/microphone/sound/gaze/eye-track/force/torque/tactile/IMU
+    found no matches; the released modalities are RGB, depth, hand/object/camera pose,
+    and category labels only.'
+  has_language_instruction: 'RE-VERIFIED 2026-07-10, unchanged: README verb_label/action_label
+    sections and arXiv:2104.11181 Sec 3.3/4 - labels are integer verb/noun/action
+    class ids selected manually via an annotation tool (VIA), not natural-language
+    instructions.'
+  num_task_types: 'RE-VERIFIED 2026-07-10, unchanged: arXiv:2104.11181 Sec 3.3/4,
+    verbatim: "We consider 11 verb classes... As for nouns, we consider 8 classes...
+    By combining verbs and nouns, after excluding pairs which are not represented
+    in our dataset, we obtain a total of 36 action classes" and Sec 4: "four participants
+    performing 36 distinct action classes."'
+  urdf_available: 'RE-VERIFIED 2026-07-10, unchanged: arXiv:2104.11181 Sec 4 - dataset
+    ships object meshes and MANO hand fits, no robot URDF is provided or applicable
+    (bare-hand dataset, no robot embodiment).'
+  urdf_source: 'RE-VERIFIED 2026-07-10, unchanged: same reasoning as urdf_available
+    - no robot/URDF exists for this human-hand dataset.'
+  expected_num_episodes: 'RE-VERIFIED 2026-07-10, unchanged: github.com/taeinkwon/h2odataset
+    README train/val/test sequence lists - 15 train + 3 val + 6 test = 24 total recorded
+    sequences across 4 subjects (subject1: 6, subject2: 6, subject3: 6 split 3 train/3
+    val, subject4: 6 test).'
+  expected_duration_hours: 'NEW FIELD, checked, left blank: arXiv:2104.11181 Sec 4
+    states "571,645 RGBD frames" and Sec 4.2 states "The data from multiple views
+    consists of 344,645 frames for training, 73,380... validation and 153,620... testing"
+    (summing to 571,645). At the stated 30 fps this frame count implies either ~5.29
+    hours (if 571,645 counts unique synchronized time steps) or ~1.06 hours (if the
+    "multiple views" phrasing means the count is already summed across the 5 camera
+    views, i.e. ~114,329 unique frames). The paper never states a total duration in
+    hours/minutes directly and never disambiguates which of these two readings is
+    correct, so left blank rather than report a number with a 5x uncertainty range;
+    flagging both computed candidates here for human review.'
+  num_subjects: 'NEW FIELD, filled 4: arXiv:2104.11181 Sec 4, verbatim: "features
+    four participants performing 36 distinct action classes"; corroborated by the
+    README train/val/test sequence lists (subject1-subject4) and the h2odataset.ethz.ch
+    Terms of Use page ("ETH Zurich collected data of four subjects performing actions").'
+  num_scenes: 'NEW FIELD, filled 3: arXiv:2104.11181 Sec 4, verbatim: "features four
+    participants performing 36 distinct action classes in three different environments"
+    and Sec 4.1: "The data is acquired in three environments (e.g. hall, office and
+    kitchen) using several different backgrounds."'
+  num_objects: 'NEW FIELD, filled 8: arXiv:2104.11181 Sec 4, verbatim: "the subjects
+    interact with eight different objects using both of their hands" and Sec 3.3:
+    "As for nouns, we consider 8 classes: book, espresso, lotion, spray, milk, cocoa,
+    chips, cappuccino." Matches README obj_pose object-class list (classes 1-8, 0=background).'
 suggested_new_enum_values:
-  license: custom_academic_noncommercial - ETH Zurich's H2O Terms of Use (https://h2odataset.ethz.ch/)
-    require academic-only, non-commercial use, prohibit redistribution to third parties,
-    and allow ETH to revoke access on request; this is a bespoke data-use agreement,
-    not any of MIT/Apache/BSD/CC*/GPL/Proprietary/Unknown, so it does not fit the
-    current license enum (closest is CC-BY-NC-4.0 but the actual terms are a custom
-    contract, not that license).
-  action_space: pose_and_discrete_label - H2O provides per-frame discrete verb/noun/action
-    classification labels plus continuous 3D hand-joint and 6D object-pose annotations;
-    it has no continuous robot control action vector (joint/eef position/velocity/torque),
-    so none of joint_position/joint_velocity/joint_torque/eef_pose/mixed/unknown accurately
-    describe it.
+  license: custom_academic_noncommercial - RE-VERIFIED 2026-07-10 by fetching https://h2odataset.ethz.ch/
+    directly - the registration/download page's "Terms Of Use" states verbatim "ETH
+    Zurich collected data of four subjects performing actions"; the DATASET "(a) shall
+    only be downloaded if you agree to these terms; (b) is to be used only for the
+    academic purposes; (c) will not be used for commercial purposes; (d) will not
+    be transferred to any third party", access is granted via a name/email registration
+    form that emails time-limited (7-day) login credentials, and ETH "Upon first request...
+    the right to use the DATASET will end immediately." This is a bespoke, registration-gated
+    data-use agreement, not any of MIT/Apache/BSD/CC-*/GPL/Proprietary/Unknown in
+    the current LicenseEnum, so left blank in the license field (closest conceptually
+    is CC-BY-NC-4.0, but the actual terms are a custom contract with revocation/no-redistribution
+    clauses that CC-BY-NC-4.0 does not have).
+  collection_method: 'NEW, added 2026-07-10: H2O simultaneously records one egocentric
+    (head-mounted) camera AND four static/exocentric cameras per sequence (synchronized
+    ego+exo capture of unassisted human activity, arXiv:2104.11181 Sec 4.1). The existing
+    egocentric_human value only captures the egocentric half. This is the same registry-wide
+    gap already flagged by sibling assembly101.yaml and ego_exo4d.yaml (consider adding
+    a value like ego_exo_human or multiview_human for datasets that jointly capture
+    synchronized first-person + third-person human views).'
+  action_space: 'pose_and_discrete_label - RE-VERIFIED 2026-07-10, unchanged reasoning:
+    H2O provides per-frame discrete verb/noun/action classification labels plus continuous
+    3D hand-joint/MANO and 6D object-pose annotations; it has no continuous robot
+    control action vector (joint/eef position/velocity/torque), so none of joint_position/joint_velocity/joint_torque/eef_pose/mixed/unknown
+    accurately describe it.'

@@ -1,9 +1,0 @@
-id: robotset
-name: RobotSet
-release_type: fixed_episode_dataset
-secondary_collection_methods: []
-camera_views: []
-additional_modalities: []
-review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}

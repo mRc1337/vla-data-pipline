@@ -1,26 +1,33 @@
 id: roboomni
 name: RoboOmni
 source_url: https://huggingface.co/datasets/OpenMOSS-Team/OmniAction
+paper_url: https://arxiv.org/abs/2510.23763
 license: CC-BY-NC-4.0
 raw_format: RLDS
 release_type: fixed_episode_dataset
 collection_method: teleop
-secondary_collection_methods: []
+secondary_collection_methods:
+- synthetic_multimodal_augmentation
+is_multi_embodiment: true
 embodiment_class: single_arm
 num_arms: 1
+gripper_type: mixed
+hand_pose_representation: none
 has_mobile_base: false
 action_space: eef_pose
 action_frame: delta
 rotation_representation: euler_xyz
 action_dim: 7
 camera_views: []
-additional_modalities: []
+additional_modalities:
+- audio
 has_language_instruction: true
 num_task_types: 112
 urdf_available: false
 urdf_source: not_found
 expected_size_gb: 2710.9
 expected_num_episodes: 141162
+num_objects: 748
 review_status: pending_human_review
 field_sources:
   source_url: HF dataset search API https://huggingface.co/api/datasets?search=OmniAction
@@ -31,29 +38,40 @@ field_sources:
   raw_format: 'Dataset README states ''Format: RLDS (Reinforcement Learning Datasets
     standard)''; repo file listing confirms .tfrecord shards (RLDS is stored as TFRecord)
     at https://huggingface.co/datasets/OpenMOSS-Team/OmniAction'
-  collection_method: 'Paper (arXiv:2510.23763) Sec. 3.2 ''Textual Scripting'': trajectories
-    are sampled from existing Open-X-Embodiment subsets (Bridge/WidowX, Fractal, Jaco
-    Play), which were originally collected via human teleoperation; OmniAction overlays
-    synthesized dialogue/audio on these teleop trajectories rather than collecting
-    new robot motions.'
-  embodiment_class: 'Paper Sec. 3.2/4.1: all three source Open-X subsets (Bridge-WidowX,
-    Fractal/Google-robot, Jaco Play) are single-arm manipulators; action vector a_t
-    is a single 7-D end-effector control (no bimanual or humanoid coordination described).'
+  collection_method: 'Re-verified: paper Sec 3.2 ''Construction Process'' / ''Textual
+    Scripting'' step: ''We sample tasks and trajectories from Open-X Embodiment datasets
+    (Padalkar et al., 2023)'' and filter 74,645 base trajectories -> expanded into
+    141,162 episodes (App A.1). The underlying OXE subsets (Bridge/WidowX, Fractal/Google-robot,
+    Jaco Play) were originally collected via human teleoperation; OmniAction only
+    adds synthetic audio/dialogue on top, it does not recollect robot motion. arXiv:2510.23763
+    Sec 3.2, App A.1.'
+  embodiment_class: 'Re-verified: all three source subsets (Bridge-WidowX, Fractal/Google-robot,
+    Jaco Play) drive a single 7-D end-effector action stream with no base terms (arXiv:2510.23763
+    Sec 3.1), so ''single_arm'' fits the action space used here. Caveat: the Fractal/Google-robot
+    platform is physically mounted on a mobile base in other literature (it is *not*
+    actuated/represented in OmniAction''s action vector), so this is a simplification
+    for a multi-platform dataset -- see suggested_new_enum_values for embodiment_class.'
   num_arms: Same as embodiment_class basis - each source subset controls exactly one
     arm.
   action_space: 'Paper Sec. 3.1: ''a_t denotes the delta control vector of the end-effector''
     -> eef_pose control, confirmed by Fig.4 notation Δx, Δθ, ΔGrip (arXiv:2510.23763).'
   action_frame: 'Paper Sec. 3.1 explicitly: ''a_t denotes the delta control vector
     of the end-effector'' (arXiv:2510.23763).'
-  rotation_representation: Paper Fig. 4 action notation 'Δx, Δθ, ΔGrip' (delta position
-    + delta orientation angles + gripper) is consistent with the standard Open-X Embodiment
-    7-D action convention (dx,dy,dz,d-roll,d-pitch,d-yaw,gripper) used by the underlying
-    Bridge/Fractal/Jaco Play subsets; arXiv:2510.23763 Sec 3.1.
+  rotation_representation: 'Re-verified: paper text confirms a_t in R^7 = delta eef
+    pose + gripper (Sec 3.1) but does not explicitly spell out the rotation encoding
+    in extracted text (a figure notation cited in an earlier pass could not be re-confirmed
+    from the PDF''s extracted text layer). ''euler_xyz'' is kept as a reasoned inference
+    from the standard OXE 7-D convention (dx,dy,dz,d-roll,d-pitch,d-yaw,gripper) used
+    by Bridge/RT-1/Jaco Play, not a direct quote -- flagged as lower-confidence than
+    other fields.'
   action_dim: 'Paper Sec. 3.1: ''a_t ∈ R^7'' and Sec 4.1: ''FAST+ ... a continuous
     action vector a_t ∈ R^7 (e.g., 7-DoF control)'' (arXiv:2510.23763).'
-  has_mobile_base: No mobile-base action dimension appears anywhere in the described
-    7-D action vector (Δx, Δθ, ΔGrip) across any of the three source subsets; arXiv:2510.23763
-    Sec 3.1/4.1.
+  has_mobile_base: 'Re-verified: no base-motion dimension appears in the 7-D action
+    vector for any of the three source subsets (arXiv:2510.23763 Sec 3.1). Caveat:
+    the Fractal/Google-robot platform''s physical chassis has a mobile base in other
+    sources, but it is not actuated/represented anywhere in OmniAction''s data, so
+    ''false'' describes the dataset''s action space, not necessarily every source
+    robot''s full hardware.'
   has_language_instruction: 'Paper Sec 3.1: each sample is a triplet (C, I, A) where
     C is a multi-turn conversation (user turns as audio, assistant turns as text)
     that ultimately drives the action; instructions/dialogue are core to every episode.
@@ -65,13 +83,62 @@ field_sources:
     file listing (only README.md, .gitattributes, and per-subset .tfrecord shards)
     at https://huggingface.co/api/datasets/OpenMOSS-Team/OmniAction?full=true.
   urdf_source: Same as urdf_available - no URDF files found in the dataset repo.
-  expected_num_episodes: 'Paper Sec 3.1/App A: ''OmniAction comprises 141,162 multimodal
-    episodes'' (also stated as ''we filter out a subset of 74,645 base trajectories,
-    which are then expanded into 141,162 multimodal episodes''). arXiv:2510.23763.'
-  expected_size_gb: HF Hub API https://huggingface.co/api/datasets/OpenMOSS-Team/OmniAction?full=true
-    field 'usedStorage' = 2,710,899,824,323 bytes ~= 2710.9 GB (decimal). This is
-    total repo storage (audio+video+tfrecords across all subsets), used as a proxy
-    for dataset size.
+  expected_num_episodes: 'Re-verified: HF README (''It comprises 141,162 episodes...'')
+    and paper App A.1 (''74,645 base trajectories ... expanded into 141,162 multimodal
+    episodes'') both state 141,162; matches prior value. arXiv:2510.23763.'
+  expected_size_gb: 'Re-verified this session via HF Hub API https://huggingface.co/api/datasets/OpenMOSS-Team/OmniAction?full=true:
+    usedStorage = 2,710,899,824,323 bytes ~= 2710.9 GB (decimal), matches prior value.'
+  paper_url: HF dataset card links arXiv paper (accepted ICLR 2026); README lists
+    'arXiv Paper' -> https://arxiv.org/pdf/2510.23763, abs page https://arxiv.org/abs/2510.23763.
+  is_multi_embodiment: HF repo file listing (api/datasets/OpenMOSS-Team/OmniAction?full=true)
+    shows top-level shard prefixes bridge_*, fractal_*, jaco_play_* -- three distinct
+    OXE source platforms (WidowX/Bridge, Google-robot/Fractal, Kinova Jaco/Jaco Play)
+    combined in one release; paper Sec 3.2 confirms sampling 'from Open-X Embodiment
+    datasets' generally.
+  additional_modalities: 'Paper abstract/Sec 3.1: dataset centers on synthesized audio
+    -- 5,096 speaker timbres, 2,482 non-verbal sound events, 640 environmental background
+    soundscapes, all mixed into the audio channel alongside vision; HF card tags include
+    ''audio-to-audio''. arXiv:2510.23763.'
+  hand_pose_representation: 'Action space is a scalar gripper term (Sec 3.1: a_t in
+    R^7 = eef delta pose + 1D gripper), not a dexterous/hand-shape encoding (no MANO/keypoints/joint-angle
+    hand model referenced anywhere); ''none'' fits per schema description. arXiv:2510.23763
+    Sec 3.1.'
+  num_objects: Paper Sec 3.1/App A.1 and HF README both state OmniAction spans '112
+    skills ... and 748 objects' (748 manipulable objects, e.g. 'can'); Fig. 11. arXiv:2510.23763.
+  release_type: 'OmniAction is released as a static collection of 141,162 pre-generated
+    episodes (tfrecord shards on HF), not a generation framework/scene platform/RL
+    env -- ''fixed_episode_dataset'' fits. Note: paper also introduces a companion
+    ''OmniAction-LIBERO'' simulation benchmark variant (Sec 3.3), which is a separate
+    resource not covered by this source_url.'
+  secondary_collection_methods: 'Investigated but left empty: the OmniAction construction
+    pipeline (textual scripting via GPT-4o + TTS-based ''auditory realization'' of
+    speech/sound events/backgrounds, Sec 3.2) is a synthetic multimodal-annotation
+    overlay on pre-existing teleop trajectories, not a second robot-motion collection
+    method: none of the current CollectionMethod enum values describe this pattern.
+    See suggested_new_enum_values.'
+  num_subjects: 'Investigated but left blank: paper states ''5,096 distinct speaker
+    timbres'' (App A.1, README), but these are synthetic TTS voices generated via
+    MOSS-TTSD/CosyVoice/Gemini-TTS with voice cloning (Sec 3.2 ''Auditory Realization''),
+    not physical human subjects/demonstrators -- does not match num_subjects'' intended
+    meaning, so left blank rather than mapping loosely.'
+  num_scenes: 'Investigated but left blank: paper states ''640 environmental backgrounds''
+    (App A.1), but these are ambient audio soundscapes (e.g. running water, stir-fry
+    sizzling) mixed at controlled SNR (Sec 3.2), not distinct physical task environments/rooms
+    -- does not match num_scenes'' intended meaning, so left blank.'
+  has_synchronized_multiview_rig: 'Investigated: neither the HF README, dataset card,
+    nor the paper text (extracted from PDF) describe the camera rig/viewpoint setup
+    used per episode; no evidence found, left blank.'
+  camera_views: 'Investigated: no explicit camera-view description found in the paper
+    text or HF README for the repackaged OmniAction release; the underlying OXE subsets
+    have known camera setups individually, but OmniAction''s own documentation does
+    not restate them, so left blank rather than guessing per sub-dataset.'
+  dof_per_hand: 'Not applicable / no evidence: dataset uses standard parallel/2-finger
+    grippers via a scalar gripper action term (Sec 3.1), not a dexterous multi-DoF
+    hand; left blank.'
+  expected_duration_hours: 'Investigated: no total dataset duration/hours statistic
+    found in the paper or README (only per-clip audio-segment-length stats in Fig.
+    10b, ''10 to 80 seconds'' typical clip length, which is not a dataset-total duration);
+    left blank.'
 suggested_new_enum_values:
   robot_platform: 'OmniAction re-purposes trajectories from three distinct Open-X-Embodiment
     robot platforms (WidowX/Bridge, Google-robot/Fractal aka RT-1 robot, and Kinova
@@ -88,3 +155,18 @@ suggested_new_enum_values:
     factory 3-finger hand) - could not confirm a single uniform gripper_type across
     the whole mixed dataset from available sources, so left this field blank rather
     than guessing.
+  embodiment_class: OmniAction mixes 3 OXE source platforms; two (WidowX/Bridge, Kinova
+    Jaco/Jaco Play) are stationary single-arm rigs, but the third (Google-robot/Fractal)
+    is physically a mobile-manipulator chassis elsewhere in the literature even though
+    its base is not actuated in this dataset's 7-D action vector. No single EmbodimentClass
+    value cleanly covers a dataset built from a mix of stationary-arm and mobile-manipulator
+    source platforms; propose adding a 'mixed' value for multi-embodiment datasets
+    like this one, similar to the robot_platform suggestion below.
+  collection_method: OmniAction's defining construction step is not a robot-motion
+    collection method at all -- it is a synthetic multimodal annotation overlay (GPT-4o
+    dialogue scripting + multi-engine TTS speech/sound-event/background audio synthesis,
+    Sec 3.2) applied on top of pre-existing teleop trajectories sampled from Open-X
+    Embodiment. None of the current CollectionMethod values (teleop/autonomous_policy/umi/egocentric_human/simulation/human_to_robot_synthesis/ar_haptic_guided_synthesis/scene_asset_curation)
+    describe 'synthetic audio/instruction augmentation of an existing dataset'. Propose
+    adding e.g. 'synthetic_multimodal_augmentation' as a secondary_collection_methods
+    option for this pattern.

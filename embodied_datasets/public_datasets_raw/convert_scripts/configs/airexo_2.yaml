@@ -1,11 +1,13 @@
 id: airexo_2
 name: AirExo-2
 source_url: https://airexo.tech/airexo2/
+paper_url: https://arxiv.org/abs/2503.03081
 license: CC-BY-NC-SA-4.0
 raw_format: Custom
 release_type: fixed_episode_dataset
 collection_method: human_to_robot_synthesis
 secondary_collection_methods: []
+is_multi_embodiment: false
 embodiment_class: dual_arm
 robot_platform: flexiv_rizon4
 num_arms: 2
@@ -22,6 +24,7 @@ fps_variable: false
 num_camera_views: 1
 camera_views:
 - top
+has_synchronized_multiview_rig: false
 has_camera_calibration: true
 depth_coverage: full
 additional_modalities: []
@@ -35,6 +38,19 @@ field_sources:
   source_url: https://airexo.tech/ redirects/links to the dedicated AirExo-2 section
     at https://airexo.tech/airexo2/ (paper section, CoRL 2025); corrected stub's generic
     landing-page URL to the specific AirExo-2 project page.
+  paper_url: 'arXiv:2503.03081, "AirExo-2: Scaling up Generalizable Robotic Imitation
+    Learning with Low-Cost Exoskeletons" (Fang, Wang, Wang, Chen et al.) -- the paper
+    linked from both the GitHub README ([Paper] badge) and the project page (https://airexo.tech/airexo2/).
+    Newly filled; was blank in the prior onboarding pass.'
+  license: 'Re-verified directly against the LICENSE file at https://raw.githubusercontent.com/AirExo/AirExo-2/main/LICENSE:
+    full text is "Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+    Public License", matching schema value CC-BY-NC-SA-4.0 exactly (confirms the prior
+    backfill correction; this enum value now exists natively in schema.py so no suggested_new_enum_values
+    entry is needed anymore).'
+  release_type: 'Re-verified: the onboarded artifact is the publicly released "Sample
+    Data" archive (fixed number of pre-collected demonstrations), not a simulator,
+    procedural-generation framework, or RL benchmark environment -- fixed_episode_dataset
+    is correct and confirmed unchanged.'
   raw_format: 'https://github.com/AirExo/AirExo-2 README ''Data Format'' section:
     per-scene directories mixing PNG color/depth images, HDF5 low-dim files (robot/gripper/airexo
     *.h5), per-timestep .npy action/state files, and meta.json -- a bespoke directory
@@ -44,11 +60,29 @@ field_sources:
     in-the-wild demonstrations, which are then explicitly converted via image/depth/operation-space
     adaptors into pseudo-robot demonstrations for policy training -- matches the ''human_to_robot_synthesis''
     enum value rather than teleop (no robot in the loop) or umi (not a handheld gripper).'
+  secondary_collection_methods: 'GitHub README ''News'' item (Jun 1, 2025): "Update
+    sample data collected by AirExo-2" -- the publicly released Sample Data archive
+    is described as AirExo-2 (in-the-wild) collected only; although the same repo''s
+    codebase also supports a teleoperation pipeline (README ''Data Collection (1):
+    Teleoperation'') used for paper experiments/baselines, no evidence was found that
+    teleop-collected episodes are part of the released Sample Data itself, so left
+    empty rather than adding ''teleop'' without confirmation.'
+  is_multi_embodiment: False -- both collection pathways documented in the AirExo-2
+    codebase (teleoperation and in-the-wild/exoskeleton) target the same single dual-arm
+    Flexiv Rizon 4 platform and are normalized to the same eef_pose action/state space
+    via the operation space adaptor (arXiv:2503.03081 Section 3.2); no evidence of
+    a second physical robot embodiment in the released data. The paper's closing remark
+    that adapted demonstrations could in principle be "transformed to other robotic
+    arms" (Section 6, Limitations and Future Works) is stated as future work, not
+    something realized in this release.
   embodiment_class: 'https://github.com/AirExo/AirExo-2 README ''Real Robot'' section:
     ''We use two Flexiv Rizon 4 robotics arms ... as our dual-arm robot platform.'''
-  robot_platform: https://github.com/AirExo/AirExo-2 README 'Real Robot' section names
-    Flexiv Rizon 4 arms; Flexiv is not one of the listed enum options, so mapped to
-    'other' (see suggested_new_enum_values for the specific platform name).
+  robot_platform: 'Re-verified: https://github.com/AirExo/AirExo-2 README ''Real Robot''
+    section names two Flexiv Rizon 4 arms as the dual-arm robot platform. schema.py
+    now includes RobotPlatform.FLEXIV_RIZON4 = "flexiv_rizon4" (added since the prior
+    onboarding pass, which had to fall back to ''other''), so the config now uses
+    the exact, correctly-typed enum value and no suggested_new_enum_values entry is
+    required.'
   num_arms: 'https://github.com/AirExo/AirExo-2 README ''Real Robot'' section: ''two
     Flexiv Rizon 4 robotics arms ... The right arm is the mirrored version of the
     left arm.'''
@@ -99,6 +133,12 @@ field_sources:
     cameras'').'
   camera_views: Same source as num_camera_views -- a single camera mounted on top
     of the (mobile) collection platform overlooking the workspace.
+  has_synchronized_multiview_rig: False -- only a single global camera is used for
+    the AirExo-2 in-the-wild collection rig that produces the released episodes (see
+    num_camera_views source); the two wrist-mounted D415 cameras described in the
+    README 'Real Robot' section are only used with teleoperated (robot-in-the-loop)
+    collection for 2D-image baselines, not with the released AirExo-2 data, so there
+    is no synchronized multi-view rig behind this dataset.
   has_camera_calibration: 'arXiv:2503.03081 Appendix A.2 ''Calibration'': two-stage
     calibration process (initial + differentiable-rendering refinement) between the
     global camera and the AirExo-2 base, producing per-demonstration calibration parameters
@@ -106,6 +146,12 @@ field_sources:
   depth_coverage: Intel RealSense D415 is an RGB-D camera; both the raw and transformed
     data formats include a `depth/` folder per camera (AirExo-2 README 'Data Format'),
     and the paper's Depth Adaptor (Section 3.1) operates on depth for every frame.
+  additional_modalities: 'arXiv:2503.03081 Section 6 ''Limitations and Future Works'':
+    "adding additional sensors to the AirExo-2 system for recording other observation
+    modalities -- such as force/torque, tactile, and sound -- can also be explored
+    in the future" -- force_torque/tactile/audio are explicitly named as NOT currently
+    implemented (future work only); no mention anywhere of eye_gaze. Confirmed empty
+    list is correct, not just an omission.'
   has_language_instruction: 'No natural-language task instructions are recorded per
     episode -- the AirExo-2 README data-collection workflow only prompts the operator
     for a numeric task ID and scene ID (README ''Data Collection (2): In-the-Wild''),
@@ -127,14 +173,34 @@ field_sources:
     each = 250 in-the-wild (AirExo-2-collected) episodes reported in the paper''s
     experiments; this may not equal the full scope of the publicly released ''Sample
     Data'' archive, whose exact episode count could not be confirmed.'
-suggested_new_enum_values:
-  license: CC-BY-NC-SA-4.0 -- https://github.com/AirExo/AirExo-2 README states the
-    project (hardware models, codebase and data) is licensed under Creative Commons
-    CC BY-NC-SA 4.0. The given 'CC-BY-NC-4.0' option omits the ShareAlike clause,
-    which changes the redistribution/derivative-work terms, so it would misrepresent
-    the actual license; left the `license` field blank rather than force this mismatch.
-  robot_platform: flexiv_rizon4 -- the dataset's actual target robot platform is two
-    Flexiv Rizon 4 arms (https://github.com/AirExo/AirExo-2 README 'Real Robot' section),
-    which is not among the listed named platforms (Franka/UR/AgileX/xArm/Kinova/Sawyer/WidowX/ViperX/AgiBot/TienKung/ARX5/Unitree).
-    Filled `robot_platform` with the existing 'other' value to keep the record valid,
-    but a dedicated Flexiv enum value would preserve this detail for future onboarding.
+  dof_per_hand: Not applicable/left blank -- both arms end in a Robotiq 2F-85 parallel
+    gripper (gripper_type=parallel_jaw), not a dexterous multi-DoF hand; no dof_per_hand
+    value is stated or applicable anywhere in the README, CONFIG.md, or paper.
+  hand_pose_representation: Left blank -- this dataset has no dexterous hand or bare-hand
+    tracking (parallel Robotiq 2F-85 gripper only, open/close state), so MANO/keypoints_3d/joint_angles
+    do not apply; did not set to 'none' since no explicit statement in the source
+    material addresses hand-pose encoding at all (as opposed to it being an active,
+    stated non-feature).
+  expected_duration_hours: Left blank -- searched arXiv:2503.03081 (full text) and
+    the GitHub README/docs for total recording time or per-demonstration duration
+    aggregates; no hours/duration figures for the released Sample Data were found
+    (only a per-trial 'Completion Time (s)' metric in Section 4.3's user-study table,
+    which describes a separate controlled experiment, not the dataset's total duration).
+  num_subjects: Left blank -- arXiv:2503.03081 Section 4.3 'User Study' describes
+    "Twenty participants (14 men, 6 women, aged 21-35)" comparing collection methods,
+    but this is an explicitly separate controlled experiment about operator experience,
+    not a statement of how many people collected the 250 in-the-wild demonstrations
+    that make up the released dataset; no dataset-collection-specific subject count
+    was found, so left blank rather than reusing the user-study figure out of context.
+  num_scenes: 'Left blank -- the AirExo-2 directory/naming convention (README ''Data
+    Format'': task_0001/scene_0001...scene_0050) uses ''scene'' as a per-demonstration
+    folder name (i.e. one ''scene'' == one episode), not a count of distinct physical
+    environments/backgrounds; setting num_scenes to 250 would just duplicate expected_num_episodes
+    under a different label, and no separate count of distinct physical setups/backgrounds
+    was found in the paper, so left blank to avoid a misleading duplicate value.'
+  num_objects: Left blank -- the paper only gives object counts for one isolated generalization
+    sub-experiment on the Collect Toys task ('5 unseen backgrounds and 1 unseen target
+    object', trained with 'only one training background and one target object', Section
+    4.1/Fig. 10), which is not representative of the total distinct-object inventory
+    across all 5 tasks in the released dataset; no aggregate figure was found.
+suggested_new_enum_values: {}

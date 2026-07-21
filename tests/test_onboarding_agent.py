@@ -90,3 +90,16 @@ review_status: pending_human_review
     assert config.release_type.value == "fixed_episode_dataset"
     assert config.additional_modalities[0].value == "force_torque"
     assert config.hand_pose_representation.value == "joint_angles"
+
+
+def test_build_onboarding_prompt_includes_round2_enum_values():
+    prompt = build_onboarding_prompt("droid", "DROID", "https://droid-dataset.github.io/")
+    assert "abb_yumi" in prompt
+    assert "ego_exo_human" in prompt
+    assert "custom_research_eula" in prompt
+    assert "half_humanoid" in prompt
+    assert "cage_pinch" in prompt
+    assert "single_axis_angle" in prompt
+    assert "imu" in prompt
+    assert "discrete_symbolic" in prompt
+    assert "gripper_jaw" in prompt
