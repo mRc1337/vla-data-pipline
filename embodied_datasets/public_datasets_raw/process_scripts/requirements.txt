@@ -5,11 +5,11 @@
 # video crashes at runtime even though every synthetic-fixture test (which
 # never decodes real video) passes. Install via `brew install ffmpeg` (macOS)
 # or your platform's package manager before running against real datasets.
-lerobot
-numpy
-scipy
-opencv-python-headless
-ikpy
+lerobot==0.4.4
+numpy==2.2.6
+scipy==1.17.1
+opencv-python-headless==4.12.0.88
+ikpy==4.0.0
 pydantic==2.10.3
 PyYAML==6.0.2
 pytest==8.3.4

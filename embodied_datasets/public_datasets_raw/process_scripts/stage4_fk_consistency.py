@@ -29,7 +29,25 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
         # locate either safely, so the check isn't feasible.
         return StageResult(episode=episode, skip_reason="fk_check_not_feasible")
 
-    chain = FkChain(config.urdf_path)
+    try:
+        chain = FkChain(config.urdf_path)
+    except ValueError:
+        # ikpy's Chain.from_urdf_file raises ValueError when the URDF's
+        # structure doesn't match its assumptions -- e.g. it hard-codes an
+        # expectation that the root link is named "base_link"; a URDF
+        # whose root link is named anything else (confirmed with
+        # TheRobotStudio/SO-ARM100's so100.urdf, whose root link is
+        # "base") makes ikpy's internal _find_next_link raise
+        # ValueError("Error: link base_link given but not found in the
+        # URDF"). That is a property of the dataset's URDF, not a bug in
+        # this pipeline, so it belongs in the same "not feasible" bucket
+        # as every other infeasibility check above/below. Deliberately
+        # narrow (not a bare `except Exception`): FileNotFoundError (bad
+        # path) and xml.etree.ElementTree.ParseError (malformed XML) are
+        # different failure classes and are intentionally left to
+        # propagate, as would a genuine programming error inside
+        # FkChain.__init__ unrelated to URDF parsing.
+        return StageResult(episode=episode, skip_reason="fk_check_not_feasible")
 
     # config.dof_per_arm is expected to equal the URDF's number of active
     # (non-fixed) joints -- run_pipeline.py is responsible for keeping the

@@ -29,3 +29,9 @@ docs/superpowers/
 # docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
 # section 4.
 embodied_datasets/public_datasets_raw/process_scripts/.venv-process/
+
+# Subagent-driven-development session artifacts (task briefs, review diffs,
+# progress ledger) -- scratch state from the superpowers dev workflow, kept
+# locally only. (Was previously only excluded by its own nested
+# .superpowers/sdd/.gitignore; listed explicitly here for robustness.)
+.superpowers/

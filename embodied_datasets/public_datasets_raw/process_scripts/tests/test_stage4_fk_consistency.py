@@ -96,6 +96,56 @@ def test_zero_frame_episode_is_skipped_not_nan():
     assert result.skip_reason == "fk_check_not_feasible"
 
 
+def test_urdf_with_nonstandard_root_link_is_skipped_gracefully(tmp_path):
+    # ikpy's Chain.from_urdf_file hard-codes an expectation that the
+    # URDF's root link is named "base_link" and raises ValueError if it
+    # isn't -- confirmed for real with TheRobotStudio/SO-ARM100's
+    # official so100.urdf, whose root link is named "base" instead.
+    # Every other "not usable for FK checking" condition in apply() is
+    # handled via skip_reason="fk_check_not_feasible"; a URDF that fails
+    # to even parse must be handled the same way instead of crashing the
+    # whole pipeline run.
+    bad_urdf = tmp_path / "bad_root_link_arm.urdf"
+    bad_urdf.write_text(
+        """<?xml version="1.0"?>
+<robot name="bad_root_link_arm">
+  <link name="base"/>
+  <link name="link1"/>
+  <link name="link2"/>
+  <link name="tool0"/>
+
+  <joint name="joint1" type="revolute">
+    <parent link="base"/>
+    <child link="link1"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14" upper="3.14" effort="10" velocity="1"/>
+  </joint>
+
+  <joint name="joint2" type="revolute">
+    <parent link="link1"/>
+    <child link="link2"/>
+    <origin xyz="1.0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14" upper="3.14" effort="10" velocity="1"/>
+  </joint>
+
+  <joint name="tool_joint" type="fixed">
+    <parent link="link2"/>
+    <child link="tool0"/>
+    <origin xyz="0.5 0 0" rpy="0 0 0"/>
+  </joint>
+</robot>
+"""
+    )
+    episode = _episode_with_offset(0.0)
+    config = ProcessConfig(
+        id="x", fk_check_feasible=True, urdf_path=str(bad_urdf), dof_per_arm=2, tcp_offset_tolerance=0.02
+    )
+    result = apply(episode, config)
+    assert result.skip_reason == "fk_check_not_feasible"
+
+
 def test_dof_per_arm_mismatched_with_urdf_active_joints_does_not_corrupt_eef_data():
     # simple_arm.urdf has exactly 2 active (non-fixed) joints. If
     # config.dof_per_arm disagrees with that count, FkChain.forward()'s

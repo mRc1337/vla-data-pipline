@@ -475,6 +475,17 @@ observation.state_canonical_mask   # bool, shape (80,)，每帧都写，但整�
 
 ### 8. 怎么验证
 
+首次搭建需要先建独立的 `.venv-process`（仓库根 `README.md` 有完整说明）：
+
+```bash
+cd embodied_datasets/public_datasets_raw/process_scripts
+python3.11 -m venv .venv-process
+source .venv-process/bin/activate
+pip install -r requirements.txt
+```
+
+之后每次只需要：
+
 ```bash
 cd embodied_datasets/public_datasets_raw/process_scripts
 source .venv-process/bin/activate   # 或 .venv-process/bin/pytest 直接调用
