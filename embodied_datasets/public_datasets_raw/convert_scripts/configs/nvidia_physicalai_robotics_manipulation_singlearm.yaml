@@ -56,7 +56,7 @@ field_sources:
     to find solutions to the tasks automatically... The environments are table-top
     scenes where the object layouts and asset textures are procedurally generated.''
     No human teleoperation is involved anywhere -> simulation, matching the registry
-    convention (see configs/robotwin.yaml, configs/maniskill3.yaml) that reserves
+    convention (see configs/robotwin.yaml) that reserves
     `simulation` for automated/scripted/motion-planning-generated sim data (as opposed
     to human-teleop-in-sim, which is `teleop`).'
   secondary_collection_methods: README.md Data Collection Method section describes
@@ -127,13 +127,13 @@ field_sources:
   has_synchronized_multiview_rig: 'Inferred, not an explicit README statement: both
     world_camera and hand_camera are rendered from the same IsaacSim simulation state
     at each recorded frame/timestep (same reasoning applied to other IsaacSim/simulator
-    sim datasets in this corpus, e.g. configs/maniskill3.yaml, configs/mimicgen.yaml),
+    sim datasets in this corpus, e.g. configs/mimicgen.yaml),
     so the two views are synchronized by construction.'
   has_camera_calibration: 'Inferred: camera placement/intrinsics for world_camera
     and hand_camera are deterministically defined by the IsaacSim scene/rig setup
     used to generate every episode (simulation), so calibration parameters are always
     derivable, even though no separate calibration file is shipped in the HF repo
-    file listing. Same reasoning as configs/libero.yaml, configs/maniskill3.yaml,
+    file listing. Same reasoning as configs/libero.yaml,
     configs/mimicgen.yaml for simulator-generated datasets.'
   depth_coverage: 'README.md ''Dataset Format'': only panda-stack-platforms-texture,
     panda-open-cabinet-left, panda-open-cabinet-right, and panda-open-drawer list

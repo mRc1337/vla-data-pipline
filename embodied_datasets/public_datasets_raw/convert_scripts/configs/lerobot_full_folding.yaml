@@ -1,6 +1,7 @@
 id: lerobot_full_folding
 name: lerobot/full_folding
 release_type: fixed_episode_dataset
+collection_method: simulation
 secondary_collection_methods: []
 fps: 30.0
 camera_views: []
@@ -9,6 +10,17 @@ expected_num_episodes: 5688
 expected_duration_hours: 130.82
 review_status: pending_human_review
 field_sources:
+  collection_method: 'FILLED PER USER-PROVIDED CLASSIFICATION (2026-07-21), not
+    independently re-researched: this dataset has no paper/project page (HF card
+    homepage/paper fields are ''[More Information Needed]''), so there is no
+    citable primary source beyond meta/info.json (robot_type "openarms_follower").
+    Set to simulation per the user''s own dataset-category mapping. FLAG FOR HUMAN
+    REVIEW: "openarms_follower" follows the same naming convention as other
+    real-hardware LeRobot teleoperator robots in this registry (e.g. so100_follower,
+    koch_follower), which would suggest real-robot teleoperation rather than
+    simulation -- this config''s classification should be double-checked against
+    the OpenArms hardware project once a citable source is found, rather than
+    treated as settled.'
   expected_num_episodes: 'https://huggingface.co/datasets/lerobot/full_folding meta/info.json
     (fetched via https://huggingface.co/datasets/lerobot/full_folding/resolve/main/meta/info.json):
     "total_episodes": 5688, "total_frames": 14129038, "fps": 30, robot_type "openarms_follower"

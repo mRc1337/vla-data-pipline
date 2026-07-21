@@ -70,7 +70,7 @@ field_sources:
     into the bulk of episodes via automated (motion-planning/replay) generation in
     simulation. Set primary collection_method=simulation per this registry''s existing
     convention (simulation = automated/scripted/motion-planning-generated, per gr00t_teleop_sim.yaml''s
-    own field_sources note citing libero_plus/maniskill3/robotwin precedent), since
+    own field_sources note citing libero_plus/robotwin precedent), since
     the large majority of trajectories (bimanual+gr1_arms_waist+gr1_unified+single_panda_gripper
     = ~344,920 of 345,023 episodes, i.e. >99.9%) fall in this generated-in-sim category.'
   secondary_collection_methods: 'Set to [teleop] for two concrete, directly-observed

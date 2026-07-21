@@ -168,7 +168,7 @@ field_sources:
   hand_pose_representation: New field, filled none. gripper_type is parallel_jaw (a
     simple trigger-actuated 2-finger gripper, not a dexterous multi-finger hand or
     bare-hand MANO/keypoint tracking target); matches convention used for other parallel_jaw
-    datasets (e.g. bridgedata_v2, droid, aloha_unleashed).
+    datasets (e.g. bridgedata_v2, droid).
   has_synchronized_multiview_rig: 'New field, filled false. arXiv:2402.10329 Sec III.A
     / GitHub README: the released cup-arrangement data uses exactly one GoPro per
     gripper (num_camera_views=1); no synchronized multi-camera rig is used for this

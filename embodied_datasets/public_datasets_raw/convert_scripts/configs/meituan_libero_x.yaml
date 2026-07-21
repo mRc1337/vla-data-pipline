@@ -6,7 +6,8 @@ license: CC-BY-4.0
 raw_format: LeRobot
 release_type: fixed_episode_dataset
 collection_method: teleop
-secondary_collection_methods: []
+secondary_collection_methods:
+- simulation
 is_multi_embodiment: false
 embodiment_class: single_arm
 robot_platform: franka_panda
@@ -70,10 +71,17 @@ field_sources:
     the HuggingFace dataset README: "All trajectories were human-collected via VR
     teleoperation using a Meta Quest 3." No closer CollectionMethod enum value than
     `teleop` exists for VR-controller-driven human teleoperation -- see suggested_new_enum_values.'
-  secondary_collection_methods: 'Same arXiv:2602.06556 Section III.A full-text check:
-    only VR teleoperation is described for the released training trajectories (images
-    are then re-rendered by rolling out the recorded action sequences in MuJoCo, which
-    is a rendering step, not a distinct secondary collection method). Left empty.'
+  secondary_collection_methods: 'CORRECTED from [] to [simulation]. Same arXiv:2602.06556
+    Section III.A full-text check: only VR teleoperation is described for the released
+    training trajectories (images are then re-rendered by rolling out the recorded
+    action sequences in MuJoCo, which is a rendering step, not a distinct secondary
+    collection method) -- but the teleoperation itself is performed entirely inside
+    MuJoCo (Meta Quest 3 VR controller driving a simulated Panda arm, per collection_method
+    above), so the registry-wide convention standardized 2026-07-21 -- tagging
+    human teleoperation performed entirely inside a simulator with ''simulation''
+    as a secondary collection method, matching e.g. configs/teach.yaml, configs/ph2d.yaml
+    -- now applies, superseding this file''s prior ''left empty'' rationale which
+    followed configs/libero.yaml''s now-corrected convention.'
   is_multi_embodiment: 'HuggingFace meta/info.json (huggingface.co/datasets/meituan/LIBERO-X,
     fetched directly): `"robot_type": "panda"` used uniformly; arXiv:2602.06556 does
     not mention any other robot embodiment -- LIBERO-X reuses the same single-Panda-arm

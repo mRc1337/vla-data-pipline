@@ -129,7 +129,7 @@ field_sources:
     and ''recording_names.txt: .txt file containing names of all the 362 videos''.
     362 is the correct episode count (one synchronized multi-view recording = one
     episode), consistent with how expected_num_episodes is used for other multi-camera
-    datasets in this registry (e.g. droid, aloha_unleashed count distinct demonstrations,
+    datasets in this registry (e.g. droid counts distinct demonstrations,
     not per-camera files). The original value of 4321 conflated per-camera video files
     with episodes.'
   expected_duration_hours: 'arXiv:2203.14712 sec 4.1, Table 1 and Table 2 (Assembly101

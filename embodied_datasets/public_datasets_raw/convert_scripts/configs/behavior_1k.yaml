@@ -6,7 +6,8 @@ license: MIT
 raw_format: LeRobot
 release_type: fixed_episode_dataset
 collection_method: teleop
-secondary_collection_methods: []
+secondary_collection_methods:
+- simulation
 is_multi_embodiment: false
 embodiment_class: mobile_manipulator
 robot_platform: r1pro
@@ -57,12 +58,17 @@ field_sources:
   robot_platform: same robots.md / evaluation.md sources; R1Pro is BEHAVIOR-1K's own
     OmniGibson-native robot, not in the given enum list, so mapped to 'other' (see
     suggested_new_enum_values)
-  secondary_collection_methods: no evidence of any collection method other than JoyLo
-    teleoperation for the 2026-challenge-demos release; left empty after re-check
-    of https://behavior.stanford.edu/challenge/index.html and dataset.html (the mention
-    of OmniGibson/scripts/learning/replay_obs.py is only for re-rendering additional
-    observations from the same raw teleop trajectories, not an alternate collection
-    method)
+  secondary_collection_methods: 'CORRECTED from [] to [simulation]. No evidence of
+    any collection method other than JoyLo teleoperation for the 2026-challenge-demos
+    release (re-checked https://behavior.stanford.edu/challenge/index.html and
+    dataset.html; the mention of OmniGibson/scripts/learning/replay_obs.py is only
+    for re-rendering additional observations from the same raw teleop trajectories,
+    not an alternate collection method). The trajectories themselves are collected
+    entirely inside the OmniGibson simulator (R1Pro is BEHAVIOR-1K''s own OmniGibson-native
+    robot, per embodiment_class/robot_platform sources below), so the registry-wide
+    convention standardized 2026-07-21 -- tagging human teleoperation performed
+    entirely inside a simulator with ''simulation'' as a secondary collection method,
+    matching e.g. configs/teach.yaml, configs/ph2d.yaml -- now applies.'
   is_multi_embodiment: 'false -- https://huggingface.co/datasets/behavior-1k/2026-challenge-demos/resolve/main/meta/info.json
     (''robot_type'': ''R1Pro'') plus the two official OmniGibson configs used to define
     the R1Pro action/observation space for BEHAVIOR (raw.githubusercontent.com/StanfordVL/BEHAVIOR-1K/main/OmniGibson/omnigibson/configs/r1pro_behavior.yaml

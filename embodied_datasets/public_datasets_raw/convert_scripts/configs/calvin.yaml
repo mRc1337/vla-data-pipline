@@ -6,7 +6,8 @@ license: MIT
 raw_format: Custom
 release_type: fixed_episode_dataset
 collection_method: teleop
-secondary_collection_methods: []
+secondary_collection_methods:
+- simulation
 is_multi_embodiment: false
 embodiment_class: single_arm
 robot_platform: franka_panda
@@ -58,9 +59,15 @@ field_sources:
     of teleoperated "play" data in four environments with a HTC Vive VR headset''
     -- confirmed human teleoperation via VR controller, not scripted/autonomous. Re-verified
     against full paper text, unchanged.'
-  secondary_collection_methods: 'arXiv:2112.03227 sec. III-B.1 (full text search):
-    no mention of any autonomous-policy, UMI, or synthesis-based data collection for
-    the training play data -- only VR teleoperation by human operators. Left empty.'
+  secondary_collection_methods: 'CORRECTED from [] to [simulation]. arXiv:2112.03227
+    sec. III-B.1 (full text search): no mention of any autonomous-policy, UMI, or
+    synthesis-based data collection for the training play data -- only VR teleoperation
+    by human operators inside the PyBullet-simulated environment. Registry-wide
+    convention has been standardized (2026-07-21): human teleoperation performed
+    entirely inside a simulator is tagged with ''simulation'' as a secondary collection
+    method (matching e.g. configs/teach.yaml, configs/ph2d.yaml); this file''s
+    prior rationale (which configs/libero.yaml cited as precedent for leaving the
+    tag off) has been superseded.'
   is_multi_embodiment: 'arXiv:2112.03227 sec. III-A: single Franka Emika Panda arm
     used identically across all four environments (A, B, C, D); no other robot embodiment
     appears anywhere in the paper or repo.'

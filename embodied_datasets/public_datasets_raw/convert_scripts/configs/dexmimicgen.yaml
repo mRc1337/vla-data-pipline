@@ -94,7 +94,7 @@ field_sources:
     which lists the 9 environments with their "suggested embodiments" split 3/3/3
     across exactly these three embodiments.'
   embodiment_class: New field, filled dual_arm (majority-of-tasks representative,
-    following the same convention as configs/humanoidbench.yaml / configs/yubi.yaml
+    following the same convention as configs/robotwin.yaml
     for is_multi_embodiment=true entries). 6 of 9 task environments (TwoArmThreading,
     TwoArmThreePieceAssembly, TwoArmTransport, TwoArmDrawerCleanup, TwoArmBoxCleanup,
     TwoArmLiftTray -- per environments.md) use non-humanoid bimanual Panda arms (dual_arm);
@@ -153,7 +153,7 @@ field_sources:
     use absolute, so "both" (the dataset as a whole contains both conventions, in
     disjoint per-embodiment subsets) is correct and distinct from "mixed_delta_absolute"
     (which denotes delta-translation + absolute-rotation mixed within a single action
-    vector, e.g. configs/omniumi.yaml) -- confirmed NOT applicable here since each
+    vector, e.g. configs/vitra.yaml) -- confirmed NOT applicable here since each
     embodiment''s action is internally consistent (fully delta or fully absolute,
     in both position and rotation).'
   rotation_representation: 'Left blank; no single enum value fits. Same generate_training_config.py

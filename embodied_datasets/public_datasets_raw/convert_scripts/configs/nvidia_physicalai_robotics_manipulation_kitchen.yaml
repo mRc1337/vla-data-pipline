@@ -147,13 +147,13 @@ field_sources:
     five cameras (world, external, both wrist cameras, head) are rendered from the
     same IsaacSim simulation state at each recorded frame/timestep (same reasoning
     applied to the singlearm sibling and other IsaacSim sim datasets in this corpus,
-    e.g. configs/maniskill3.yaml, configs/mimicgen.yaml), so all views are synchronized
+    e.g. configs/mimicgen.yaml), so all views are synchronized
     by construction.'
   has_camera_calibration: 'Inferred: camera placement/intrinsics for all five cameras
     are deterministically defined by the IsaacSim scene/rig setup used to generate
     every episode (simulation), so calibration parameters are always derivable, even
     though no separate calibration file is shipped in the HF repo file listing. Same
-    reasoning as the singlearm sibling and configs/libero.yaml, configs/maniskill3.yaml
+    reasoning as the singlearm sibling and configs/libero.yaml
     for simulator-generated datasets.'
   depth_coverage: 'meta/info.json `features` block confirms every one of the five
     camera keys has a matching `.distance_to_image_plane` depth-video feature, for

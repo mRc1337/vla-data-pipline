@@ -69,7 +69,7 @@ field_sources:
     are kitchen scenes where the furniture and appliances were procedurally generated.''
     No human teleoperation is involved anywhere -> simulation, matching the same registry
     convention used for the singlearm sibling config (configs/nvidia_physicalai_robotics_manipulation_singlearm.yaml)
-    and configs/robotwin.yaml, configs/maniskill3.yaml (automated/scripted/motion-planning-generated
+    and configs/robotwin.yaml (automated/scripted/motion-planning-generated
     sim data, as opposed to human-teleop-in-sim, which is `teleop`).'
   secondary_collection_methods: README.md Data Collection Method section describes
     only automated reasoning/motion-planning generation (PDDLStream + scene_synthesizer
@@ -166,14 +166,14 @@ field_sources:
     five camera views (and their rgb/depth/segmentation modalities) are rendered from
     the same IsaacSim simulation state at each recorded frame/timestep (same reasoning
     applied to other IsaacSim/simulator sim datasets in this corpus, e.g. configs/nvidia_physicalai_robotics_manipulation_singlearm.yaml,
-    configs/maniskill3.yaml, configs/mimicgen.yaml), so all views are synchronized
+    configs/mimicgen.yaml), so all views are synchronized
     by construction.'
   has_camera_calibration: 'Inferred: camera placement/intrinsics for all five camera
     views are deterministically defined by the IsaacSim scene/rig setup used to generate
     every episode (simulation), so calibration parameters are always derivable, even
     though no separate calibration file is shipped in the HF repo file listing. Same
-    reasoning as configs/nvidia_physicalai_robotics_manipulation_singlearm.yaml, configs/libero.yaml,
-    configs/maniskill3.yaml for simulator-generated datasets.'
+    reasoning as configs/nvidia_physicalai_robotics_manipulation_singlearm.yaml, configs/libero.yaml
+    for simulator-generated datasets.'
   depth_coverage: meta/info.json `features` block for all three sub-datasets lists
     a `.distance_to_image_plane` depth-video feature for every one of the 5 camera
     views (world_camera, external_camera, right_hand_camera, left_hand_camera, head_camera)

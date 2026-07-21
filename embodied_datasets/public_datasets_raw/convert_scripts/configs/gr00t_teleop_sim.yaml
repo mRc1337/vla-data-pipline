@@ -5,7 +5,8 @@ license: CC-BY-NC-4.0
 raw_format: HDF5
 release_type: fixed_episode_dataset
 collection_method: teleop
-secondary_collection_methods: []
+secondary_collection_methods:
+- simulation
 is_multi_embodiment: false
 embodiment_class: humanoid
 robot_platform: fourier_gr1
@@ -74,15 +75,19 @@ field_sources:
     human teleoperation of a simulated robot, closest/correct enum match is teleop
     (mechanism = human-driven), not simulation (which in this registry''s convention
     is reserved for automated/scripted/motion-planning/RL-generated data, per e.g.
-    libero_plus.yaml, maniskill3.yaml, robotwin.yaml). Unchanged.'
-  secondary_collection_methods: 'RE-VERIFIED 2026-07-10: left empty. Precedent checked
-    against bigym.yaml (also 100% VR teleoperation of a humanoid entirely inside a
-    simulator, e.g. H1 in MuJoCo) which also leaves secondary_collection_methods empty
-    with the explicit rationale ''same mapping used for other human-teleoperation-in-simulation
-    datasets in this corpus''. The mixed-methods secondary=simulation pattern (e.g.
-    aloha_unleashed.yaml) is reserved for datasets that combine a REAL-robot-teleop
-    majority with a smaller simulated-teleop subset, which does not apply here (100%
-    simulated, no real-robot portion). Unchanged.'
+    libero_plus.yaml, robotwin.yaml). Unchanged.'
+  secondary_collection_methods: 'CORRECTED from [] to [simulation] (2026-07-21):
+    registry-wide convention has been standardized so that human teleoperation
+    performed entirely inside a simulator is tagged with ''simulation'' as a
+    secondary collection method (matching e.g. configs/teach.yaml, configs/ph2d.yaml).
+    This file is 100% VR/human teleoperation of a simulated Fourier GR1 (README.md
+    ''Data Collection Method: [Human Teleoperation in Simulation]''), so the tag
+    now applies. The mixed-methods secondary=simulation pattern (e.g.
+    configs/robomind.yaml: real-robot teleop majority plus a smaller,
+    separately-flagged simulated-teleop subset) is a distinct case from this
+    dataset''s 100%-simulated, no-real-robot-portion collection -- both now
+    converge on the same ''simulation'' secondary tag, just via different
+    mixture ratios.'
   is_multi_embodiment: 'NEW FIELD, filled false: every one of the 24 LeRobot task
     directories inspected (meta/info.json ''robot_type'': ''GR1ArmsAndWaistFourierHands'')
     uses the same single simulated GR1 embodiment; README describes only one robot

@@ -75,7 +75,7 @@ field_sources:
     on the same Franka Panda arm (Leap Hand dexterous hand for clutter/clutter_users/open_bottle/wild
     vs. Fin-ray parallel-jaw gripper for assemble, per the pre-existing gripper_type note below) -- a
     single scalar embodiment_class/gripper_type value would understate this heterogeneity, matching the
-    is_multi_embodiment convention already used for robogen/yubi/humanoidbench in this registry.'
+    is_multi_embodiment convention already used for mimicgen/robotwin in this registry.'
   embodiment_class: 'Re-verified 2026-07-10: arXiv:2410.08464 Sec III-A/IV-A: each collection targets
     a single Franka Panda arm with one end-effector (Leap Hand or Fin-ray gripper) per episode; the "two
     Franka Panda arms" in Sec IV-A refers to two separate physical robots used for on-robot replay/evaluation

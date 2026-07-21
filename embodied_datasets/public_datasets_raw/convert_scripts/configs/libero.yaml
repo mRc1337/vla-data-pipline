@@ -6,7 +6,8 @@ license: CC-BY-4.0
 raw_format: HDF5
 release_type: fixed_episode_dataset
 collection_method: teleop
-secondary_collection_methods: []
+secondary_collection_methods:
+- simulation
 is_multi_embodiment: false
 embodiment_class: single_arm
 robot_platform: franka_panda
@@ -71,13 +72,16 @@ field_sources:
     PDF text): ''we provide 50 trajectories of high-quality demonstrations ... The
     demonstrations are collected by human experts through teleoperation with 3Dconnexion
     Spacemouse.'' Unchanged.'
-  secondary_collection_methods: 'arXiv:2306.03310 (full-text re-check): no mention
-    of autonomous-policy, UMI, or synthesis-based data collection for the released
-    demonstrations -- only human teleoperation via 3Dconnexion Spacemouse in the (simulated)
-    robosuite environment. Following the same convention as configs/calvin.yaml (also
-    a simulator-hosted teleop dataset), ''simulation'' is not added here since that
-    CollectionMethod enum value is reserved for scripted/autonomous data generation,
-    not for the fact that the teleoperated env happens to be simulated. Left empty.'
+  secondary_collection_methods: 'CORRECTED from [] to [simulation]. arXiv:2306.03310
+    (full-text re-check): no mention of autonomous-policy, UMI, or synthesis-based
+    data collection for the released demonstrations -- only human teleoperation via
+    3Dconnexion Spacemouse in the (simulated) robosuite environment. Registry-wide
+    convention has been standardized (2026-07-21): human teleoperation performed
+    entirely inside a simulator is tagged with ''simulation'' as a secondary collection
+    method (matching e.g. configs/teach.yaml, configs/ph2d.yaml), superseding the
+    prior per-file rationale that reserved ''simulation'' for scripted/autonomous
+    generation only. Applied here since 100% of the released demonstrations are
+    teleoperated inside robosuite.'
   is_multi_embodiment: 'https://github.com/Lifelong-Robot-Learning/LIBERO libero/libero/envs/env_wrapper.py:
     ControlEnv default `robots=["Panda"]` used identically across all four task suites
     (LIBERO-Spatial/Object/Goal/100); arXiv:2306.03310 does not mention any other

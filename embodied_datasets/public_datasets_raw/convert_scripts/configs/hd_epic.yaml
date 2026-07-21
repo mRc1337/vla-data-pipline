@@ -54,7 +54,7 @@ field_sources:
     derivatives of this VRS raw capture (paper Supp. B.1: "We post-process VRS files,
     converting videos to mp4..."), so VRS is now the closest exact-enum match for
     the primary raw capture container, consistent with the same correction already
-    applied to the sibling Aria-based configs egoallo.yaml and hot3d.yaml in this
+    applied to the sibling Aria-based config hot3d.yaml in this
     registry.'
   release_type: 'arXiv:2502.04144 Supp. B.2: fixed set of 156 pre-recorded, annotated
     videos released as a static download (not a simulation/generation framework, scene-asset
@@ -105,8 +105,8 @@ field_sources:
     only capture hardware is a single head-worn Project Aria unit whose 3 forward
     cameras exist for onboard SLAM/RGB purposes, not independent multi-view coverage
     of the workspace. Field was blank in the prior pass; newly filled as false, consistent
-    with the same false value used for the sibling single-Aria-device configs egoallo.yaml
-    and epic_kitchens_100.yaml.'
+    with the same false value used for the sibling single-Aria-device config
+    epic_kitchens_100.yaml.'
   has_camera_calibration: 're-verified https://hd-epic.github.io/site News (Jan 2026)
     + hd-epic-annotations GitHub README: "Per-video static device calibration (cameras
     and sensors), including sensor to device transforms" released as new intermediate
@@ -135,8 +135,8 @@ field_sources:
     pass.
   urdf_source: same basis as urdf_available -- not_found (no robot/URDF exists for
     this bare-hand egocentric dataset). Field was blank in the prior pass; newly filled,
-    consistent with the same not_found value used on sibling human_hand configs egoallo.yaml
-    and epic_kitchens_100.yaml.
+    consistent with the same not_found value used on the sibling human_hand config
+    epic_kitchens_100.yaml.
   expected_size_gb: 're-verified https://hd-epic.github.io/site Download section lists
     component sizes: Audio-HDF5 27GB + Digital-Twin 1.35GB + Hands-Masks 1.95GB +
     SLAM-and-Gaze 349GB + VRS 1.9TB(1900GB) + Videos(mp4) 115.5GB; summed = 2394.8GB

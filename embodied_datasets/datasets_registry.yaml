@@ -173,20 +173,6 @@
   integrity_status: not_verified
   convert_status: not_converted
   process_status: not_processed
-- id: egoallo
-  name: EgoAllo
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
-- id: maniskill3
-  name: ManiSkill3
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
 - id: mimicgen
   name: MimicGen
   priority: P2
@@ -236,13 +222,6 @@
   integrity_status: not_verified
   convert_status: not_converted
   process_status: not_processed
-- id: aloha_unleashed
-  name: ALOHA Unleashed
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
 - id: functional_manipulation_benchmark_fmb
   name: Functional Manipulation Benchmark (FMB)
   priority: P2
@@ -257,13 +236,6 @@
   integrity_status: not_verified
   convert_status: not_converted
   process_status: not_processed
-- id: xr_1_dataset
-  name: XR-1 Dataset
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
 - id: dexmimicgen
   name: DexMimicGen
   priority: P2
@@ -271,50 +243,8 @@
   integrity_status: not_verified
   convert_status: not_converted
   process_status: not_processed
-- id: robogen
-  name: RoboGen
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
-- id: grutopia
-  name: GRUtopia
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
-- id: bigym
-  name: BiGym
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
 - id: the_colosseum
   name: THE COLOSSEUM
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
-- id: gensim2
-  name: GenSim2
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
-- id: humanoidbench
-  name: HumanoidBench
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
-- id: airexo_2
-  name: AirExo-2
   priority: P2
   download_status: not_downloaded
   integrity_status: not_verified
@@ -341,22 +271,8 @@
   integrity_status: not_verified
   convert_status: not_converted
   process_status: not_processed
-- id: yubi
-  name: YUBI
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
 - id: mv_umi
   name: MV-UMI
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
-- id: omniumi
-  name: OmniUMI
   priority: P2
   download_status: not_downloaded
   integrity_status: not_verified
@@ -411,13 +327,6 @@
   integrity_status: not_verified
   convert_status: not_converted
   process_status: not_processed
-- id: humanoid_x
-  name: Humanoid-X
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
 - id: ph2d
   name: PH2D
   priority: P2
@@ -460,22 +369,8 @@
   integrity_status: not_verified
   convert_status: not_converted
   process_status: not_processed
-- id: ovmm
-  name: OVMM
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
 - id: robovqa
   name: RoboVQA
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
-- id: partnr
-  name: PARTNR
   priority: P2
   download_status: not_downloaded
   integrity_status: not_verified
@@ -546,27 +441,6 @@
   process_status: not_processed
 - id: oakink2
   name: OAKINK2
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
-- id: pokeflex
-  name: PokeFlex
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
-- id: handloom
-  name: HANDLOOM
-  priority: P2
-  download_status: not_downloaded
-  integrity_status: not_verified
-  convert_status: not_converted
-  process_status: not_processed
-- id: autobag
-  name: AutoBag
   priority: P2
   download_status: not_downloaded
   integrity_status: not_verified
