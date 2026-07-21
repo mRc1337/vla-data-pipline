@@ -1,8 +1,8 @@
 """Cross-embodiment canonical 80-dim state projection (design doc
-section 8). Per-arm 29-dim block = [joint(<=7) | eef_pos(3)+eef_quat(4) |
-gripper_or_hand_slot(<=15)]; dual-arm datasets concatenate arm1[0:29] +
-arm2[29:58]; [58:61] holds mobile-base vx/vy/yaw when has_mobile_base;
-[61:80] is reserved (left zero).
+section 8). Per-arm 35-dim block = [joint(<=7) | eef_pos(3)+eef_quat(4) |
+gripper_or_hand_slot(<=21)]; dual-arm datasets concatenate arm1[0:35] +
+arm2[35:70]; [70:73] holds mobile-base vx/vy/yaw when has_mobile_base;
+[73:80] is reserved (left zero).
 
 Assumes episode.state columns are ALREADY ordered per-arm as [joint |
 eef_pos+eef_quat | gripper_or_hand_slot], concatenated arm-by-arm -- this
@@ -39,10 +39,10 @@ from common.schema import ProcessConfig
 
 JOINT_SLOT = 7
 EEF_SLOT = 7
-GRIPPER_SLOT = 15
-ARM_BLOCK_DIM = JOINT_SLOT + EEF_SLOT + GRIPPER_SLOT  # 29
+GRIPPER_SLOT = 21
+ARM_BLOCK_DIM = JOINT_SLOT + EEF_SLOT + GRIPPER_SLOT  # 35
 CANONICAL_DIM = 80
-MOBILE_BASE_SLOT = slice(58, 61)
+MOBILE_BASE_SLOT = slice(2 * ARM_BLOCK_DIM, 2 * ARM_BLOCK_DIM + 3)
 
 ROBOT_EMBODIMENT_CLASSES: Set[str] = {
     "single_arm",
@@ -121,7 +121,8 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
     # num_arms, as before, always leaves a remainder < num_arms <= 2,
     # which can never satisfy the ">= mobile_cols_start + 3" check below --
     # making the has_mobile_base branch permanently dead code (mobile-base
-    # velocities silently never captured, mask always False for [58:61]).
+    # velocities silently never captured, mask always False for
+    # MOBILE_BASE_SLOT).
     mobile_base_width = 3 if config.has_mobile_base else 0
     arm_cols_total = max(episode.state.shape[1] - mobile_base_width, 0)
     cols_per_arm = arm_cols_total // num_arms

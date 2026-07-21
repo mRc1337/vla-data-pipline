@@ -16,7 +16,8 @@ embodied_datasets/
 │   │   ├── configs/<dataset_id>.yaml   # 每个数据集的调研配置（声明值）
 │   │   └── common/                     # 复用的 schema/io/onboarding 工具
 │   ├── verify_scripts/             # 完整性校验（Plan B，未实现）
-│   └── process_scripts/            # 清洗对齐流水线（Plan D，未实现）
+│   └── process_scripts/            # 清洗对齐流水线（9个stage/check模块 + 跨本体统一表示层，
+│                                    # 见本文档"跨本体统一表示层"一节）
 ├── urdf_assets/<robot_platform>/   # 按机器人型号共享的 URDF（重数据）
 └── public_datasets/
     └── lerobot_v2_1/<dataset_id>/  # 清洗完成的最终数据（重数据）
@@ -338,6 +339,153 @@ for m in <EnumName>: print(m.value)
 3. 用 `parse_and_validate_agent_output()` 校验 Agent 产出的 YAML 能通过
    schema 校验，写回 `configs/<id>.yaml`，`review_status` 保持
    `pending_human_review` 直到人工确认。
+
+## 跨本体统一表示层 —— 数据公共规范
+
+本节描述 `process_scripts` 流水线产出的**最终 LeRobot v2.1 数据集**里，机器人本体
+（robot-collected embodiment）的 `observation.state` 到底是什么格式。这是给下游训练/
+评测脚本读取数据时依赖的公共契约，不是内部设计草稿——如果本节和 `unify_representation.py`
+的实际代码不一致，代码是准的，请提 issue。
+
+对应实现：`process_scripts/unify_representation.py`（计算逻辑）+
+`process_scripts/run_pipeline.py`（把计算结果写进最终数据集）+
+`process_scripts/common/io.py`（`write_lerobot_episodes` 的落盘细节）。
+
+### 1. 谁会被统一表示，谁不会
+
+Gate 条件（`unify_representation.py` 里的 `ROBOT_EMBODIMENT_CLASSES`）：只对以下
+`embodiment_class` 生效——
+
+```
+single_arm, dual_arm, half_humanoid, humanoid, mobile_manipulator, quadruped
+```
+
+`human_hand`（第一/第三人称人手视频，如 H2O、OAKink2、TACO）和 `human_full_body`
+（如 EgoAllo）**不经过这一层**，`observation.state` 保留原始 per-dataset 维度不变。
+这些数据集的 `dof_per_hand` 常见值是 45/48（MANO 参数），如果强行塞进本规范的槎位
+会严重失真——本规范从设计上就不覆盖它们，不是槎位不够宽的问题。
+
+### 2. 80 维 canonical 向量布局
+
+固定总维度 80，按下表切片。`JOINT_SLOT`（7）和 `GRIPPER_SLOT`（21）是从注册表实测数据
+反推出来的（见第4节，`dof_per_arm` 实测最大值7、`dof_per_hand` 实测最大值21）；`EEF_SLOT`（7）
+不是数据反推的，是固定的位姿表示惯例（3维位置+4维四元数），跟具体数据集无关：
+
+| 子区间 | 维度 | 内容 | 常量名 |
+|---|---|---|---|
+| `[0:7]`（单臂）/ `[0:7]`（arm1） | 7 | 关节位置 | `JOINT_SLOT` |
+| `[7:14]` | 7 | 末端位姿：3维位置 + 4维四元数 | `EEF_SLOT` |
+| `[14:35]` | 21 | 夹爪/灵巧手槎位（见第3节分支规则） | `GRIPPER_SLOT` |
+| `[35:70]`（仅双臂数据集） | 35 | arm2，结构与 `[0:35]` 完全相同 | `ARM_BLOCK_DIM` |
+| `[70:73]` | 3 | 移动底盘 `vx/vy/yaw` 速度，仅 `has_mobile_base=true` 时填充 | `MOBILE_BASE_SLOT` |
+| `[73:80]` | 7 | 预留，当前恒为0，给未来新模态（如躯干位姿）留空间 | — |
+
+四元数的分量顺序（xyzw vs wxyz）是 `convert_scripts` onboarding 时应遵循的惯例，
+`unify_representation.py` 本身不做任何顺序校验/转换——它只是把 `convert_scripts` 已经
+排好序的4个数原样搬进 `[10:14]`，具体是不是xyzw取决于上游数据集转换代码是否遵循了这个
+惯例，本节不能替代那边的校验。
+
+单臂数据集：`[35:70]` 恒为0，对应的 `mask` 恒为 `False`（不是"第二臂静止"，是"没有第二臂"，
+训练时应该按 mask 忽略这段，不要当成真实的零速度数据）。
+
+`ARM_BLOCK_DIM = JOINT_SLOT + EEF_SLOT + GRIPPER_SLOT = 35`，`MOBILE_BASE_SLOT` 是从
+`2 * ARM_BLOCK_DIM` 算出来的——这两个都是代码里的派生表达式，不是写死的数字，以后如果
+再调整槎位宽度，这两处不用手动同步。
+
+### 3. 夹爪槎位 `[14:35]` 的分支规则
+
+槎位宽度固定21维，但不同 `gripper_type` 只用其中一部分：
+
+- `parallel_jaw` / `three_jaw` / `cage_pinch` / `suction`（简单夹爪）→ 只用 **slot0**
+  （1维开合宽度/吸附状态），剩余20维置0、mask=False
+- `dexterous_hand`（灵巧手）→ 用实际列宽（最多21维，不足补0，超过截断），每一维单独
+  设 mask
+- 其他/未知 gripper_type → 全部置0，mask=False
+
+**手腕不占用这个槎位**——手腕姿态已经在 `[7:14]` 的末端位姿里了（那是整条运动链末端的
+笛卡尔位姿，含手腕）。这里的21维是手**自身**的执行器自由度（手指+虎口等），跟手腕解耦。
+
+### 4. 为什么是21，不是15或其他数字
+
+2026-07-20 之前的版本用的是15，来自参考论文（Qwen-RobotManip）的默认假设，没有拿本项目
+自己的注册表数据验证过。后来查了 `datasets_registry.yaml`/`convert_scripts/configs/*.yaml`
+里所有 `gripper_type=dexterous_hand` 的数据集，按 `embodiment_class` 分成"机器人采集"
+（会走这一层）和"人手视频/MANO"（被第1节的gate排除，不会走这一层）两类。**机器人采集的
+6个**（这是全部，不是抽样）：
+
+| 数据集 | `embodiment_class` | `dof_per_hand` |
+|---|---|---|
+| `humanoidbench` | humanoid | **21** |
+| `arcap` | single_arm | 16 |
+| `nvidia_gr00t_teleop_g1` | humanoid | 7 |
+| `nvidia_locomanipulation_grail` | humanoid | 7 |
+| `dexmimicgen` | dual_arm | 6 |
+| `gr00t_teleop_sim` | humanoid | 6 |
+
+`humanoidbench`（Unitree H1 + Shadow Hand）的21来源于其 `convert_scripts/configs/humanoidbench.yaml`
+的 `field_sources.dof_per_hand` 标注：论文原文是"we normalize the action space to be
+[-1,1]^||A||, where ||A||=61 (19 for the humanoid body and 21 for each hand)"，
+"21 actuator DOF per Shadow Hand end effector" 是标注时对这句话的转述，不是论文原文
+逐字引用。
+
+`dof_per_hand=21` 是当前这6个机器人灵巧手数据集里的实测最大值，所以槎位宽度改成21——刚好
+覆盖现有数据，不多留冗余。如果以后有数据集实测超过21维的灵巧手，需要再次按同样的方式
+（查注册表实测值，不是猜）决定新宽度，并同步更新本节、`unify_representation.py`
+的 `GRIPPER_SLOT` 常量、以及 `run_pipeline.py` 里 README 模板的"已知局限"措辞。
+
+被排除的人手视频/MANO 数据集（`dexcap`=16, `ph2d`=6, `h2o`=48, `oakink2`=48, `taco`=48,
+`vitra`=45, `hoi4d`=45, `egoallo`=45）——不管它们的 `dof_per_hand` 多大或多小，排除的
+原因始终是第1节的 `embodiment_class` gate（`human_hand`/`human_full_body`），不是因为
+它们凑巧是45/48维；`dexcap`/`ph2d` 的 `dof_per_hand` 也不到21，但同样因为不是机器人采集
+而被排除。
+
+### 5. `episode.action` 不做统一化
+
+本层**只处理 `observation.state`，不处理 `action`**。`action` 在最终输出里保持原始
+per-dataset 维度不变。这是有意的范围收窄（不是遗漏）：`action` 的语义（joint velocity /
+eef delta pose / 离散符号等）比 state 更多样，统一到同一套槎位需要额外设计，这轮没有做。
+
+### 6. mask：怎么知道哪些维度是"真实数据"
+
+`unify_representation.apply()` 除了算出80维向量，还会算一个80维的 bool mask（对同一个
+数据集内所有帧、所有episode都是同一份，因为它只取决于 `dof_per_arm`/`num_arms`/
+`gripper_type`/`has_mobile_base` 这些数据集级别的固定配置，不随帧变化）。
+
+这个 mask 会作为**独立的 lerobot feature** 写进最终数据集：
+
+```
+observation.state_canonical_mask   # bool, shape (80,)，每帧都写，但整数据集内容完全相同
+```
+
+`mask[i]=False` 表示第 i 维是"这个本体本来就没有这个自由度"的零填充，不是"测量值恰好是0"。
+训练时用这个 mask 过滤loss/attention，而不是直接假设全部80维都是有效信号。
+
+### 7. 已知局限
+
+- **`dof_per_arm` 配错了但没超列宽时，本层无法检测**：`_pack_arm` 完全信任
+  `config.dof_per_arm` 划分关节/末端位姿的边界。如果这个值配错了（比如设置得比真实关节数
+  大），但该臂的总列宽仍然够用，会把真实的末端位姿/夹爪数据错位塞进关节槎位，`mask` 还是
+  `True`，没有任何报错信号。这跟 Stage4（有URDF可以交叉验证 `dof_per_arm`）不同，这一层
+  没有独立的地面真值可以核对，正确性完全依赖上游 `DatasetConfig.dof_per_arm` 填得准。
+- **只统一 state，不统一 action**（见第5节）。
+- **不覆盖 MANO/人手视频**（见第1节）——这些数据的完整参数保留在
+  `lerobot_v2_1_staging/` 原始数据里，本层完全不touch它们。
+- **超过21维的灵巧手会被截断**——目前注册表里没有这种数据集，一旦出现需要重新评估
+  槎位宽度（见第4节）。
+
+### 8. 怎么验证
+
+```bash
+cd embodied_datasets/public_datasets_raw/process_scripts
+source .venv-process/bin/activate   # 或 .venv-process/bin/pytest 直接调用
+pytest tests/test_unify_representation.py -v   # 本层的单元测试：单臂/双臂/移动底盘/gate/21维灵巧手边界
+pytest tests/test_run_pipeline.py -v           # 验证 canonical_state 真的替换了 episode.state 并写进最终数据集
+```
+
+`tests/test_unify_representation.py` 里有一个专门测试21维灵巧手的用例
+（`test_dexterous_hand_with_21_dof_packs_without_truncation`），构造21维互不相同的数值，
+断言全部21维都正确落进 `[14:35]` 且 `mask=True`——如果以后又把槎位宽度改窄了，这个测试
+会先崩。
 
 ## 当前进度
 

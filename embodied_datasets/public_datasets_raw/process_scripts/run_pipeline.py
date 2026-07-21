@@ -211,8 +211,11 @@ README_TEMPLATE = """# {name}
 {processing_log}
 
 ## 已知局限
-- 80 维统一表示层是有损投影（灵巧手/MANO 高自由度参数被压缩进 15 维槎位），完整参数保留在
-  lerobot_v2_1_staging/ 原始数据中。
+- 80 维统一表示层里的灵巧手槎位是 21 维，目前覆盖了注册表里所有机器人采集灵巧手数据集的
+  实测自由度（最大 21，见 humanoidbench 的 Shadow Hand）；未来若出现超过 21 维的机器人
+  灵巧手会被截断。MANO/人手视频数据集（human_hand/human_full_body）完全不经过这一层，
+  不受此限制，完整参数保留在 lerobot_v2_1_staging/ 原始数据中。详见
+  embodied_datasets/README.md 的"跨本体统一表示层"一节。
 """
 
 
