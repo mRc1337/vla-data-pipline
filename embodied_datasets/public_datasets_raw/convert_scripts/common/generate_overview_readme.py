@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from .io import load_dataset_config, load_registry
+from .readme_sections import replace_marked_section as _replace_marked_section
 from .schema import DatasetConfig, RegistryEntry
 
 TABLE_START_MARKER = "<!-- AUTO-GENERATED TABLE START -->"
@@ -73,11 +74,9 @@ def render_overview_table(
 
 
 def replace_marked_section(readme_text: str, table_markdown: str) -> str:
-    start = readme_text.index(TABLE_START_MARKER) + len(TABLE_START_MARKER)
-    end = readme_text.index(TABLE_END_MARKER)
-    if end < start:
-        raise ValueError("TABLE_END_MARKER appears before TABLE_START_MARKER")
-    return readme_text[:start] + "\n\n" + table_markdown + "\n\n" + readme_text[end:]
+    return _replace_marked_section(
+        readme_text, TABLE_START_MARKER, TABLE_END_MARKER, table_markdown
+    )
 
 
 def main() -> None:

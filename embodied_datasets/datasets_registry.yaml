@@ -579,3 +579,10 @@
   integrity_status: not_verified
   convert_status: not_converted
   process_status: not_processed
+- id: robodojo
+  name: RoboDojo
+  priority: P2
+  download_status: not_downloaded
+  integrity_status: not_verified
+  convert_status: not_converted
+  process_status: not_processed

@@ -1,8 +1,106 @@
 id: tencent_hy_embodied_0_5_vla_data
 name: tencent/Hy-Embodied-0.5-VLA-Data
+source_url: https://huggingface.co/datasets/tencent/Hy-Embodied-0.5-VLA-Data
+paper_url: https://arxiv.org/abs/2606.14409
+license: CC-BY-4.0
+release_type: fixed_episode_dataset
+collection_method: umi
 secondary_collection_methods: []
-camera_views: []
+is_multi_embodiment: false
+embodiment_class: dual_arm
+robot_platform: other
+num_arms: 2
+gripper_type: parallel_jaw
+has_mobile_base: false
+rotation_representation: quaternion
+state_dim: 16
+action_dim: 2
+fps: 30.0
+fps_variable: false
+num_camera_views: 3
+camera_views:
+- head
+- left_wrist
+- right_wrist
+depth_coverage: none
 additional_modalities: []
+has_language_instruction: true
+num_task_types: 70
+urdf_available: false
+urdf_source: not_found
+expected_size_gb: 18800.0
+expected_num_episodes: 250304
+expected_duration_hours: 2163.0
 review_status: pending_human_review
-field_sources: {}
-suggested_new_enum_values: {}
+field_sources:
+  source_url: https://huggingface.co/datasets/tencent/Hy-Embodied-0.5-VLA-Data -- HF dataset repo page,
+    verified to exist via HF API (api/datasets/tencent/Hy-Embodied-0.5-VLA-Data).
+  paper_url: 'HF README badge links to https://arxiv.org/abs/2606.14409; arXiv page title confirms ''Hy-Embodied-0.5-VLA:
+    From Vision-Language-Action Models to a Real-World Robot Learning Stack''.'
+  license: 'https://huggingface.co/datasets/tencent/Hy-Embodied-0.5-VLA-Data cardData.license=''cc-by-4.0''
+    and README.md ''## License: This dataset is released under CC-BY-4.0'' (note: the separate GitHub
+    code repo is Apache-2.0, but that governs the codebase, not this dataset).'
+  release_type: Fixed release of 22 static Lance tables with a stated total episode/frame/hour count,
+    not a generation framework, scene platform, or RL benchmark env -- HF README 'Dataset Statistics'
+    table.
+  collection_method: 'HF README abstract: ''high-fidelity UMI demonstrations collected via a custom fingertip
+    interface with optical motion-capture''; GitHub README Key Features: ''collected with a custom fingertip
+    UMI rig tracked by an optical motion-capture system''.'
+  is_multi_embodiment: Both README/GitHub describe one consistent custom fingertip UMI rig used to collect
+    the whole released corpus; no second collection device or robot embodiment is mentioned for data acquisition
+    itself.
+  embodiment_class: 'HF README Data Schema: ''observation.state ... Dual-arm EEF state: left [...], right
+    [...]''; GitHub README Data table: ''State | 16-dim dual-arm EEF (pos + quat + gripper per arm)'';
+    dataset tagged ''bimanual'' on HF.'
+  robot_platform: No named commercial robot platform applies -- both READMEs describe a 'custom fingertip
+    UMI device/rig', an embodiment-agnostic handheld data-collection tool, not a fixed robot; mirrors
+    the 'other' mapping used for the similar FastUMI handheld-UMI dataset in this registry.
+  num_arms: Bimanual/dual-arm demonstrations throughout -- HF README Overview 'bimanual manipulation dataset'
+    and GitHub README 'dual-arm teleoperation trajectories' / 'dual-arm EEF'.
+  gripper_type: 'GitHub README Coordinate System note: ''the gripper value represents the travel distance
+    of the parallel gripper in millimeters (mm)'' -- explicit parallel-jaw gripper.'
+  has_mobile_base: No mobile base is mentioned anywhere in the HF or GitHub README; data collection is
+    via a handheld UMI rig (no robot base present during collection at all).
+  rotation_representation: 'HF README Data Schema table: observation.state includes ''qx,qy,qz,qw'' per
+    arm (dual-arm EEF pose encoded as quaternion + position + gripper).'
+  state_dim: 'HF README Data Schema table: ''observation.state | float32 | [16] | Dual-arm EEF state:
+    left [x,y,z,qx,qy,qz,qw,gripper], right [...]''.'
+  action_dim: 'HF README Data Schema table: ''action | float32 | [2] | Gripper openness [left, right]
+    derived from state''.'
+  fps: HF README Dataset Statistics table 'Frequency | 30 Hz' and GitHub README Data table 'FPS | 30'.
+  fps_variable: Both READMEs state a single fixed frequency value (30 Hz / FPS 30) with no mention of
+    variable frame rate.
+  num_camera_views: 'HF README Dataset Statistics table: ''Cameras | 3 views (head + left wrist + right
+    wrist)''.'
+  camera_views: 'HF README Data Schema table columns: observation.images.cam_high (head/overhead), cam_left_wrist,
+    cam_right_wrist; GitHub README Data table lists the same three camera names.'
+  depth_coverage: HF README Data Schema 'Observations' table lists only three RGB image columns (cam_high,
+    cam_left_wrist, cam_right_wrist, all [240,424,3]); no depth column is present in the documented schema.
+  has_language_instruction: 'HF README Data Schema ''Metadata'' table: ''task | string | [1] | Task description
+    (Chinese, e.g., "抓取红色方块并放入盒子")''.'
+  num_task_types: 'HF README Overview: ''it spans 70+ manipulation tasks''; GitHub README Key Features:
+    ''across 70+ tasks'' (approximate lower bound as stated, exact count not given).'
+  urdf_available: HF repo file listing (via HF datasets API) contains only .gitattributes, LICENSE, README.md,
+    tables.json, tables.parquet, and table_NNN/ data directories -- no .urdf file anywhere in the ~4.8k
+    listed files.
+  urdf_source: 'Same evidence as urdf_available: no URDF file found in the HF dataset repo file listing,
+    and no manufacturer/community URDF is referenced (custom rig, not a named commercial robot).'
+  expected_size_gb: 'HF README Dataset Statistics table: ''Total Size | ~18.8 TB (22 tables)''; converted
+    decimally (18.8 x 1000) to GB as an approximation of the stated TB figure -- exact byte total not
+    independently verified.'
+  expected_num_episodes: 'HF README Dataset Statistics table: ''Total Episodes | 250,304''.'
+  expected_duration_hours: 'HF README Dataset Statistics table: ''Total Duration | 2,163 hours''.'
+suggested_new_enum_values:
+  raw_format: Add RawFormat.LANCE = 'Lance'. Both the HF dataset card ('Format | Lance (LeRobot v3.0 schema)')
+    and the GitHub README ('partitioned into 22 Lance-format tables compatible with LeRobot v3.0') state
+    the raw storage is the Lance columnar format under a LeRobot v3.0 schema, which is distinct from the
+    existing RawFormat.LEROBOT member (this pipeline's own design doc, 2026-07-08-vla-data-pipeline-design.md,
+    explicitly reserves a separate future 'lerobot_v3_0' directory/format apart from the current 'LeRobot
+    v2.1' target format). Forcing this into RawFormat.LEROBOT would conflate two schema-incompatible formats,
+    so left blank instead.
+  action_space: Add something like ActionSpace.GRIPPER_ONLY. The HF README Data Schema table documents
+    the raw 'action' column as float32[2], described exactly as 'Gripper openness [left, right] derived
+    from state' -- i.e. the only recorded action is per-arm gripper open/close; all end-effector motion
+    lives in the separate 16-dim 'observation.state' field, not in 'action'. None of joint_position/joint_velocity/joint_torque/eef_pose/discrete_symbolic/mixed/unknown
+    accurately describes a gripper-only action vector, so left blank instead of forcing eef_pose (which
+    would misrepresent the field as containing pose data it doesn't).

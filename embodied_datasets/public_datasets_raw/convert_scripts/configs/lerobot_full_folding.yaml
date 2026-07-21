@@ -2,8 +2,28 @@ id: lerobot_full_folding
 name: lerobot/full_folding
 release_type: fixed_episode_dataset
 secondary_collection_methods: []
+fps: 30.0
 camera_views: []
 additional_modalities: []
+expected_num_episodes: 5688
+expected_duration_hours: 130.82
 review_status: pending_human_review
-field_sources: {}
+field_sources:
+  expected_num_episodes: 'https://huggingface.co/datasets/lerobot/full_folding meta/info.json
+    (fetched via https://huggingface.co/datasets/lerobot/full_folding/resolve/main/meta/info.json):
+    "total_episodes": 5688, "total_frames": 14129038, "fps": 30, robot_type "openarms_follower"
+    -- this is the only primary source identifying the dataset (no separate paper/project
+    page is linked on the HF card; homepage/paper fields are ''[More Information Needed]'').'
+  fps: 'https://huggingface.co/datasets/lerobot/full_folding meta/info.json (fetched
+    via https://huggingface.co/datasets/lerobot/full_folding/resolve/main/meta/info.json):
+    "total_episodes": 5688, "total_frames": 14129038, "fps": 30, robot_type "openarms_follower"
+    -- this is the only primary source identifying the dataset (no separate paper/project
+    page is linked on the HF card; homepage/paper fields are ''[More Information Needed]'').'
+  expected_duration_hours: 'https://huggingface.co/datasets/lerobot/full_folding meta/info.json
+    (fetched via https://huggingface.co/datasets/lerobot/full_folding/resolve/main/meta/info.json):
+    "total_episodes": 5688, "total_frames": 14129038, "fps": 30, robot_type "openarms_follower"
+    -- this is the only primary source identifying the dataset (no separate paper/project
+    page is linked on the HF card; homepage/paper fields are ''[More Information Needed]'').
+    Derived: duration_hours = total_frames / fps / 3600 = 14129038 / 30.0 / 3600 =
+    130.8244, rounded to 130.82.'
 suggested_new_enum_values: {}

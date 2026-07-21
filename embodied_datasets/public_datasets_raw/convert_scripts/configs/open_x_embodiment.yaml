@@ -21,58 +21,65 @@ expected_size_gb: 8964.94
 expected_num_episodes: 2419193
 review_status: pending_human_review
 field_sources:
-  source_url: github.com/google-deepmind/open_x_embodiment README, re-verified 2026-07
-    by direct fetch; canonical repo, unchanged
-  paper_url: 'arXiv:2310.08864 abstract page, re-verified by direct fetch: ''Open
-    X-Embodiment: Robotic Learning Datasets and RT-X Models'''
-  license: 'GitHub README ''License and Disclaimer'' section, re-verified by direct
-    fetch: data materials under CC-BY 4.0, software separately under Apache-2.0'
-  raw_format: 'GitHub README ''Dataset structure'': ''each episode is represented
-    using the RLDS episode format''; corroborated by arXiv:2310.08864 Sec III-A. Re-verified
-    by direct fetch'
-  release_type: GitHub repo + colab distribute a fixed, versioned set of pre-recorded
-    RLDS episodes via TFDS/gsutil (not a sim/generation framework or RL env); re-checked,
-    unchanged
-  collection_method: 'Live pull of official dataset spreadsheet ''Data Collect Method''
-    column (72 constituent datasets, 2026-07): 43/72 (~60%) use human teleoperation
-    in some form (VR, spacemouse, puppeteering, kinesthetic, joystick, shared-control)
-    -> majority/primary method'
-  secondary_collection_methods: 'Same spreadsheet ''Data Collect Method'' column:
-    28/72 (~39%) use scripted motion primitives or trained expert/autonomous policies
-    rather than direct human teleop -> substantial secondary method across the aggregation'
-  is_multi_embodiment: Spreadsheet 'Robot Morphology' column spans Single Arm (54),
-    Mobile Manipulator (10), Wheeled Robot (3), Bi-Manual (2), Quadrupedal Robot (1),
-    Human (1), plus one 3-embodiment entry (RoboVQA), across >=20 distinct robot models
-    per arXiv:2310.08864 ('22 different robots ... 21 institutions') -> explicitly
-    heterogeneous multi-embodiment aggregation
-  action_space: 'Spreadsheet ''Action Space'' column: mixture of EEF Position, EEF
-    velocity, Joint position, joint torque/pressure and other custom spaces across
-    the 72 constituent datasets, no single space applies collection-wide'
-  depth_coverage: 'Live pull of dataset spreadsheet ''# Depth Cams'' column (72 rows,
-    2026-07 re-verification): 52/72 have 0 depth cameras, 20/72 have >=1 -> partial
-    coverage at the collection level, confirms prior value'
-  has_language_instruction: 'Live pull of spreadsheet ''Language Annotations'' column
-    (2026-07 re-verification): 45/72 rows carry Templated/Natural/LLM-generated annotations
-    vs 27/72 ''None'' -> majority have language instructions, confirms prior value'
+  source_url: github.com/google-deepmind/open_x_embodiment README, re-verified 2026-07 by
+    direct fetch; canonical repo, unchanged
+  paper_url: 'arXiv:2310.08864 abstract page, re-verified by direct fetch: ''Open X-Embodiment:
+    Robotic Learning Datasets and RT-X Models'''
+  license: 'GitHub README ''License and Disclaimer'' section, re-verified by direct fetch:
+    data materials under CC-BY 4.0, software separately under Apache-2.0'
+  raw_format: 'GitHub README ''Dataset structure'': ''each episode is represented using the
+    RLDS episode format''; corroborated by arXiv:2310.08864 Sec III-A. Re-verified by direct
+    fetch'
+  release_type: GitHub repo + colab distribute a fixed, versioned set of pre-recorded RLDS
+    episodes via TFDS/gsutil (not a sim/generation framework or RL env); re-checked, unchanged
+  collection_method: 'Live pull of official dataset spreadsheet ''Data Collect Method'' column
+    (72 constituent datasets, 2026-07): 43/72 (~60%) use human teleoperation in some form
+    (VR, spacemouse, puppeteering, kinesthetic, joystick, shared-control) -> majority/primary
+    method'
+  secondary_collection_methods: 'Same spreadsheet ''Data Collect Method'' column: 28/72 (~39%)
+    use scripted motion primitives or trained expert/autonomous policies rather than direct
+    human teleop -> substantial secondary method across the aggregation'
+  is_multi_embodiment: Spreadsheet 'Robot Morphology' column spans Single Arm (54), Mobile
+    Manipulator (10), Wheeled Robot (3), Bi-Manual (2), Quadrupedal Robot (1), Human (1),
+    plus one 3-embodiment entry (RoboVQA), across >=20 distinct robot models per arXiv:2310.08864
+    ('22 different robots ... 21 institutions') -> explicitly heterogeneous multi-embodiment
+    aggregation
+  action_space: 'Spreadsheet ''Action Space'' column: mixture of EEF Position, EEF velocity,
+    Joint position, joint torque/pressure and other custom spaces across the 72 constituent
+    datasets, no single space applies collection-wide'
+  depth_coverage: 'Live pull of dataset spreadsheet ''# Depth Cams'' column (72 rows, 2026-07
+    re-verification): 52/72 have 0 depth cameras, 20/72 have >=1 -> partial coverage at the
+    collection level, confirms prior value'
+  has_language_instruction: 'Live pull of spreadsheet ''Language Annotations'' column (2026-07
+    re-verification): 45/72 rows carry Templated/Natural/LLM-generated annotations vs 27/72
+    ''None'' -> majority have language instructions, confirms prior value'
   num_task_types: 'arXiv:2310.08864 abstract, re-verified by direct fetch: ''22 different
-    robots ... 21 institutions, demonstrating 527 skills (160266 tasks)'' -- 527 is
-    the distinct skill/task-type count, confirms prior value'
+    robots ... 21 institutions, demonstrating 527 skills (160266 tasks)'' -- 527 is the distinct
+    skill/task-type count, confirms prior value'
   fps_variable: 'Live pull of spreadsheet ''Control Frequency'' column (2026-07 re-verification):
-    discrete values 1, 2, 3, 3.75, 5, 10, 12.5, 15, 20, 30, 50, 66.6, 500 Hz plus
-    several N/A entries -> no single fps, confirms prior value'
-  expected_size_gb: 'Live pull of spreadsheet summary row ''Current Download Size
-    (GB): 8964.94'' (2026-07 re-verification of the live Google Sheet CSV export),
-    confirms prior value'
-  expected_num_episodes: 'Live pull of spreadsheet summary row ''# Total Episodes:
-    2,419,193'' (2026-07 re-verification), confirms prior value; supersedes paper''s
-    headline ''1M+ trajectories'' figure (verified still present in arXiv abstract),
-    which reflects an earlier collection snapshot'
+    discrete values 1, 2, 3, 3.75, 5, 10, 12.5, 15, 20, 30, 50, 66.6, 500 Hz plus several
+    N/A entries -> no single fps, confirms prior value'
+  expected_size_gb: 'Live pull of spreadsheet summary row ''Current Download Size (GB): 8964.94''
+    (2026-07 re-verification of the live Google Sheet CSV export), confirms prior value'
+  expected_num_episodes: 'Live pull of spreadsheet summary row ''# Total Episodes: 2,419,193''
+    (2026-07 re-verification), confirms prior value; supersedes paper''s headline ''1M+ trajectories''
+    figure (verified still present in arXiv abstract), which reflects an earlier collection
+    snapshot'
+  expected_duration_hours: 'Investigated and left blank: the official OXE dataset spreadsheet
+    (docs.google.com/spreadsheets/d/1rPBD77tk60AEIGZrGSODwyyzs5FgCU9Uz3h-3_t2A9g, re-fetched
+    as CSV 2026-07) header row (row 569) lists Dataset, Robot, # Episodes, File Size (GB),
+    Robot Morphology, Gripper, Action Space, # RGB/Depth/Wrist Cams, Language Annotations,
+    Data Collect Method, Control Frequency, etc. per constituent dataset but has no Hours/Duration
+    column, and arXiv:2310.08864 gives no aggregate total-hours figure. Per this task''s explicit
+    guidance for large well-known aggregated datasets, left blank rather than summing per-episode
+    durations across all 72 heterogeneous constituent datasets (each with its own fps, per
+    fps_variable=true) without a documented per-dataset average-length table to do so reliably.'
 suggested_new_enum_values:
   collection_method: scripted -- spreadsheet 'Data Collect Method' distinguishes hard-coded/motion-primitive
-    'Scripted' collection (15/72 datasets) from trained 'Expert Policy' collection
-    (13/72); both currently had to be folded into autonomous_policy since no dedicated
-    non-learned 'scripted' value exists
-  gripper_type: mixed -- for large aggregations like OXE the 'Gripper' column spans
-    default parallel-jaw, custom 3D-printed, suction cups, human hands and dexterous
-    hands simultaneously with no dominant single type and no existing enum value to
-    represent a heterogeneous mixture (analogous to action_space's MIXED)
+    'Scripted' collection (15/72 datasets) from trained 'Expert Policy' collection (13/72);
+    both currently had to be folded into autonomous_policy since no dedicated non-learned
+    'scripted' value exists
+  gripper_type: mixed -- for large aggregations like OXE the 'Gripper' column spans default
+    parallel-jaw, custom 3D-printed, suction cups, human hands and dexterous hands simultaneously
+    with no dominant single type and no existing enum value to represent a heterogeneous mixture
+    (analogous to action_space's MIXED)

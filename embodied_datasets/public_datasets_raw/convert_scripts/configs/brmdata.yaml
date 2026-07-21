@@ -34,138 +34,124 @@ additional_modalities:
 has_language_instruction: false
 num_task_types: 10
 expected_num_episodes: 500
+expected_duration_hours: 1.92
 num_subjects: 3
 review_status: confirmed
 field_sources:
-  source_url: 'RE-VERIFIED AND CORRECTED (2026-07-10 re-verification pass): the previously-recorded
-    https://embodiedrobot.github.io/ now redirects to a generic "JD Explore Academy
-    - VLA Lab" blog index listing several unrelated projects (OFA, JDVLA-Align, JDVLA-RL,
-    JDVLA-Human) with BRMData as just one linked post. Corrected to the specific BRMData
-    project page https://embodiedrobot.github.io/BRMData.html, which is the actual
-    landing page with Datasets/Paper/Code/License buttons for this dataset (confirmed
-    via curl fetch on 2026-07-10). Still consistent with arXiv abstract https://arxiv.org/abs/2405.18860
-    and GitHub repo https://github.com/Louis-ZhangLe/BRMData'
-  paper_url: 'NEWLY FILLED: https://arxiv.org/abs/2405.18860 (Zhang et al., "Empowering
-    Embodied Manipulation: A Bimanual-Mobile Robot Manipulation Dataset for Household
-    Tasks", arXiv:2405.18860, also linked as the "Paper" button on https://embodiedrobot.github.io/BRMData.html)'
+  source_url: 'RE-VERIFIED AND CORRECTED (2026-07-10 re-verification pass): the previously-recorded https://embodiedrobot.github.io/
+    now redirects to a generic "JD Explore Academy - VLA Lab" blog index listing several unrelated projects
+    (OFA, JDVLA-Align, JDVLA-RL, JDVLA-Human) with BRMData as just one linked post. Corrected to the specific
+    BRMData project page https://embodiedrobot.github.io/BRMData.html, which is the actual landing page
+    with Datasets/Paper/Code/License buttons for this dataset (confirmed via curl fetch on 2026-07-10).
+    Still consistent with arXiv abstract https://arxiv.org/abs/2405.18860 and GitHub repo https://github.com/Louis-ZhangLe/BRMData'
+  paper_url: 'NEWLY FILLED: https://arxiv.org/abs/2405.18860 (Zhang et al., "Empowering Embodied Manipulation:
+    A Bimanual-Mobile Robot Manipulation Dataset for Household Tasks", arXiv:2405.18860, also linked as
+    the "Paper" button on https://embodiedrobot.github.io/BRMData.html)'
   license: 'RE-CONFIRMED: GitHub README https://raw.githubusercontent.com/Louis-ZhangLe/BRMData/main/README.md
-    (''The BRMData datasets are both licensed under MIT License'') and paper arXiv:2405.18860
-    Appendix A ''Licensing'' (''BRMData is released under the open-source MIT license'')
-    -- fetched and re-read in full on 2026-07-10, text unchanged from prior pass'
+    (''The BRMData datasets are both licensed under MIT License'') and paper arXiv:2405.18860 Appendix
+    A ''Licensing'' (''BRMData is released under the open-source MIT license'') -- fetched and re-read
+    in full on 2026-07-10, text unchanged from prior pass'
   raw_format: 'RE-CONFIRMED: GitHub source https://github.com/Louis-ZhangLe/BRMData/blob/main/collect_data/collect_data.py
-    uses `import h5py` and writes `dataset_path + ''.hdf5''`; paper Appendix C ''Data
-    Formats'' per-episode observation/action schema (images/images_depth/qpos/qvel/effort/action/base_action)
-    matches this HDF5 layout'
-  release_type: 'NEWLY SOURCED (field previously filled but lacked a field_sources
-    entry): BRMData is a one-time, fixed collection of 500 recorded human-teleoperated
-    trajectories across 10 tasks (paper Section 3.1 ''Data Collection Protocol'' and
-    Table 1), released as a static HDF5 dataset via the JD Cloud box link in Appendix
-    B -- not a simulation/generation framework, scene asset platform, or RL benchmark
-    environment, so fixed_episode_dataset is the correct enum value'
-  collection_method: 'RE-CONFIRMED: Paper arXiv:2405.18860 Section 3.1 ''Data Collection
-    Setup'': Leader-1/Leader-2 arms are ''designated for teleoperation by human experts'',
-    with actions synchronously replicated to Follower-1/Follower-2 arms; each task
-    performed by three human experts. Re-read in full HTML text on 2026-07-10, no
-    change'
-  secondary_collection_methods: 'NEWLY SOURCED (field previously left as empty list
-    with no source note): paper Section 3.1 and Appendix C describe only one data
-    collection pipeline (bimanual leader-follower teleoperation via Leader-1/Leader-2
-    arms); no autonomous-policy rollouts, UMI hand-held collection, or synthesis methods
-    are mentioned anywhere in the paper or repo, so left empty'
-  is_multi_embodiment: 'NEWLY FILLED: false. Paper Appendix E ''Robot Platform'' and
-    Section 3.1 describe a single fixed hardware platform (4 ARX-5 arms + Tracer AGV
-    base) used to collect all 10 tasks; single-arm vs dual-arm vs mobile tasks (Table
-    1) are different task types performed on the same embodiment, not different robot
-    embodiments'
-  embodiment_class: 'RE-CONFIRMED: Paper Section 3.1: platform has two follower manipulation
-    arms (Follower-1, Follower-2) mounted on an AGV with a two-wheel differential
-    Tracer mobile base -> bimanual arms + mobile base = mobile_manipulator'
-  robot_platform: 'RE-CONFIRMED: Paper Section 3.1 / Appendix E: ''the data collection
-    hardware platform for BRMData comprises 4 ARX-5 robot arms, each equipped with
-    7 joints and a parallel gripper'''
-  num_arms: 'RE-CONFIRMED: Paper Section 3.1: Follower-1 and Follower-2 are the two
-    manipulation (follower) arms performing tasks; Leader-1/Leader-2 are teleop input
-    arms, not counted as manipulation arms (schema caps num_arms at 2 anyway)'
-  dof_per_arm: 'RE-CONFIRMED: Paper Section 3.1 (''each equipped with 7 joints'')
-    and Appendix C data schema where qpos/action are 14-dim, split 7 per arm (indices
-    0-7 left arm, 7-14 right arm)'
-  gripper_type: 'RE-CONFIRMED: Paper Section 3.1/Appendix E: arms ''equipped with
-    7 joints and a parallel gripper'''
-  hand_pose_representation: 'NEWLY FILLED: none. The end-effector is a parallel-jaw
-    gripper (Section 3.1/Appendix E), not a dexterous/articulated hand and not bare-hand
-    tracking, so the MANO/keypoints_3d/joint_angles hand-shape encodings do not apply'
-  has_mobile_base: 'RE-CONFIRMED: Paper Section 3.1: ''The platform includes an automated
-    guided vehicle equipped with a two-wheel differential Tracer mobile base for providing
-    essential mobility.'' Also Table 1 lists Garbage Recycle / High Five as ''Movable''
-    mobile-manipulation tasks, and Appendix C schema includes a base_action(2) field'
-  action_space: 'RE-CONFIRMED: Paper Appendix C ''Data Formats'': dataset records
-    ''joint positions and efforts for 14 joints'' with qpos/action arrays of shape
-    (14,), i.e. joint-space control. Note a separate base_action(2) field exists for
-    the mobile base drive command and is not part of the 14-dim arm action counted
-    here'
-  action_frame: 'RE-CONFIRMED: Paper Appendix C schema: action array holds target
-    joint positions (qpos-like), consistent with ALOHA/ACT-style absolute joint-position
-    targets rather than deltas'
-  rotation_representation: 'RE-CONFIRMED: Paper Appendix C: state/action are joint
-    positions (qpos, 14-dim), not end-effector Cartesian poses, so no explicit rotation
-    representation is used'
-  state_dim: 'RE-CONFIRMED: Paper Appendix C ''Data Formats'' code listing: qpos shape
-    (14,) # 0-7:left arm, 7-14: right arm'
-  action_dim: 'RE-CONFIRMED: Paper Appendix C ''Data Formats'' code listing: action
-    shape (14,) # 0-7:left arm, 7-14: right arm (a separate base_action(2) exists
-    for the mobile base and is not counted here)'
-  fps: 'RE-CONFIRMED: Paper Section 3.2.3 ''Cross-Sensor'': for most manipulation
-    tasks, Intel Realsense D435 cameras capture data at 60Hz; only Bottle Pick and
-    Bottle Handoff use Orbbec Dabai cameras at 30Hz'
-  fps_variable: 'RE-CONFIRMED: Paper Section 3.2.3: two different camera frequencies
-    are used across tasks (30Hz for Bottle Pick/Bottle Handoff via Orbbec Dabai, 60Hz
-    for the rest via Realsense D435)'
-  num_camera_views: 'RE-CONFIRMED: Paper Appendix C schema lists three camera keys:
-    cam_high, cam_left_wrist, cam_right_wrist (each with RGB and matching depth image),
-    also matches Section 3.1 description of two wrist RGBD cameras + one fixed middle
-    RGBD camera'
-  camera_views: 'RE-CONFIRMED: Paper Section 3.1/Figure 3 and Appendix C: cam_high
-    = centrally mounted fixed ''middle'' camera (third_person), cam_left_wrist and
-    cam_right_wrist = wrist-mounted RGBD cameras on the left/right follower arms'
-  has_synchronized_multiview_rig: 'NEWLY FILLED: true. Paper Appendix C ''Data Formats''
-    shows a single per-timestep record containing simultaneous images/images_depth
-    keys for all three cameras (cam_high, cam_left_wrist, cam_right_wrist) alongside
-    the matching qpos/action, i.e. the three RGBD views are captured in lockstep as
-    one synchronized multi-view rig, not independently timestamped streams'
-  depth_coverage: 'RE-CONFIRMED: Paper Appendix C schema: images_depth is provided
-    for all three cameras (cam_high, cam_left_wrist, cam_right_wrist), matching the
-    RGB views 1:1; Section 3.2.3 confirms RGB and depth images at 640x480 for all
-    three views'
-  additional_modalities: 'NEWLY FILLED: force_torque. Paper Table 2 (dataset comparison)
-    gives BRMData a checkmark in the ''Torque'' column, and Appendix C ''Data Formats''
-    schema explicitly includes a per-joint ''effort'' array (14,) alongside qpos/qvel/action
-    -- joint torque/effort sensing maps to the force_torque modality. No tactile,
-    audio, or eye-gaze sensing is mentioned anywhere in the paper or repo'
-  has_language_instruction: 'RE-CONFIRMED: Paper Appendix C ''Data Formats'' JSON
-    schema only lists images/images_depth/qpos/qvel/effort/action/base_action per
-    episode step; no language/instruction field is present in the released per-episode
-    data format. Section 4 (Table 7) does define one fixed language command per task
-    for the MT-ACT baseline experiment, but that is a researcher-added per-task label
-    for one specific method, not part of the released per-episode dataset schema,
-    so has_language_instruction remains false'
-  num_task_types: 'RE-CONFIRMED: Paper Table 1 ''Key attribute analysis of robot manipulation
-    tasks across BRMData'' lists exactly 10 tasks: Bottle Pick, Single Fruit Pick,
-    Plate Place, Fruit Handover, Bottle Handoff, Cup Place, Multi Fruit Pick, Wine
-    Wipe, Garbage Recycle, High Five'
-  expected_num_episodes: 'RE-CONFIRMED: Paper Section 3.1 ''Data Collection Protocol''
-    (re-read in full HTML text on 2026-07-10): ''each manipulation task within the
-    dataset includes the collection of 50 action trajectories'' across the 10 tasks
-    in Table 1 (50 x 10 = 500); note project page https://embodiedrobot.github.io/BRMData.html
-    ''News'' section (2024/08) states 5 further tasks were collected afterward, but
-    no episode/trajectory count is given for them anywhere findable, so the 500 figure
-    from the paper is kept as the citable, quantified value'
-  num_subjects: 'NEWLY FILLED: 3. Paper Section 3.1 ''Data Collection Protocol'':
-    ''To enrich the behavior diversity of the dataset, each manipulation task is performed
-    by three human experts. These experts use the Leader-1 and Leader-2 robot arms
-    to demonstrate the manipulation tasks...'''
+    uses `import h5py` and writes `dataset_path + ''.hdf5''`; paper Appendix C ''Data Formats'' per-episode
+    observation/action schema (images/images_depth/qpos/qvel/effort/action/base_action) matches this HDF5
+    layout'
+  release_type: 'NEWLY SOURCED (field previously filled but lacked a field_sources entry): BRMData is
+    a one-time, fixed collection of 500 recorded human-teleoperated trajectories across 10 tasks (paper
+    Section 3.1 ''Data Collection Protocol'' and Table 1), released as a static HDF5 dataset via the JD
+    Cloud box link in Appendix B -- not a simulation/generation framework, scene asset platform, or RL
+    benchmark environment, so fixed_episode_dataset is the correct enum value'
+  collection_method: 'RE-CONFIRMED: Paper arXiv:2405.18860 Section 3.1 ''Data Collection Setup'': Leader-1/Leader-2
+    arms are ''designated for teleoperation by human experts'', with actions synchronously replicated
+    to Follower-1/Follower-2 arms; each task performed by three human experts. Re-read in full HTML text
+    on 2026-07-10, no change'
+  secondary_collection_methods: 'NEWLY SOURCED (field previously left as empty list with no source note):
+    paper Section 3.1 and Appendix C describe only one data collection pipeline (bimanual leader-follower
+    teleoperation via Leader-1/Leader-2 arms); no autonomous-policy rollouts, UMI hand-held collection,
+    or synthesis methods are mentioned anywhere in the paper or repo, so left empty'
+  is_multi_embodiment: 'NEWLY FILLED: false. Paper Appendix E ''Robot Platform'' and Section 3.1 describe
+    a single fixed hardware platform (4 ARX-5 arms + Tracer AGV base) used to collect all 10 tasks; single-arm
+    vs dual-arm vs mobile tasks (Table 1) are different task types performed on the same embodiment, not
+    different robot embodiments'
+  embodiment_class: 'RE-CONFIRMED: Paper Section 3.1: platform has two follower manipulation arms (Follower-1,
+    Follower-2) mounted on an AGV with a two-wheel differential Tracer mobile base -> bimanual arms +
+    mobile base = mobile_manipulator'
+  robot_platform: 'RE-CONFIRMED: Paper Section 3.1 / Appendix E: ''the data collection hardware platform
+    for BRMData comprises 4 ARX-5 robot arms, each equipped with 7 joints and a parallel gripper'''
+  num_arms: 'RE-CONFIRMED: Paper Section 3.1: Follower-1 and Follower-2 are the two manipulation (follower)
+    arms performing tasks; Leader-1/Leader-2 are teleop input arms, not counted as manipulation arms (schema
+    caps num_arms at 2 anyway)'
+  dof_per_arm: 'RE-CONFIRMED: Paper Section 3.1 (''each equipped with 7 joints'') and Appendix C data
+    schema where qpos/action are 14-dim, split 7 per arm (indices 0-7 left arm, 7-14 right arm)'
+  gripper_type: 'RE-CONFIRMED: Paper Section 3.1/Appendix E: arms ''equipped with 7 joints and a parallel
+    gripper'''
+  hand_pose_representation: 'NEWLY FILLED: none. The end-effector is a parallel-jaw gripper (Section 3.1/Appendix
+    E), not a dexterous/articulated hand and not bare-hand tracking, so the MANO/keypoints_3d/joint_angles
+    hand-shape encodings do not apply'
+  has_mobile_base: 'RE-CONFIRMED: Paper Section 3.1: ''The platform includes an automated guided vehicle
+    equipped with a two-wheel differential Tracer mobile base for providing essential mobility.'' Also
+    Table 1 lists Garbage Recycle / High Five as ''Movable'' mobile-manipulation tasks, and Appendix C
+    schema includes a base_action(2) field'
+  action_space: 'RE-CONFIRMED: Paper Appendix C ''Data Formats'': dataset records ''joint positions and
+    efforts for 14 joints'' with qpos/action arrays of shape (14,), i.e. joint-space control. Note a separate
+    base_action(2) field exists for the mobile base drive command and is not part of the 14-dim arm action
+    counted here'
+  action_frame: 'RE-CONFIRMED: Paper Appendix C schema: action array holds target joint positions (qpos-like),
+    consistent with ALOHA/ACT-style absolute joint-position targets rather than deltas'
+  rotation_representation: 'RE-CONFIRMED: Paper Appendix C: state/action are joint positions (qpos, 14-dim),
+    not end-effector Cartesian poses, so no explicit rotation representation is used'
+  state_dim: 'RE-CONFIRMED: Paper Appendix C ''Data Formats'' code listing: qpos shape (14,) # 0-7:left
+    arm, 7-14: right arm'
+  action_dim: 'RE-CONFIRMED: Paper Appendix C ''Data Formats'' code listing: action shape (14,) # 0-7:left
+    arm, 7-14: right arm (a separate base_action(2) exists for the mobile base and is not counted here)'
+  fps: 'RE-CONFIRMED: Paper Section 3.2.3 ''Cross-Sensor'': for most manipulation tasks, Intel Realsense
+    D435 cameras capture data at 60Hz; only Bottle Pick and Bottle Handoff use Orbbec Dabai cameras at
+    30Hz'
+  fps_variable: 'RE-CONFIRMED: Paper Section 3.2.3: two different camera frequencies are used across tasks
+    (30Hz for Bottle Pick/Bottle Handoff via Orbbec Dabai, 60Hz for the rest via Realsense D435)'
+  num_camera_views: 'RE-CONFIRMED: Paper Appendix C schema lists three camera keys: cam_high, cam_left_wrist,
+    cam_right_wrist (each with RGB and matching depth image), also matches Section 3.1 description of
+    two wrist RGBD cameras + one fixed middle RGBD camera'
+  camera_views: 'RE-CONFIRMED: Paper Section 3.1/Figure 3 and Appendix C: cam_high = centrally mounted
+    fixed ''middle'' camera (third_person), cam_left_wrist and cam_right_wrist = wrist-mounted RGBD cameras
+    on the left/right follower arms'
+  has_synchronized_multiview_rig: 'NEWLY FILLED: true. Paper Appendix C ''Data Formats'' shows a single
+    per-timestep record containing simultaneous images/images_depth keys for all three cameras (cam_high,
+    cam_left_wrist, cam_right_wrist) alongside the matching qpos/action, i.e. the three RGBD views are
+    captured in lockstep as one synchronized multi-view rig, not independently timestamped streams'
+  depth_coverage: 'RE-CONFIRMED: Paper Appendix C schema: images_depth is provided for all three cameras
+    (cam_high, cam_left_wrist, cam_right_wrist), matching the RGB views 1:1; Section 3.2.3 confirms RGB
+    and depth images at 640x480 for all three views'
+  additional_modalities: 'NEWLY FILLED: force_torque. Paper Table 2 (dataset comparison) gives BRMData
+    a checkmark in the ''Torque'' column, and Appendix C ''Data Formats'' schema explicitly includes a
+    per-joint ''effort'' array (14,) alongside qpos/qvel/action -- joint torque/effort sensing maps to
+    the force_torque modality. No tactile, audio, or eye-gaze sensing is mentioned anywhere in the paper
+    or repo'
+  has_language_instruction: 'RE-CONFIRMED: Paper Appendix C ''Data Formats'' JSON schema only lists images/images_depth/qpos/qvel/effort/action/base_action
+    per episode step; no language/instruction field is present in the released per-episode data format.
+    Section 4 (Table 7) does define one fixed language command per task for the MT-ACT baseline experiment,
+    but that is a researcher-added per-task label for one specific method, not part of the released per-episode
+    dataset schema, so has_language_instruction remains false'
+  num_task_types: 'RE-CONFIRMED: Paper Table 1 ''Key attribute analysis of robot manipulation tasks across
+    BRMData'' lists exactly 10 tasks: Bottle Pick, Single Fruit Pick, Plate Place, Fruit Handover, Bottle
+    Handoff, Cup Place, Multi Fruit Pick, Wine Wipe, Garbage Recycle, High Five'
+  expected_num_episodes: 'RE-CONFIRMED: Paper Section 3.1 ''Data Collection Protocol'' (re-read in full
+    HTML text on 2026-07-10): ''each manipulation task within the dataset includes the collection of 50
+    action trajectories'' across the 10 tasks in Table 1 (50 x 10 = 500); note project page https://embodiedrobot.github.io/BRMData.html
+    ''News'' section (2024/08) states 5 further tasks were collected afterward, but no episode/trajectory
+    count is given for them anywhere findable, so the 500 figure from the paper is kept as the citable,
+    quantified value'
+  num_subjects: 'NEWLY FILLED: 3. Paper Section 3.1 ''Data Collection Protocol'': ''To enrich the behavior
+    diversity of the dataset, each manipulation task is performed by three human experts. These experts
+    use the Leader-1 and Leader-2 robot arms to demonstrate the manipulation tasks...'''
+  expected_duration_hours: 'Derived from arXiv:2405.18860 Table 1 ''Key attribute analysis'' Steps column
+    per task (Bottle Pick 400, Single Fruit Pick 400, Plate Place 600, Fruit Handover 500, Bottle Handoff
+    800, Cup Place 800, Multi Fruit Pick 900, Wine Wipe 1000, Garbage Recycle 1200, High Five 500) combined
+    with Sec 3.2.3 camera rates (30Hz for Bottle Pick/Bottle Handoff via Orbbec Dabai, 60Hz for the other
+    8 tasks via Realsense D435) and Sec 3.1''s ''50 action trajectories'' per task (500 episodes total):
+    per-episode durations summed across the 10 tasks = 400/30 + 800/30 + 400/60 + 600/60 + 500/60 + 800/60
+    + 900/60 + 1000/60 + 1200/60 + 500/60 = 138.33s, x 50 trajectories/task = 6916.67s = 1.92 hours.'
 suggested_new_enum_values:
-  robot_platform_mobile_base: 'The Tracer AGV two-wheel differential mobile base (from
-    AgileX) underlying the platform has no dedicated enum value; ''robot_platform:
-    arx5'' only captures the manipulator arms, not the mobile base component. Consider
-    adding an ''agilex_tracer'' or generic ''mobile_base'' enum value if the schema
-    wants to separately capture base hardware.'
+  robot_platform_mobile_base: 'The Tracer AGV two-wheel differential mobile base (from AgileX) underlying
+    the platform has no dedicated enum value; ''robot_platform: arx5'' only captures the manipulator arms,
+    not the mobile base component. Consider adding an ''agilex_tracer'' or generic ''mobile_base'' enum
+    value if the schema wants to separately capture base hardware.'

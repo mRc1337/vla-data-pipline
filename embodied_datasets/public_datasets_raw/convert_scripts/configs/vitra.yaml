@@ -36,159 +36,132 @@ review_status: pending_human_review
 field_sources:
   license: HF API cardData.license=mit for VITRA-VLA/VITRA-1M (huggingface.co/api/datasets/VITRA-VLA/VITRA-1M)
     + GitHub repo LICENSE badge (MIT). Re-verified 2026-07-13, unchanged.
-  raw_format: 'github.com/microsoft/VITRA data/data.md sec 4 ''Metadata Structure'':
-    per-episode individual .npy dict files. Re-verified, unchanged (Custom).'
-  release_type: readme.md 'Pretrained Models and Datesets' table lists a fixed total
-    of 1,222,918 episodes for VITRA-1M; HF card size_categories '1M<n<10M'. A static
-    released corpus, not a generation framework/scene platform/RL env.
-  collection_method: arXiv:2510.21571 (Li et al. 2025) Sec 3.4 explicitly refers to
-    the 4 source corpora (Ego4D, Epic-Kitchen, EgoExo4D, SSV2) as 'egocentric human
-    videos' processed without robot teleoperation. Re-verified against readme/data.md,
-    unchanged (egocentric_human).
-  secondary_collection_methods: VITRA-1M (this entry) is 100% derived from egocentric
-    human video processing per arXiv:2510.21571 Sec 3.4; no other collection method
-    is mixed in. The separate teleoperation-collected finetuning data is its own HF
-    dataset (microsoft/VITRA-TeleData, referenced in readme.md and data/teleoperate_data.md)
+  raw_format: 'github.com/microsoft/VITRA data/data.md sec 4 ''Metadata Structure'': per-episode individual
+    .npy dict files. Re-verified, unchanged (Custom).'
+  release_type: readme.md 'Pretrained Models and Datesets' table lists a fixed total of 1,222,918 episodes
+    for VITRA-1M; HF card size_categories '1M<n<10M'. A static released corpus, not a generation framework/scene
+    platform/RL env.
+  collection_method: arXiv:2510.21571 (Li et al. 2025) Sec 3.4 explicitly refers to the 4 source corpora
+    (Ego4D, Epic-Kitchen, EgoExo4D, SSV2) as 'egocentric human videos' processed without robot teleoperation.
+    Re-verified against readme/data.md, unchanged (egocentric_human).
+  secondary_collection_methods: VITRA-1M (this entry) is 100% derived from egocentric human video processing
+    per arXiv:2510.21571 Sec 3.4; no other collection method is mixed in. The separate teleoperation-collected
+    finetuning data is its own HF dataset (microsoft/VITRA-TeleData, referenced in readme.md and data/teleoperate_data.md)
     and is out of scope for this entry.
-  embodiment_class: 'arXiv:2510.21571 abstract: ''Treating human hand as dexterous
-    robot end-effector''; data/data.md sec 4 per-episode left/right MANO hand pose
-    dicts. Re-verified, unchanged (human_hand).'
-  num_arms: arXiv:2510.21571 Sec 4.1.3 'Unified Single- and Dual-Hand Action Prediction'
-    + data/data.md left/right per-hand pose dicts -- each episode models up to 2 hands
-    (bimanual). Re-verified, unchanged.
-  dof_per_hand: 'NEW. arXiv:2510.21571 Eq. (3), Sec 4.1.2 ''Hand Action Space'': theta_h
-    in R^(15x3), i.e. 15 MANO joints x 3 Euler-angle parameters = 45 DOF per hand;
-    matches readme.md code comment ''hand_pose: 45 joint angles as Euler angles (15
-    joints x 3 axes)''.'
-  gripper_type: NEW, inferred. arXiv:2510.21571 abstract explicitly frames the human
-    hand as 'dexterous robot end-effector' (i.e. treated as a dexterous hand, not
-    a parallel-jaw/suction gripper). Judgment call since VITRA-1M has no physical
-    gripper -- flagged for human review.
-  hand_pose_representation: 'NEW. Finger pose is parameterized via the MANO hand model
-    throughout: data/data.md ''beta''(10)/''hand_pose''(15x3x3) fields explicitly
-    ''based on the MANO_RIGHT model''; arXiv:2510.21571 Eq. (3) theta_h is ''in the
-    local frame of the MANO hand model''. Chose mano over keypoints_3d/joint_angles
-    since the representation is MANO''s own parametric joint-angle encoding; borderline
-    call vs. joint_angles enum value, flagged for human review.'
-  has_mobile_base: Egocentric video capture only (head-worn/handheld camera or third-person
-    webcam per source dataset), no mobile base. Re-verified against data/data.md,
-    unchanged (false).
-  action_space: 'arXiv:2510.21571 Eq. (3), Sec 4.1.2: action = wrist delta pose (Δt,
-    Δr, i.e. eef_pose-like) + 15-joint hand pose angles (joint_position-like) per
-    hand -- a mixed representation. Re-verified with the paper''s formal equation
-    (previously only cited readme code comments), unchanged (mixed).'
-  action_frame: 'CORRECTED from ''absolute'' to ''mixed_delta_absolute''. arXiv:2510.21571
-    Eq. (3), Sec 4.1.2 explicitly defines a_t = [Δt^l, Δr^l, theta_h^l, Δt^r, Δr^r,
-    theta_h^r]: ''Δt and Δr are the relative wrist translation and rotation ... between
-    consecutive frames'' (delta), while theta_h (hand joint angles) is not marked
-    as a delta (i.e. absolute per-frame joint angles). The prior value (absolute)
+  embodiment_class: 'arXiv:2510.21571 abstract: ''Treating human hand as dexterous robot end-effector'';
+    data/data.md sec 4 per-episode left/right MANO hand pose dicts. Re-verified, unchanged (human_hand).'
+  num_arms: arXiv:2510.21571 Sec 4.1.3 'Unified Single- and Dual-Hand Action Prediction' + data/data.md
+    left/right per-hand pose dicts -- each episode models up to 2 hands (bimanual). Re-verified, unchanged.
+  dof_per_hand: 'NEW. arXiv:2510.21571 Eq. (3), Sec 4.1.2 ''Hand Action Space'': theta_h in R^(15x3),
+    i.e. 15 MANO joints x 3 Euler-angle parameters = 45 DOF per hand; matches readme.md code comment ''hand_pose:
+    45 joint angles as Euler angles (15 joints x 3 axes)''.'
+  gripper_type: NEW, inferred. arXiv:2510.21571 abstract explicitly frames the human hand as 'dexterous
+    robot end-effector' (i.e. treated as a dexterous hand, not a parallel-jaw/suction gripper). Judgment
+    call since VITRA-1M has no physical gripper -- flagged for human review.
+  hand_pose_representation: 'NEW. Finger pose is parameterized via the MANO hand model throughout: data/data.md
+    ''beta''(10)/''hand_pose''(15x3x3) fields explicitly ''based on the MANO_RIGHT model''; arXiv:2510.21571
+    Eq. (3) theta_h is ''in the local frame of the MANO hand model''. Chose mano over keypoints_3d/joint_angles
+    since the representation is MANO''s own parametric joint-angle encoding; borderline call vs. joint_angles
+    enum value, flagged for human review.'
+  has_mobile_base: Egocentric video capture only (head-worn/handheld camera or third-person webcam per
+    source dataset), no mobile base. Re-verified against data/data.md, unchanged (false).
+  action_space: 'arXiv:2510.21571 Eq. (3), Sec 4.1.2: action = wrist delta pose (Δt, Δr, i.e. eef_pose-like)
+    + 15-joint hand pose angles (joint_position-like) per hand -- a mixed representation. Re-verified
+    with the paper''s formal equation (previously only cited readme code comments), unchanged (mixed).'
+  action_frame: 'CORRECTED from ''absolute'' to ''mixed_delta_absolute''. arXiv:2510.21571 Eq. (3), Sec
+    4.1.2 explicitly defines a_t = [Δt^l, Δr^l, theta_h^l, Δt^r, Δr^r, theta_h^r]: ''Δt and Δr are the
+    relative wrist translation and rotation ... between consecutive frames'' (delta), while theta_h (hand
+    joint angles) is not marked as a delta (i.e. absolute per-frame joint angles). The prior value (absolute)
     reflected only the raw per-episode metadata''s absolute storage fields (transl_worldspace/global_orient_worldspace)
-    and missed that the actual model action target defined in the paper mixes delta
-    wrist pose with absolute joint angles.'
-  rotation_representation: 'arXiv:2510.21571 Eq. (3): Δr described as ''Euler angles
-    converted from rotation matrices''; readme.md code comment ''global_orient: Global
-    rotation as Euler angles (xyz, in radians)''. Re-verified directly against the
-    paper''s equation, unchanged (euler_xyz).'
-  state_dim: 'readme.md ''State vector structure (total dimension: 122)'': left hand[51]
-    + beta_left[10] + right hand[51] + beta_right[10]; consistent with arXiv:2510.21571
-    Sec 4.1.1 state = wrist pose + hand joint angles per hand. Re-verified, unchanged.'
-  action_dim: 'arXiv:2510.21571 Eq. (3): a_t in R^102 = (Δt[3]+Δr[3]+theta_h[45])
-    x 2 hands = 102. Re-verified directly against the paper''s equation (stronger
-    source than the prior readme-only citation), unchanged.'
-  fps_variable: Source videos come from 4 heterogeneous corpora (Ego4D, Epic-Kitchens,
-    EgoExo4D, SSV2) with different native camera hardware/capture rates; no single
-    fps is documented for VITRA-1M in arXiv:2510.21571, readme.md, or data/data.md.
-    Re-verified, unchanged (true); fps left blank since no exact value is stated.
+    and missed that the actual model action target defined in the paper mixes delta wrist pose with absolute
+    joint angles.'
+  rotation_representation: 'arXiv:2510.21571 Eq. (3): Δr described as ''Euler angles converted from rotation
+    matrices''; readme.md code comment ''global_orient: Global rotation as Euler angles (xyz, in radians)''.
+    Re-verified directly against the paper''s equation, unchanged (euler_xyz).'
+  state_dim: 'readme.md ''State vector structure (total dimension: 122)'': left hand[51] + beta_left[10]
+    + right hand[51] + beta_right[10]; consistent with arXiv:2510.21571 Sec 4.1.1 state = wrist pose +
+    hand joint angles per hand. Re-verified, unchanged.'
+  action_dim: 'arXiv:2510.21571 Eq. (3): a_t in R^102 = (Δt[3]+Δr[3]+theta_h[45]) x 2 hands = 102. Re-verified
+    directly against the paper''s equation (stronger source than the prior readme-only citation), unchanged.'
+  fps_variable: Source videos come from 4 heterogeneous corpora (Ego4D, Epic-Kitchens, EgoExo4D, SSV2)
+    with different native camera hardware/capture rates; no single fps is documented for VITRA-1M in arXiv:2510.21571,
+    readme.md, or data/data.md. Re-verified, unchanged (true); fps left blank since no exact value is
+    stated.
   num_camera_views: 'data/data.md sec 4: each episode carries exactly one ''intrinsics''/''extrinsics''
     camera trajectory (single egocentric camera per episode). Re-verified, unchanged.'
-  camera_views: arXiv:2510.21571 Sec 3.4 explicitly labels all 4 source corpora (Ego4D,
-    Epic-Kitchen, EgoExo4D, SSV2) as 'egocentric human videos'. Re-verified against
-    the paper (stronger source than before), unchanged (head).
-  has_camera_calibration: 'data/data.md sec 3-4: per-episode extrinsics (Tx4x4) and
-    intrinsics (3x3) provided, plus downloadable camera_intrinsics_root for Ego4D/EgoExo4D.
-    Re-verified, unchanged.'
-  depth_coverage: No depth field anywhere in data/data.md episode_info schema, and
-    HF dataset card cardData.modalities = ['3D','Text'] (no depth/RGB-D modality listed).
-    Re-verified, unchanged (none).
-  additional_modalities: No force/torque, tactile, audio, or eye-gaze fields in data/data.md
-    episode_info schema; HF dataset card cardData.modalities = ['3D','Text'] only.
-    Re-verified, unchanged (empty).
-  has_language_instruction: data/data.md sec 4 'text'/'text_rephrase' per-hand fields;
-    HF dataset card modalities include 'Text'; arXiv:2510.21571 Sec 3.3 'Instruction
-    Labeling' (GPT-4.1 generated captions). Re-verified, unchanged.
-  expected_size_gb: 'data/data.md sec 2: ''The total size of all metadata is approximately
-    100 GB'' (metadata/annotations only; raw source videos obtained separately due
-    to licensing). Re-verified, unchanged.'
-  expected_num_episodes: readme.md table sums to 1,222,918 (ego4d_cooking_and_cleaning
-    454,244 + ego4d_other 494,439 + epic 154,464 + egoexo4d 67,053 + ssv2 52,718);
-    arXiv:2510.21571 Sec 3.4 states 'about 1 million episodes' (77% Ego4D, 12% Epic-Kitchen,
-    6% EgoExo4D, 5% SSV2); HF card size_categories '1M<n<10M'. Re-verified, unchanged.
-  paper_url: NEW. readme.md badge links to arXiv abstract page https://arxiv.org/abs/2510.21571
-    -- Li, Deng, Liang et al., 'Scalable Vision-Language-Action Model Pretraining
-    for Robotic Manipulation with Real-Life Human Activity Videos', arXiv:2510.21571
-    (2025).
-  is_multi_embodiment: NEW. VITRA-1M (this entry) contains only human-hand (MANO)
-    data across all 4 source video corpora (arXiv:2510.21571 Sec 3.4) -- no robot-embodiment
-    data is mixed into this release. The teleoperated robot data is a distinct HF
-    dataset (microsoft/VITRA-TeleData), not part of this entry, so is_multi_embodiment=false
-    for VITRA-1M specifically.
-  has_synchronized_multiview_rig: 'NEW. data/data.md sec 4: exactly one camera trajectory
-    (single ''intrinsics''/''extrinsics'' pair) is recorded per episode, even for
-    multi-camera-capable sources such as EgoExo4D (which has synchronized ego+exo
-    rigs upstream) -- VITRA only uses the single egocentric stream per episode, not
-    a synchronized multiview rig.'
-  urdf_available: 'NEW. No robot URDF applies: the dataset''s embodiment is a human
-    hand represented via the MANO parametric model (not a specific robot kinematic
-    platform), and no URDF file is referenced anywhere in the VITRA repo for the human-hand
-    dataset itself (URDFs only appear in data/teleoperate_data.md for the separate
-    Realman-arm+XHand teleoperation dataset).'
-  urdf_source: NEW. Set to not_found for the same reason as urdf_available -- no URDF
-    exists for the MANO human-hand embodiment used by VITRA-1M.
-  expected_duration_hours: Left blank. arXiv:2510.21571 and repo docs report only
-    aggregate episode/frame counts (1M episodes, 26M frames per Sec 3.4) for VITRA-1M;
-    no total duration in hours is stated anywhere for the training corpus, and per-source
-    fps is heterogeneous/undocumented so a duration cannot be reliably derived from
-    frame count alone.
-  num_subjects: Left blank. No dataset-level count of unique human subjects/camera-wearers
-    is reported for VITRA-1M in arXiv:2510.21571, readme.md, or data/data.md (the
-    underlying Ego4D/Epic-Kitchens/EgoExo4D/SSV2 corpora have their own participant
-    counts, but VITRA does not re-aggregate or report a combined figure).
-  num_scenes: Left blank. No dataset-level scene/environment count is reported for
-    VITRA-1M itself. The '47 unseen environments' (Sec 5.2.1) and '117 scenes' (Sec
-    5.3/Appendix B.2) figures in arXiv:2510.21571 describe the separate held-out EVALUATION
-    benchmarks captured by the authors, not the VITRA-1M training corpus, so they
-    are not used here.
-  num_objects: Left blank. The '396 objects' figure (arXiv:2510.21571 Sec 5.2.1) describes
-    the authors' held-out grasping EVALUATION benchmark (47 environments captured
-    with Azure Kinect), not the VITRA-1M training corpus itself; no training-set object
-    count is reported.
-  dof_per_arm: Left blank. VITRA-1M has no traditional robot arm/joint-DOF representation
-    -- wrist pose is tracked as a 6D camera-space pose (translation + rotation) via
-    monocular hand-pose estimation, not an articulated arm with a documented joint
-    count.
-  fps: Left blank. See fps_variable note -- no single fps value is documented across
-    the 4 heterogeneous source video corpora.
-  num_task_types: Left blank. arXiv:2510.21571 describes 'a wide range of ... dexterous
-    manipulation tasks' qualitatively (Sec 1, Sec 3.4) but does not report an exact
-    count of distinct task/skill types for VITRA-1M.
-  robot_platform: N/A for this entry -- embodiment_class is human_hand with no specific
-    target robot platform in VITRA-1M itself. See suggested_new_enum_values for the
-    companion VITRA-TeleData robot hardware.
+  camera_views: arXiv:2510.21571 Sec 3.4 explicitly labels all 4 source corpora (Ego4D, Epic-Kitchen,
+    EgoExo4D, SSV2) as 'egocentric human videos'. Re-verified against the paper (stronger source than
+    before), unchanged (head).
+  has_camera_calibration: 'data/data.md sec 3-4: per-episode extrinsics (Tx4x4) and intrinsics (3x3) provided,
+    plus downloadable camera_intrinsics_root for Ego4D/EgoExo4D. Re-verified, unchanged.'
+  depth_coverage: No depth field anywhere in data/data.md episode_info schema, and HF dataset card cardData.modalities
+    = ['3D','Text'] (no depth/RGB-D modality listed). Re-verified, unchanged (none).
+  additional_modalities: No force/torque, tactile, audio, or eye-gaze fields in data/data.md episode_info
+    schema; HF dataset card cardData.modalities = ['3D','Text'] only. Re-verified, unchanged (empty).
+  has_language_instruction: data/data.md sec 4 'text'/'text_rephrase' per-hand fields; HF dataset card
+    modalities include 'Text'; arXiv:2510.21571 Sec 3.3 'Instruction Labeling' (GPT-4.1 generated captions).
+    Re-verified, unchanged.
+  expected_size_gb: 'data/data.md sec 2: ''The total size of all metadata is approximately 100 GB'' (metadata/annotations
+    only; raw source videos obtained separately due to licensing). Re-verified, unchanged.'
+  expected_num_episodes: readme.md table sums to 1,222,918 (ego4d_cooking_and_cleaning 454,244 + ego4d_other
+    494,439 + epic 154,464 + egoexo4d 67,053 + ssv2 52,718); arXiv:2510.21571 Sec 3.4 states 'about 1
+    million episodes' (77% Ego4D, 12% Epic-Kitchen, 6% EgoExo4D, 5% SSV2); HF card size_categories '1M<n<10M'.
+    Re-verified, unchanged.
+  paper_url: NEW. readme.md badge links to arXiv abstract page https://arxiv.org/abs/2510.21571 -- Li,
+    Deng, Liang et al., 'Scalable Vision-Language-Action Model Pretraining for Robotic Manipulation with
+    Real-Life Human Activity Videos', arXiv:2510.21571 (2025).
+  is_multi_embodiment: NEW. VITRA-1M (this entry) contains only human-hand (MANO) data across all 4 source
+    video corpora (arXiv:2510.21571 Sec 3.4) -- no robot-embodiment data is mixed into this release. The
+    teleoperated robot data is a distinct HF dataset (microsoft/VITRA-TeleData), not part of this entry,
+    so is_multi_embodiment=false for VITRA-1M specifically.
+  has_synchronized_multiview_rig: 'NEW. data/data.md sec 4: exactly one camera trajectory (single ''intrinsics''/''extrinsics''
+    pair) is recorded per episode, even for multi-camera-capable sources such as EgoExo4D (which has synchronized
+    ego+exo rigs upstream) -- VITRA only uses the single egocentric stream per episode, not a synchronized
+    multiview rig.'
+  urdf_available: 'NEW. No robot URDF applies: the dataset''s embodiment is a human hand represented via
+    the MANO parametric model (not a specific robot kinematic platform), and no URDF file is referenced
+    anywhere in the VITRA repo for the human-hand dataset itself (URDFs only appear in data/teleoperate_data.md
+    for the separate Realman-arm+XHand teleoperation dataset).'
+  urdf_source: NEW. Set to not_found for the same reason as urdf_available -- no URDF exists for the MANO
+    human-hand embodiment used by VITRA-1M.
+  expected_duration_hours: Re-checked, left blank (unchanged from prior pass). arXiv:2510.21571 Sec 3.4/5.1
+    states the VITRA-1M pretraining corpus contains '1M episodes and 26M frames (77% Ego4D, 12% Epic-Kitchen,
+    6% EgoExo4D, 5% SSV2)' but never states an fps or per-source frame rate for the extracted episodes
+    (only the source corpora's own native rates, which are heterogeneous and not re-stated), so total_frames/fps
+    duration cannot be reliably computed; no direct hours figure is given either in the paper, github.com/microsoft/VITRA
+    readme.md, or data/data.md.
+  num_subjects: Left blank. No dataset-level count of unique human subjects/camera-wearers is reported
+    for VITRA-1M in arXiv:2510.21571, readme.md, or data/data.md (the underlying Ego4D/Epic-Kitchens/EgoExo4D/SSV2
+    corpora have their own participant counts, but VITRA does not re-aggregate or report a combined figure).
+  num_scenes: Left blank. No dataset-level scene/environment count is reported for VITRA-1M itself. The
+    '47 unseen environments' (Sec 5.2.1) and '117 scenes' (Sec 5.3/Appendix B.2) figures in arXiv:2510.21571
+    describe the separate held-out EVALUATION benchmarks captured by the authors, not the VITRA-1M training
+    corpus, so they are not used here.
+  num_objects: Left blank. The '396 objects' figure (arXiv:2510.21571 Sec 5.2.1) describes the authors'
+    held-out grasping EVALUATION benchmark (47 environments captured with Azure Kinect), not the VITRA-1M
+    training corpus itself; no training-set object count is reported.
+  dof_per_arm: Left blank. VITRA-1M has no traditional robot arm/joint-DOF representation -- wrist pose
+    is tracked as a 6D camera-space pose (translation + rotation) via monocular hand-pose estimation,
+    not an articulated arm with a documented joint count.
+  fps: Left blank. See fps_variable note -- no single fps value is documented across the 4 heterogeneous
+    source video corpora.
+  num_task_types: Left blank. arXiv:2510.21571 describes 'a wide range of ... dexterous manipulation tasks'
+    qualitatively (Sec 1, Sec 3.4) but does not report an exact count of distinct task/skill types for
+    VITRA-1M.
+  robot_platform: N/A for this entry -- embodiment_class is human_hand with no specific target robot platform
+    in VITRA-1M itself. See suggested_new_enum_values for the companion VITRA-TeleData robot hardware.
 suggested_new_enum_values:
   robot_platform: VITRA's companion fine-tuning dataset (VITRA-TeleData, huggingface.co/datasets/microsoft/VITRA-TeleData
-    and github.com/microsoft/VITRA/blob/main/data/teleoperate_data.md) uses a 'Realman
-    Arm' (7-DoF, URDF at github.com/RealManRobot/rm_models/tree/main/RM75/urdf/RM75-6F)
-    fitted with an 'XHand' 12-DoF dexterous hand -- confirmed by arXiv:2510.21571
-    Sec 5.3.1 ('We use a Realman robot equipped with 12-DoF XHand dexterous hands
-    and a RealSense head camera'). Neither the Realman arm nor XHand appears in the
-    current RobotPlatform enum. Not applied to this config since the primary VITRA
-    dataset (VITRA-1M, this entry) is egocentric human-hand data with no specific
-    target robot; this would be relevant if VITRA-TeleData (HF size_categories '1K<n<10K',
-    ~1.2K teleoperated trajectories per the paper) is onboarded as its own dataset
-    entry.
-  gripper_type: Consider adding a 'human_hand' (or similar bare-hand) enum value distinct
-    from 'dexterous_hand', since VITRA-1M's end-effector is an actual human hand (via
-    MANO reconstruction) rather than a robotic dexterous hand -- 'dexterous_hand'
-    was used here as the closest existing fit per the paper's own framing ('human
-    hand as dexterous robot end-effector'), but a dedicated value would remove ambiguity
-    for future human-video datasets.
+    and github.com/microsoft/VITRA/blob/main/data/teleoperate_data.md) uses a 'Realman Arm' (7-DoF, URDF
+    at github.com/RealManRobot/rm_models/tree/main/RM75/urdf/RM75-6F) fitted with an 'XHand' 12-DoF dexterous
+    hand -- confirmed by arXiv:2510.21571 Sec 5.3.1 ('We use a Realman robot equipped with 12-DoF XHand
+    dexterous hands and a RealSense head camera'). Neither the Realman arm nor XHand appears in the current
+    RobotPlatform enum. Not applied to this config since the primary VITRA dataset (VITRA-1M, this entry)
+    is egocentric human-hand data with no specific target robot; this would be relevant if VITRA-TeleData
+    (HF size_categories '1K<n<10K', ~1.2K teleoperated trajectories per the paper) is onboarded as its
+    own dataset entry.
+  gripper_type: Consider adding a 'human_hand' (or similar bare-hand) enum value distinct from 'dexterous_hand',
+    since VITRA-1M's end-effector is an actual human hand (via MANO reconstruction) rather than a robotic
+    dexterous hand -- 'dexterous_hand' was used here as the closest existing fit per the paper's own framing
+    ('human hand as dexterous robot end-effector'), but a dedicated value would remove ambiguity for future
+    human-video datasets.

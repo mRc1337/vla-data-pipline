@@ -146,6 +146,17 @@ field_sources:
     ''assets'' as tabulated may include some non-graspable scene/articulated-furniture
     props alongside pure manipulable objects, so this is the closest available proxy
     for num_objects, not a strictly object-only count.'
+  expected_duration_hours: 'Investigated, left blank: neither the RoboVerse project
+    page, arXiv:2504.18904 (Table I dataset-statistics, abstract, or full text), nor
+    the HF dataset card (RoboVerseOrg/roboverse_data README) states a total recording/playback
+    duration in hours. Per-episode length is not fixed either -- the 510.5k trajectories
+    are migrated from 15 heterogeneous source simulators/benchmarks (ManiSkill, RLBench,
+    CALVIN, Meta-World, RoboSuite/MimicGen, etc.) each with its own native control
+    frequency, and the paper''s only frame-count figure found (in the real2sim task-generation
+    section: ''we adjust the control frequency so that most episodes span 20 to 60
+    frames'') describes one specific reconstruction sub-method, not a dataset-wide
+    fps/episode-length statistic, so no reliable total_frames/fps derivation is possible;
+    left blank rather than guess.'
 suggested_new_enum_values:
   robot_platform: multi_platform -- HF dataset repo's robots/ directory ships dozens
     of distinct robot descriptions (Franka, Kinova Gen3, Interbotix WidowX 250, KUKA

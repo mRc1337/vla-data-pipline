@@ -28,6 +28,7 @@ has_language_instruction: false
 num_task_types: 2
 urdf_available: true
 urdf_source: manufacturer_official
+expected_duration_hours: 4.7
 num_scenes: 1
 num_objects: 1
 review_status: pending_human_review
@@ -173,6 +174,12 @@ field_sources:
     various tools"); the 14-15 3D-printed tools (Sec 6.5.2) are end-effector attachments,
     not separate manipulated objects, so num_objects=1 (dough) rather than counting
     tools.'
+  expected_duration_hours: 'Derived: arXiv:2306.14447 Abstract/Sec 3.2/6.2.1 states
+    GNN dynamics-model training data was collected as ''around 20 minutes of data
+    for each tool'', and Sec 6.5.2 states ''We design and 3D-print 14 tools'' (the
+    dumpling mold, an additional 15th tool, is a reused real-world mold rather than
+    a newly-captured-data tool). 14 tools x 20 minutes = 280 minutes = 4.67 -> ~4.7
+    hours. https://arxiv.org/abs/2306.14447'
 suggested_new_enum_values:
   rotation_representation: 'single_axis_angle -- RoboCook''s action space parametrizes
     tool rotation as one scalar angle theta about a single (vertical) axis (arXiv:2306.14447

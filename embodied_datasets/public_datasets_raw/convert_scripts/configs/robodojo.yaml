@@ -1,0 +1,176 @@
+id: robodojo
+name: RoboDojo
+source_url: https://huggingface.co/datasets/RoboDojo-Benchmark/RoboDojo
+paper_url: https://arxiv.org/abs/2607.04434
+license: Apache-2.0
+raw_format: HDF5
+release_type: fixed_episode_dataset
+collection_method: simulation
+secondary_collection_methods:
+- teleop
+- scripted
+is_multi_embodiment: true
+embodiment_class: null
+robot_platform: null
+num_arms: 2
+dof_per_arm: 6
+dof_per_hand: 1
+gripper_type: parallel_jaw
+hand_pose_representation: none
+has_mobile_base: false
+action_space: joint_position
+action_frame: absolute
+rotation_representation: quaternion
+state_dim: 28
+action_dim: 14
+fps: 25
+fps_variable: false
+num_camera_views: 3
+camera_views:
+- head
+- left_wrist
+- right_wrist
+has_synchronized_multiview_rig: true
+has_camera_calibration: true
+depth_coverage: none
+additional_modalities: []
+has_language_instruction: true
+num_task_types: 60
+urdf_available: true
+urdf_source: dataset_repo
+expected_size_gb: 797.1
+expected_num_episodes: 5320
+expected_duration_hours: 38.57
+num_subjects: 4
+num_scenes: null
+num_objects: null
+review_status: pending_human_review
+field_sources:
+  source_url: HF dataset repo RoboDojo-Benchmark/RoboDojo, confirmed via HF API (license
+    tag apache-2.0, 56677 files).
+  paper_url: 'arXiv:2607.04434 abstract page, title ''RoboDojo: A Unified Sim-and-Real
+    Benchmark...'', submitted 2026-07-05.'
+  license: HF API cardData.license='apache-2.0' and repo tag 'license:apache-2.0'
+    for RoboDojo-Benchmark/RoboDojo.
+  raw_format: Directly inspected sample .hdf5 files (data/RoboDojo/.../data/episode_*.hdf5
+    and data/RoboDojo_real/.../data/episode_*.hdf5) with h5py; confirmed HDF5 groups
+    action/state/vision/instruction.
+  release_type: The HF repo ships 5320 fixed pre-collected HDF5 episodes (3500 sim
+    + 1800 real + 20 demo), not a generator you run yourself; separate Assets/ (USD
+    scenes) and ckpt/ (policy weights) are eval/infra, not the episode dataset itself.
+  collection_method: Sim episodes are 3500/5300=66% of the non-demo total (paper Table
+    10, Isaac-Sim ARX X5 bimanual platform, Sec 3.1); chosen as primary since it is
+    the majority source. See suggested_new_enum_values for why no single value fits
+    perfectly.
+  secondary_collection_methods: 'Paper Sec 3.2.2/Table 11: real-world 1800 episodes
+    collected via homogeneous leader-follower teleoperation (teleop). Paper Appendix
+    D.1/F.5 and per-task ''Data Source'' labels in Appendix I: sim demos collected
+    via either VR-based teleoperation (teleop) or automated trajectory synthesis with
+    a skill library + cuRobo v2 planner (scripted).'
+  is_multi_embodiment: 'Paper Intro contributions bullet: ''the real-world tasks span
+    three robot embodiments'' (ARX X5, Piper, Piper X); confirmed via HF file listing
+    showing 3 distinct robot subfolders under data/RoboDojo_real/<task>/<robot>/.'
+  num_arms: All 3 embodiments show left_arm_joint_states and right_arm_joint_states
+    groups in every sampled HDF5 (sim arx_x5, real arx_x5/piper/piper_x); paper Sec
+    3.2 calls them 'collaborative bimanual robot platforms'.
+  dof_per_arm: 'Paper Appendix F.5: ''For a single 6-DoF ARX X5 arm...''; also verified
+    left_arm_joint_states/right_arm_joint_states shape=(*,6) in all 5 sampled HDF5
+    files (sim + 3 real embodiments).'
+  dof_per_hand: Verified left_ee_joint_states/right_ee_joint_states shape=(*,1) (single
+    scalar gripper joint) in all sampled HDF5 files, consistent across all embodiments.
+  gripper_type: Single-DOF ee_joint_states per arm in HDF5 is consistent with a parallel
+    two-finger gripper (standard vendor end-effector for ARX X5 and AgileX Piper/Piper
+    X arms); no dexterous/multi-finger DOF observed.
+  hand_pose_representation: No dexterous hand present (parallel-jaw gripper only,
+    single DOF), so no MANO/keypoint/joint-angle hand-shape encoding applies.
+  has_mobile_base: 'Paper Sec 3.1: sim tasks built on ''the ARX X5 bimanual platform,
+    with the two arm bases separated by 0.6m'' (fixed tabletop mount); real-world
+    platform described in Appendix G as a fixed-height eval table with robot arms
+    bolted to a support structure -- no mobile base in any embodiment.'
+  action_space: 'Verified via h5py: action/ group only contains left/right_arm_joint_states
+    (6-dim) and left/right_ee_joint_states (1-dim) -- joint targets, no eef pose action
+    array.'
+  action_frame: 'Verified numerically on sample sim episode: action[''left_arm_joint_states''][t]
+    == state[''left_arm_joint_states''][t+1] exactly, i.e. actions are absolute joint-position
+    targets, not deltas.'
+  rotation_representation: state/left_ee_poses and state/right_ee_poses are 7-dim
+    (3 position + 4 quaternion) in every sampled HDF5 file, e.g. values like [0.707,
+    ~0, ~0, 0.707].
+  state_dim: 'Sum of per-arm state channels present in all sampled HDF5 files (both
+    sim and real): (arm_joint 6 + ee_joint 1 + ee_pose 7) x 2 arms = 28. (Sim episodes
+    additionally carry a redundant delta_ee_poses channel not counted here since it
+    is absent in real episodes.)'
+  action_dim: 'Sum of action channels in all sampled HDF5 files: (arm_joint 6 + ee_joint
+    1) x 2 arms = 14; matches observation.state/action shape=[14] in data/RoboDojo_lerobot_v21_video/meta/info.json.'
+  fps: 'additional_info/frequency == 25 in sampled HDF5 files; data/RoboDojo_lerobot_v21_video/meta/info.json
+    and RoboDojo_lerobot_v30_video/meta/info.json both report fps: 25; paper Tables
+    10-11 state ''25 Hz'' for both sim and real data.'
+  fps_variable: Paper states a single constant 25 Hz for both simulation (Table 10)
+    and real-world (Table 11) demonstrations; all sampled HDF5 files show additional_info/frequency
+    == 25.
+  num_camera_views: HDF5 vision/ group has exactly 3 subgroups (cam_head, cam_left_wrist,
+    cam_right_wrist) in every sampled sim and real episode; paper Sec 3.2.2 confirms
+    'one head camera and two wrist cameras'.
+  camera_views: 'Same as num_camera_views source: cam_head -> head, cam_left_wrist
+    -> left_wrist, cam_right_wrist -> right_wrist, consistently named across sim and
+    real HDF5 files.'
+  has_synchronized_multiview_rig: Paper Sec 3.1.2 ('synchronized RGB-D observations
+    from a head-mounted camera and two wrist cameras') and Sec 3.2.2 ('synchronized
+    RGB observations from three camera views').
+  has_camera_calibration: Sim HDF5 files (build_tower, insert_tubes, arx_x5) each
+    contain per-frame vision/cam_*/extrinsic_matrix (N,4,4) and vision/cam_*/intrinsic_matrix
+    (3,3); real HDF5 files (piper_x, piper, arx_x5) inspected do NOT contain these
+    matrices, so calibration is present for sim only (partial across the whole release,
+    hence boolean set true for the portion that has it).
+  depth_coverage: Paper Appendix D.1 claims sim data has 'synchronized RGB-D observations
+    ... Depth images are normalized and stored as integer values in millimeters',
+    but direct h5py inspection of 2 sim episodes (build_tower, insert_tubes) and 3
+    real episodes found only vision/cam_*/colors (RGB) with no depth arrays anywhere,
+    and no filename in the full HF repo listing contains 'depth'. Set to none based
+    on the actually released files, which contradicts the paper text -- flagged for
+    human review.
+  has_language_instruction: Every sampled HDF5 file (sim and real, all embodiments)
+    has a top-level 'instruction' string dataset, e.g. real piper episode instruction
+    = 'Pick up the pen holder and place all the pens into it.'
+  num_task_types: 'arXiv abstract / GitHub README: ''42 simulation tasks and 18 real-world
+    tasks'' = 60 total task types. Note: only 35 of the 42 sim task directories (34
+    trainable + 1 auxiliary DLC dir; the 8 Open-dimension tasks are eval-only with
+    no shipped demos per paper Sec 3.1.2) and all 18 real tasks actually ship demonstration
+    trajectories on HF.'
+  urdf_available: HF file listing includes Assets/Robots/x5/X5A.urdf (ARX X5) and
+    Assets/Robots/franka/panda.urdf; note piper/piper_x URDFs were not found anywhere
+    in this HF repo (partial coverage -- only the arx_x5 platform used in both sim
+    and real has a shipped URDF).
+  urdf_source: URDF files ship inside the same HF dataset repo under Assets/Robots/x5/X5A.urdf
+    and Assets/Robots/franka/panda.urdf.
+  expected_size_gb: 'Computed from HF API blob sizes (?blobs=true): data/RoboDojo/
+    = 522.77GB + data/RoboDojo_real/ = 272.83GB + data/demo/ = 1.5GB = 797.1GB total,
+    i.e. the raw HDF5+preview-video episode data (excludes Assets/ 41.27GB, ckpt/
+    1016GB, and the redundant pre-converted LeRobot v2.1/v3.0 copies which duplicate
+    the sim episodes in another format).'
+  expected_num_episodes: 'Counted .hdf5 files in the full HF repo file listing: 3500
+    under data/RoboDojo/ (sim) + 1800 under data/RoboDojo_real/ (real) + 20 under
+    data/demo/ (quickstart sample) = 5320 total.'
+  expected_duration_hours: 'Paper Table 10: simulation training data = 20.66h (3500
+    traj, 1,859,602 frames @ 25Hz). Paper Table 11: real-world data = 17.91h (1800
+    traj, 1,611,841 frames @ 25Hz). Sum = 38.57h (excludes the small 20-episode demo
+    folder, whose duration is not reported in the paper).'
+  num_subjects: 'Paper Appendix E.1 / Table 11 caption: ''we collect 100 demonstrations
+    recorded by four different operators'' for the real-world data collection.'
+suggested_new_enum_values:
+  collection_method: RoboDojo's release is genuinely split between simulation-generated
+    episodes (3500/5300=66%, Isaac Sim, via scripted trajectory synthesis or VR teleop)
+    and physical real-robot episodes (1800/5300=34%, leader-follower teleop across
+    3 embodiments). No single existing CollectionMethod value (simulation vs teleop
+    vs scripted) fully represents this; we picked 'simulation' as the majority-share
+    primary value and used secondary_collection_methods=[teleop, scripted] to capture
+    the rest, but a dedicated value such as 'mixed_sim_real' (for benchmarks that
+    ship both non-trivial sim and real portions as a single dataset) would more accurately
+    describe releases like this one.
+  robot_platform: RoboDojo's real-world portion uses AgileX 'Piper' and 'Piper X'
+    bimanual arms, and the ARX X5 bimanual platform (sim + real); none of these three
+    exist in RobotPlatform (ARX5 = generic ARX5, not confirmed to be the same SKU
+    as the 'ARX X5' used here, and there is no Piper/Piper X entry at all). Left robot_platform
+    blank per multi-embodiment convention, but if a single-robot subset of this dataset
+    is ever onboarded separately, RobotPlatform would need 'arx_x5', 'agilex_piper',
+    and 'agilex_piper_x' entries.

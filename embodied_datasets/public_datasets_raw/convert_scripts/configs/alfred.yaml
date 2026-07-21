@@ -15,6 +15,7 @@ hand_pose_representation: none
 has_mobile_base: true
 action_space: discrete_symbolic
 rotation_representation: none
+fps: 5.0
 num_camera_views: 1
 camera_views:
 - head
@@ -27,6 +28,7 @@ urdf_available: false
 urdf_source: not_found
 expected_size_gb: 109.0
 expected_num_episodes: 8055
+expected_duration_hours: 23.8
 num_scenes: 120
 num_objects: 84
 review_status: pending_human_review
@@ -91,6 +93,13 @@ field_sources:
     using combinations of 58 unique object classes and 26 receptacle object classes''
     (58+26=84, matching the abstract''s ''84 object classes''). arXiv:1912.01734 Sec
     3'
+  fps: gen/constants.py defines VIDEO_FRAME_RATE = 5, the frame rate VideoSaver (gen/utils/video_util.py)
+    uses to encode each trajectory's video.mp4 (ffmpeg -r 5), which is the only documented
+    frame rate for the released video/image sequence. https://github.com/askforalfred/alfred/blob/master/gen/constants.py
+  expected_duration_hours: 'Derived: arXiv:1912.01734 Abstract states the dataset
+    totals 428,322 image-action pairs (frames); dividing by the documented VIDEO_FRAME_RATE=5
+    fps (gen/constants.py) gives 428322 / 5 / 3600 = 23.796 -> ~23.8 hours of released
+    video/replay time. https://github.com/askforalfred/alfred/blob/master/gen/constants.py'
 suggested_new_enum_values:
   action_space: 'ALFRED''s action space is 13 discrete symbolic actions (5 navigation:
     MoveAhead, RotateRight, RotateLeft, LookUp, LookDown; 7 interaction: Pickup, Put,

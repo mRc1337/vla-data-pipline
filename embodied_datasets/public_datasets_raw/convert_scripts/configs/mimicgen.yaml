@@ -189,6 +189,15 @@ field_sources:
     than introducing new ones, so num_scenes = num_task_types = 12. This is an interpretive
     derivation (no source states "12 scenes" verbatim), flagged as a residual uncertainty
     for human review.
+  expected_duration_hours: 'Investigated, left blank: neither the MimicGen paper (arXiv:2310.17596),
+    the mimicgen.github.io dataset-statistics page, nor the HF dataset card (amandlek/mimicgen_datasets)
+    states a total recording duration in hours or a total frame/timestep count. fps=20.0
+    (robosuite control_freq) is known, but per-episode length (horizon) varies by
+    task and is not tabulated anywhere in the paper text or docs (only qualitative
+    task descriptions with no per-task step-count table); computing total_frames would
+    require downloading and inspecting the ~149 GB of released HDF5 files directly,
+    which is out of scope for a documentation-only backfill, so left blank rather
+    than guess.'
 suggested_new_enum_values:
   robot_platform: kuka_iiwa - the mimicgen 'robot' dataset type (16,000 demos across
     4 robot-arm embodiments on 2 tasks, per the CoRL 2023 paper's robot-transfer/Appendix

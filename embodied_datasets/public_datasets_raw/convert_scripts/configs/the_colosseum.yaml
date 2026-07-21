@@ -113,4 +113,13 @@ field_sources:
     card -- standard training set = 100 demos x 20 tasks = 2000 episodes. Test set
     (25 demos x 20 tasks x applicable perturbations) is additional and not folded
     into this single figure.'
+  expected_duration_hours: 'CHECKED, LEFT BLANK: neither arXiv:2402.08191 nor the
+    HF dataset card (huggingface.co/datasets/colosseum/colosseum-challenge) nor the
+    GitHub README/readthedocs docs (robot-colosseum.readthedocs.io) state a total
+    recording duration, per-episode length in seconds, or a simulation/data fps for
+    the released RLBench-based demonstrations (the only fps figure in the paper, 30Hz,
+    describes the real-world Kinect-2 camera used in the separate real-robot validation
+    experiments, Appendix X-A, not this simulated dataset). With no stated duration
+    and no citable per-episode-length x fps basis to derive one, left blank rather
+    than guessed.'
 suggested_new_enum_values: {}
