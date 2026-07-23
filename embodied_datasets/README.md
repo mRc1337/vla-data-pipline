@@ -490,12 +490,11 @@ observation.state_canonical_mask   # bool, shape (80,)，每帧都写，但整�
 
 ### 8. 怎么验证
 
-首次搭建需要先建独立的 `.venv-process`（仓库根 `README.md` 有完整说明）：
+首次搭建见仓库根 `README.md`——整个仓库共用一套 `.venv`（Python ≥3.10）：
 
 ```bash
-cd embodied_datasets/scripts/process_scripts
-python3.11 -m venv .venv-process
-source .venv-process/bin/activate
+python3.11 -m venv .venv    # 在仓库根目录执行
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -503,7 +502,7 @@ pip install -r requirements.txt
 
 ```bash
 cd embodied_datasets/scripts/process_scripts
-source .venv-process/bin/activate   # 或 .venv-process/bin/pytest 直接调用
+source ../../../.venv/bin/activate   # 相对仓库根 .venv 的路径
 pytest tests/test_unify_representation.py -v   # 本层的单元测试：单臂/双臂/移动底盘/gate/21维灵巧手边界
 pytest tests/test_run_pipeline.py -v           # 验证 canonical_state 真的替换了 episode.state 并写进最终数据集
 ```

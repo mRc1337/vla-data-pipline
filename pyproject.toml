@@ -2,7 +2,7 @@
 name = "vla-data-pipeline"
 version = "0.1.0"
 description = "VLA robotics dataset registry, onboarding, conversion, and cleaning/alignment pipeline"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 [tool.pytest.ini_options]
 pythonpath = ["embodied_datasets/scripts/convert_scripts"]

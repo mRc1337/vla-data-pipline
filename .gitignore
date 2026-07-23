@@ -4,8 +4,10 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Root Python 3.9+ venv for the registry/onboarding tooling (README.md
-# instructs users to create this with `python3 -m venv .venv`).
+# Single Python 3.10+ venv for the whole repo (registry/onboarding tools
+# plus process_scripts/shared/convert_scripts/verify_scripts, which need
+# lerobot -- requires >=3.10). README.md instructs users to create this
+# with `python3.11 -m venv .venv`.
 /.venv/
 
 # Large reference materials kept locally, not tracked in git (see design doc
@@ -36,12 +38,6 @@ embodied_datasets/scripts/verify_scripts/logs/*.log
 # Design docs / plans written while working the superpowers skill chain
 # (brainstorming -> writing-plans) -- process artifacts, kept locally only.
 docs/superpowers/
-
-# Independent Python 3.11 venv for process_scripts (needs lerobot, which
-# requires >=3.10; repo root stays 3.9-compatible). See
-# docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
-# section 4.
-embodied_datasets/scripts/process_scripts/.venv-process/
 
 # Subagent-driven-development session artifacts (task briefs, review diffs,
 # progress ledger) -- scratch state from the superpowers dev workflow, kept
