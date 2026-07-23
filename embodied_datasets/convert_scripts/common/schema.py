@@ -29,6 +29,7 @@ class IntegrityStatus(str, Enum):
     NOT_VERIFIED = "not_verified"
     VERIFIED = "verified"
     FAILED = "failed"
+    SKIPPED_NO_CHECKER = "skipped_no_checker"
 
 
 class ConvertStatus(str, Enum):
