@@ -9,13 +9,13 @@ vla_data_pipeline/
 ├── embodied_datasets/     # 全部实际工作：数据集注册表、onboarding、转换、清洗流水线
 │   └── README.md          # 详细文档：目录结构、字段参考、跨本体统一表示层规范、如何 onboard 新数据集
 ├── tests/                  # convert_scripts（注册表/onboarding工具）的测试套件
-├── requirements.txt        # 全仓库唯一的 Python 环境依赖
+├── requirements.txt        # 全仓库共用的依赖清单
 └── pyproject.toml          # pytest 配置 + 项目元数据
 ```
 
 详细文档见 [`embodied_datasets/README.md`](embodied_datasets/README.md)——包括完整的数据集注册表字段参考、`process_scripts` 清洗流水线的跨本体统一表示层规范、以及 onboarding 新数据集的流程。
 
-## 一套 Python 环境
+## 环境搭建
 
 整个仓库共用一套 venv（Python ≥3.10，`process_scripts` 依赖的 `lerobot`
 包要求的下限）：
@@ -28,7 +28,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**系统依赖**：处理真实（非合成）视频数据需要系统装 `ffmpeg`（不是 pip 依赖）：
+**系统依赖**：处理视频数据需要系统安装 `ffmpeg`（非 pip 依赖）：
 - macOS：`brew install ffmpeg`
 - Ubuntu/Debian：`sudo apt update && sudo apt install ffmpeg`
 

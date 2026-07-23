@@ -28,10 +28,10 @@ embodied_datasets/
 ## 数据根目录
 
 `datasets_registry.yaml`、`convert_scripts/configs/*.yaml` 和所有脚本代码始终
-留在仓库内，不受下面这条配置影响。只有实际的重数据目录（`data_root/public_datasets_raw/`、
+留在仓库内，不受 `--data-root` 影响。只有重数据目录（`data_root/public_datasets_raw/`、
 `data_root/public_datasets_staging/`、`data_root/public_datasets/lerobot_v3_0/`、
-`data_root/urdf_assets/`）可以指向仓库外任意
-路径，读写这些目录的脚本都接受一个 `--data-root` 参数：
+`data_root/urdf_assets/`）可以指向仓库外任意路径，读写这些目录的脚本都接受一个
+`--data-root` 参数：
 
 ```bash
 python3 run_pipeline.py --data-root /mnt/big_disk/vla_data --dataset-id droid
@@ -45,10 +45,9 @@ python3 run_pipeline.py --data-root /mnt/big_disk/vla_data --dataset-id droid
 `datasets_registry.yaml` 是"实测值"总览表（下载/转换/清洗进度），
 `convert_scripts/configs/<id>.yaml` 是每个数据集的"声明值"详细配置（调研得到
 的本体信息、数据表示方式等）。下面整理两个 pydantic 模型的全部字段；权威定义
-永远是 `convert_scripts/common/schema.py` 里的代码，本节
-如有出入以代码为准。
+是 `convert_scripts/common/schema.py` 里的代码，本节如有出入以代码为准。
 
-下面"当前进度"表格只展示9个核心字段，看不全；每个数据集**全部**约40个声明
+下方"当前进度"表格只展示9个核心字段；每个数据集**全部**约40个声明
 字段（license、robot_platform、camera_views、num_subjects……）见文末"完整字段
 总览"。
 
@@ -344,16 +343,16 @@ for m in <EnumName>: print(m.value)
 
 ## 跨本体统一表示层 —— 数据公共规范
 
-本节描述 `process_scripts` 流水线产出的**最终 LeRobot v3.0 数据集**里，机器人本体
-（robot-collected embodiment）的 `observation.state` 到底是什么格式。这是给下游训练/
-评测脚本读取数据时依赖的公共契约，不是内部设计草稿——如果本节和 `unify_representation.py`
-的实际代码不一致，代码是准的，请提 issue。
+本节定义 `process_scripts` 流水线产出的**最终 LeRobot v3.0 数据集**中，机器人本体
+（robot-collected embodiment）`observation.state` 的格式。这是下游训练/评测脚本
+读取数据时依赖的公共契约；如本节与 `unify_representation.py` 的实际代码不一致，
+以代码为准，请提 issue。
 
 对应实现：`process_scripts/unify_representation.py`（计算逻辑）+
 `process_scripts/run_pipeline.py`（把计算结果写进最终数据集）+
 `shared/lerobot_io.py`（`write_lerobot_episodes` 的落盘细节）。
 
-### 1. 谁会被统一表示，谁不会
+### 1. 适用范围
 
 Gate 条件（`unify_representation.py` 里的 `ROBOT_EMBODIMENT_CLASSES`）：只对以下
 `embodiment_class` 生效——
@@ -363,132 +362,95 @@ single_arm, dual_arm, half_humanoid, humanoid, mobile_manipulator, quadruped
 ```
 
 `human_hand`（第一/第三人称人手视频，如 H2O、OAKink2、TACO）和 `human_full_body`
-（如 EgoAllo）**不经过这一层**，`observation.state` 保留原始 per-dataset 维度不变。
-这些数据集的 `dof_per_hand` 常见值是 45/48（MANO 参数），如果强行塞进本规范的槎位
-会严重失真——本规范从设计上就不覆盖它们，不是槎位不够宽的问题。
+（如 EgoAllo）不经过这一层，`observation.state` 保留原始 per-dataset 维度不变，
+完整参数留在 `data_root/public_datasets_staging/` 原始数据中。
 
 ### 2. 80 维 canonical 向量布局
 
-固定总维度 80，按下表切片。`JOINT_SLOT`（7）和 `GRIPPER_SLOT`（21）是从注册表实测数据
-反推出来的（见第4节，`dof_per_arm` 实测最大值7、`dof_per_hand` 实测最大值21）；`EEF_SLOT`（7）
-不是数据反推的，是固定的位姿表示惯例（3维位置+4维四元数），跟具体数据集无关：
+固定总维度 80，按下表切片。`JOINT_SLOT`（7）和 `GRIPPER_SLOT`（21）取自注册表内
+`dof_per_arm`/`dof_per_hand` 的实测最大值（见第4节）；`EEF_SLOT`（7）是固定的位姿
+表示惯例（3维位置 + 4维四元数），与具体数据集无关：
 
 | 子区间 | 维度 | 内容 | 常量名 |
 |---|---|---|---|
-| `[0:7]`（单臂）/ `[0:7]`（arm1） | 7 | 关节位置 | `JOINT_SLOT` |
+| `[0:7]`（arm1） | 7 | 关节位置 | `JOINT_SLOT` |
 | `[7:14]` | 7 | 末端位姿：3维位置 + 4维四元数 | `EEF_SLOT` |
-| `[14:35]` | 21 | 夹爪/灵巧手槎位（见第3节分支规则） | `GRIPPER_SLOT` |
-| `[35:70]`（仅双臂数据集） | 35 | arm2，结构与 `[0:35]` 完全相同 | `ARM_BLOCK_DIM` |
+| `[14:35]` | 21 | 夹爪/灵巧手槎位（见第3节） | `GRIPPER_SLOT` |
+| `[35:70]`（仅双臂数据集） | 35 | arm2，结构与 `[0:35]` 相同 | `ARM_BLOCK_DIM` |
 | `[70:73]` | 3 | 移动底盘 `vx/vy/yaw` 速度，仅 `has_mobile_base=true` 时填充 | `MOBILE_BASE_SLOT` |
-| `[73:80]` | 7 | 预留，当前恒为0，给未来新模态（如躯干位姿）留空间 | — |
+| `[73:80]` | 7 | 预留，当前恒为0 | — |
 
-四元数的分量顺序（xyzw vs wxyz）是 `convert_scripts` onboarding 时应遵循的惯例，
-`unify_representation.py` 本身不做任何顺序校验/转换——它只是把 `convert_scripts` 已经
-排好序的4个数原样搬进 `[10:14]`，具体是不是xyzw取决于上游数据集转换代码是否遵循了这个
-惯例，本节不能替代那边的校验。
+四元数分量顺序（xyzw / wxyz）由 `convert_scripts` onboarding 时约定；
+`unify_representation.py` 按该约定顺序原样写入 `[10:14]`，不做校验或转换。
 
-单臂数据集：`[35:70]` 恒为0，对应的 `mask` 恒为 `False`（不是"第二臂静止"，是"没有第二臂"，
-训练时应该按 mask 忽略这段，不要当成真实的零速度数据）。
+单臂数据集的 `[35:70]` 恒为0，对应 `mask` 恒为 `False`（表示"没有第二臂"；训练时
+应按 mask 忽略该区间，不应视为第二臂的零速度数据）。
 
-`ARM_BLOCK_DIM = JOINT_SLOT + EEF_SLOT + GRIPPER_SLOT = 35`，`MOBILE_BASE_SLOT` 是从
-`2 * ARM_BLOCK_DIM` 算出来的——这两个都是代码里的派生表达式，不是写死的数字，以后如果
-再调整槎位宽度，这两处不用手动同步。
+`ARM_BLOCK_DIM = JOINT_SLOT + EEF_SLOT + GRIPPER_SLOT = 35`，
+`MOBILE_BASE_SLOT` 起始位置为 `2 * ARM_BLOCK_DIM`。
 
 ### 3. 夹爪槎位 `[14:35]` 的分支规则
 
-槎位宽度固定21维，但不同 `gripper_type` 只用其中一部分：
+槎位宽度固定21维，不同 `gripper_type` 使用其中一部分：
 
-- `parallel_jaw` / `three_jaw` / `cage_pinch` / `suction`（简单夹爪）→ 只用 **slot0**
-  （1维开合宽度/吸附状态），剩余20维置0、mask=False
-- `dexterous_hand`（灵巧手）→ 用实际列宽（最多21维，不足补0，超过截断），每一维单独
-  设 mask
+- `parallel_jaw` / `three_jaw` / `cage_pinch` / `suction`（简单夹爪）→ 只用
+  **slot0**（1维开合宽度/吸附状态），剩余20维置0、mask=False
+- `dexterous_hand`（灵巧手）→ 使用实际列宽（最多21维，不足补0，超过截断），
+  每一维单独设 mask
 - 其他/未知 gripper_type → 全部置0，mask=False
 
-**手腕不占用这个槎位**——手腕姿态已经在 `[7:14]` 的末端位姿里了（那是整条运动链末端的
-笛卡尔位姿，含手腕）。这里的21维是手**自身**的执行器自由度（手指+虎口等），跟手腕解耦。
+手腕姿态记录在 `[7:14]` 的末端位姿中，不占用该槎位；这21维仅为手部自身的执行器
+自由度（手指、虎口等）。
 
-### 4. 为什么是21，不是15或其他数字
+### 4. `GRIPPER_SLOT` 宽度
 
-2026-07-20 之前的版本用的是15，来自参考论文（Qwen-RobotManip）的默认假设，没有拿本项目
-自己的注册表数据验证过。后来查了 `datasets_registry.yaml`/`convert_scripts/configs/*.yaml`
-里所有 `gripper_type=dexterous_hand` 的数据集，按 `embodiment_class` 分成"机器人采集"
-（会走这一层）和"人手视频/MANO"（被第1节的gate排除，不会走这一层）两类。**机器人采集的
-5个**（这是全部，不是抽样）：
+`GRIPPER_SLOT=21`，取自注册表内机器人采集类灵巧手数据集 `dof_per_hand` 实测最大值
+（当前为16，`arcap`），预留余量。若未来出现实测超过21维的灵巧手数据集，需重新评估
+该常量，并同步更新本节、`unify_representation.py` 的 `GRIPPER_SLOT`，以及
+`run_pipeline.py` README 模板中的相应措辞。
 
-| 数据集 | `embodiment_class` | `dof_per_hand` |
-|---|---|---|
-| `arcap` | single_arm | **16** |
-| `nvidia_gr00t_teleop_g1` | humanoid | 7 |
-| `nvidia_locomanipulation_grail` | humanoid | 7 |
-| `dexmimicgen` | dual_arm | 6 |
-| `gr00t_teleop_sim` | humanoid | 6 |
+人手视频/MANO 数据集（`dexcap`/`h2o`/`oakink2`/`taco`/`vitra`/`hoi4d`/`ph2d` 等，
+`dof_per_hand` 常见15-48维）不受此宽度约束——它们由第1节的 gate 条件排除，不经过
+本层。
 
-`dof_per_hand=21` 定这个宽度时，注册表里还有 `humanoidbench`（Unitree H1 + Shadow Hand，
-`dof_per_hand=21`，来自其 `convert_scripts/configs/humanoidbench.yaml` 的
-`field_sources.dof_per_hand` 标注：论文原文是"we normalize the action space to be
-[-1,1]^||A||, where ||A||=61 (19 for the humanoid body and 21 for each hand)"，
-"21 actuator DOF per Shadow Hand end effector" 是标注时对这句话的转述，不是论文原文
-逐字引用），是当时6个机器人灵巧手数据集里的实测最大值，槎位宽度按它定为21——刚好
-覆盖当时的数据，不多留冗余。
+### 5. `episode.action` 范围
 
-2026-07-21：`humanoidbench` 已按数据分类整理的结果从注册表移除（不在最终确认的66个
-数据集范围内），当前注册表内机器人采集灵巧手数据集的实测最大值变成了16（`arcap`）。
-**`GRIPPER_SLOT` 常量本身未跟着收缩，仍保持21**——是否要把21缩到16是一个独立的架构
-决策（会牵动 `ARM_BLOCK_DIM`/`CANONICAL_DIM` 的派生值、已写好的测试、以及所有已按80维
-写出的历史数据），这里先记录现状，不擅自改动，留给后续单独决定。如果以后有数据集实测
-超过21维的灵巧手，或决定收缩槎位宽度，都需要按同样的方式（查注册表实测值，不是猜）
-决定新宽度，并同步更新本节、`unify_representation.py`
-的 `GRIPPER_SLOT` 常量、以及 `run_pipeline.py` 里 README 模板的"已知局限"措辞。
+本层只处理 `observation.state`，不处理 `action`。`action` 在最终输出中保持原始
+per-dataset 维度不变。
 
-被排除的人手视频/MANO 数据集（`dexcap`=16, `ph2d`=6, `h2o`=48, `oakink2`=48, `taco`=48,
-`vitra`=45, `hoi4d`=45）——不管它们的 `dof_per_hand` 多大或多小，排除的
-原因始终是第1节的 `embodiment_class` gate（`human_hand`/`human_full_body`），不是因为
-它们凑巧是45/48维；`dexcap`/`ph2d` 的 `dof_per_hand` 也不到21，但同样因为不是机器人采集
-而被排除。
+### 6. mask 语义
 
-### 5. `episode.action` 不做统一化
+`unify_representation.apply()` 除计算80维向量外，还计算一个80维 bool mask（同一
+数据集内所有帧、所有episode共享同一份，仅取决于 `dof_per_arm`/`num_arms`/
+`gripper_type`/`has_mobile_base` 等数据集级配置）。
 
-本层**只处理 `observation.state`，不处理 `action`**。`action` 在最终输出里保持原始
-per-dataset 维度不变。这是有意的范围收窄（不是遗漏）：`action` 的语义（joint velocity /
-eef delta pose / 离散符号等）比 state 更多样，统一到同一套槎位需要额外设计，这轮没有做。
-
-### 6. mask：怎么知道哪些维度是"真实数据"
-
-`unify_representation.apply()` 除了算出80维向量，还会算一个80维的 bool mask（对同一个
-数据集内所有帧、所有episode都是同一份，因为它只取决于 `dof_per_arm`/`num_arms`/
-`gripper_type`/`has_mobile_base` 这些数据集级别的固定配置，不随帧变化）。
-
-这个 mask 会作为**独立的 lerobot feature** 写进最终数据集：
+该 mask 作为独立的 lerobot feature 写入最终数据集：
 
 ```
-observation.state_canonical_mask   # bool, shape (80,)，每帧都写，但整数据集内容完全相同
+observation.state_canonical_mask   # bool, shape (80,)，每帧写入，整数据集内容相同
 ```
 
-`mask[i]=False` 表示第 i 维是"这个本体本来就没有这个自由度"的零填充，不是"测量值恰好是0"。
-训练时用这个 mask 过滤loss/attention，而不是直接假设全部80维都是有效信号。
+`mask[i]=False` 表示第 i 维是该本体不具备对应自由度的零填充，而非测量值为0。
+训练时应使用该 mask 过滤loss/attention。
 
 ### 7. 已知局限
 
-- **`dof_per_arm` 配错了但没超列宽时，本层无法检测**：`_pack_arm` 完全信任
-  `config.dof_per_arm` 划分关节/末端位姿的边界。如果这个值配错了（比如设置得比真实关节数
-  大），但该臂的总列宽仍然够用，会把真实的末端位姿/夹爪数据错位塞进关节槎位，`mask` 还是
-  `True`，没有任何报错信号。这跟 Stage4（有URDF可以交叉验证 `dof_per_arm`）不同，这一层
-  没有独立的地面真值可以核对，正确性完全依赖上游 `DatasetConfig.dof_per_arm` 填得准。
-- **只统一 state，不统一 action**（见第5节）。
-- **不覆盖 MANO/人手视频**（见第1节）——这些数据的完整参数保留在
-  `data_root/public_datasets_staging/` 原始数据里，本层完全不touch它们。
-- **超过21维的灵巧手会被截断**——目前注册表里没有这种数据集，一旦出现需要重新评估
-  槎位宽度（见第4节）。
-- **经 `convert_scripts` 转换的数据集，`data_root/public_datasets_staging/` 里没有视频**：`shared/lerobot_io.py`
-  的 `write_lerobot_episodes` 目前硬编码 `use_videos=False`，只写
-  `observation.state`/`action`/`task` 这几个 feature，还不支持写视频。这意味着原始数据源里
-  的视频/图像观测，在写入 staging 时会被静默丢弃——`process_scripts` 的
-  `check2_video_state_consistency`/`check3_video_quality` 对任何经过 `convert_scripts`
-  处理的数据集都没有可操作的对象，等同于空跑。这是已知的、当前范围外的局限（不是本轮
-  疏漏）——修复需要给 `write_lerobot_episodes` 加视频写入支持，是另一个独立的功能，留给
-  后续工作。
+- `dof_per_arm` 配置错误但未超出列宽时无法检测：`_pack_arm` 依赖
+  `config.dof_per_arm` 划分关节/末端位姿边界，配置错误但总列宽仍够用时会将末端
+  位姿/夹爪数据错位写入关节槎位，`mask` 仍为 `True`，无报错信号。正确性依赖上游
+  `DatasetConfig.dof_per_arm` 的准确性。
+- 只统一 `state`，不统一 `action`（见第5节）。
+- 不覆盖 MANO/人手视频（见第1节），完整参数保留在
+  `data_root/public_datasets_staging/` 原始数据中。
+- 超过21维的灵巧手会被截断（见第4节）。
+- 经 `convert_scripts` 转换的数据集，`data_root/public_datasets_staging/` 中不含
+  视频：`shared/lerobot_io.py` 的 `write_lerobot_episodes` 目前硬编码
+  `use_videos=False`，只写 `observation.state`/`action`/`task`。原始视频/图像观测
+  在写入 staging 时被丢弃，`process_scripts` 的 `check2_video_state_consistency`/
+  `check3_video_quality` 对经 `convert_scripts` 处理的数据集无可操作对象。修复需要
+  为 `write_lerobot_episodes` 添加视频写入支持。
 
-### 8. 怎么验证
+### 8. 验证
 
 首次搭建见仓库根 `README.md`——整个仓库共用一套 `.venv`（Python ≥3.10）：
 
@@ -503,24 +465,20 @@ pip install -r requirements.txt
 ```bash
 cd embodied_datasets/scripts/process_scripts
 source ../../../.venv/bin/activate   # 相对仓库根 .venv 的路径
-pytest tests/test_unify_representation.py -v   # 本层的单元测试：单臂/双臂/移动底盘/gate/21维灵巧手边界
-pytest tests/test_run_pipeline.py -v           # 验证 canonical_state 真的替换了 episode.state 并写进最终数据集
+pytest tests/test_unify_representation.py -v   # 单臂/双臂/移动底盘/gate/21维灵巧手边界
+pytest tests/test_run_pipeline.py -v           # 验证 canonical_state 替换 episode.state 并写入最终数据集
 ```
 
-`tests/test_unify_representation.py` 里有一个专门测试21维灵巧手的用例
-（`test_dexterous_hand_with_21_dof_packs_without_truncation`），构造21维互不相同的数值，
-断言全部21维都正确落进 `[14:35]` 且 `mask=True`——如果以后又把槎位宽度改窄了，这个测试
-会先崩。
+`tests/test_unify_representation.py::test_dexterous_hand_with_21_dof_packs_without_truncation`
+构造21维互不相同的数值，断言全部21维正确落入 `[14:35]` 且 `mask=True`。
 
-**注意：跑真实（非合成）数据集时需要系统装 `ffmpeg`**（不是pip依赖：
-macOS 用 `brew install ffmpeg`，Ubuntu/Debian 用
-`sudo apt update && sudo apt install ffmpeg`）。lerobot 的视频解码器（torchcodec）只检查库能不能
-import，不检查能不能真正dlopen——没装系统ffmpeg时，所有用 `LeRobotDataset.create()`
-构造的合成fixture测试照样全过（因为不涉及真实视频解码），只有读真实数据集的视频轨才会
-在运行时崩。已经用 `lerobot/pusht`（HuggingFace上一个公开的小型v3.0格式数据集，206
-episode/25650帧）验证过完整流程：真实下载、`load_lerobot_episodes` 原样读取、跑通全部
-9个stage/check模块、最终写出的数据集里 `observation.state` 确认是80维、
-`observation.state_canonical_mask` 确认写入且数值位置正确。
+系统需安装 `ffmpeg`（macOS: `brew install ffmpeg`；Ubuntu/Debian:
+`sudo apt update && sudo apt install ffmpeg`）：lerobot 的视频解码器（torchcodec）
+只检查库可否 import，不检查能否 dlopen，未装系统ffmpeg时合成fixture测试仍可全部
+通过，只有解码真实视频轨时才在运行时失败。已用 `lerobot/pusht`（HuggingFace 公开
+的小型v3.0格式数据集，206 episode/25650帧）验证完整流程：下载、
+`load_lerobot_episodes` 读取、9个stage/check模块、最终数据集 `observation.state`
+为80维、`observation.state_canonical_mask` 写入且数值位置正确。
 
 ## 当前进度
 
