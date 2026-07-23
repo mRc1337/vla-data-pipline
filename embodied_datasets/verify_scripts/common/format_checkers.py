@@ -127,6 +127,27 @@ def check_custom(raw_path: Path, dataset_id: str) -> CheckResult:
     return checker(raw_path)
 
 
+def check_ros_bag_or_mcap(raw_path: Path, raw_format_value: str) -> CheckResult:
+    """`rosbag info`/`mcap info`（design doc 第6节）验证头信息完整——两个都是
+    外部 CLI 工具，不假设本机已装；缺失时返回 NO_CHECKER 而不是抛异常/静默
+    跳过，跟 check_custom 未注册专属校验器时是同一个语义。
+    """
+    tool = "rosbag" if raw_format_value == "ROS_bag" else "mcap"
+    if shutil.which(tool) is None:
+        return CheckResult(outcome=CheckOutcome.NO_CHECKER, reason=f"{tool!r} CLI not installed on this machine")
+
+    extension = ".bag" if raw_format_value == "ROS_bag" else ".mcap"
+    files = sorted(raw_path.rglob(f"*{extension}"))
+    if not files:
+        return CheckResult(outcome=CheckOutcome.FAILED, reason=f"no *{extension} files found under {raw_path}")
+
+    for path in files:
+        result = subprocess.run([tool, "info", str(path)], capture_output=True, text=True)
+        if result.returncode != 0:
+            return CheckResult(outcome=CheckOutcome.FAILED, reason=f"{tool} info failed on {path.name}: {result.stderr.strip()[:200]}")
+    return CheckResult(outcome=CheckOutcome.PASSED)
+
+
 def check_scale(
     actual_size_gb: float,
     actual_episode_count: Optional[int],
@@ -185,6 +206,8 @@ def check_format(raw_path: Path, raw_format, dataset_id: str) -> CheckResult:
     raw_format_value = getattr(raw_format, "value", raw_format)
     if raw_format_value in ("RLDS", "TFRecord"):
         return check_rlds_or_tfrecord(raw_path)
+    if raw_format_value in ("ROS_bag", "MCAP"):
+        return check_ros_bag_or_mcap(raw_path, raw_format_value)
     if raw_format_value == "HDF5":
         return check_hdf5(raw_path)
     if raw_format_value == "LeRobot":

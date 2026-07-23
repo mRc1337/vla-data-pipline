@@ -225,3 +225,74 @@ def test_check_format_dispatches_rlds_to_check_rlds_or_tfrecord(tmp_path):
 
     result = check_format(raw_path, "RLDS", "test_id")
     assert result.outcome == CheckOutcome.PASSED
+
+
+def test_check_ros_bag_or_mcap_reports_no_checker_when_tool_missing(monkeypatch):
+    import shutil as shutil_module
+
+    from common.format_checkers import CheckOutcome, check_ros_bag_or_mcap
+
+    monkeypatch.setattr(shutil_module, "which", lambda tool: None)
+    result = check_ros_bag_or_mcap(Path("/irrelevant"), "ROS_bag")
+    assert result.outcome == CheckOutcome.NO_CHECKER
+
+
+def test_check_ros_bag_or_mcap_fails_when_no_matching_files(tmp_path, monkeypatch):
+    import shutil as shutil_module
+
+    from common.format_checkers import CheckOutcome, check_ros_bag_or_mcap
+
+    monkeypatch.setattr(shutil_module, "which", lambda tool: f"/usr/bin/{tool}")
+    result = check_ros_bag_or_mcap(tmp_path, "ROS_bag")
+    assert result.outcome == CheckOutcome.FAILED
+
+
+def test_check_ros_bag_or_mcap_passes_when_info_command_succeeds(tmp_path, monkeypatch):
+    import shutil as shutil_module
+    import subprocess as subprocess_module
+
+    from common.format_checkers import CheckOutcome, check_ros_bag_or_mcap
+
+    (tmp_path / "recording.bag").write_bytes(b"fake bag content")
+    monkeypatch.setattr(shutil_module, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(
+        subprocess_module,
+        "run",
+        lambda *a, **k: subprocess_module.CompletedProcess(args=a, returncode=0, stdout="", stderr=""),
+    )
+    result = check_ros_bag_or_mcap(tmp_path, "ROS_bag")
+    assert result.outcome == CheckOutcome.PASSED
+
+
+def test_check_ros_bag_or_mcap_uses_mcap_tool_for_mcap_format(tmp_path, monkeypatch):
+    import shutil as shutil_module
+    import subprocess as subprocess_module
+
+    from common.format_checkers import CheckOutcome, check_ros_bag_or_mcap
+
+    (tmp_path / "recording.mcap").write_bytes(b"fake mcap content")
+    monkeypatch.setattr(shutil_module, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(
+        subprocess_module,
+        "run",
+        lambda *a, **k: subprocess_module.CompletedProcess(args=a, returncode=0, stdout="", stderr=""),
+    )
+    result = check_ros_bag_or_mcap(tmp_path, "MCAP")
+    assert result.outcome == CheckOutcome.PASSED
+
+
+def test_check_format_dispatches_mcap_to_check_ros_bag_or_mcap(tmp_path, monkeypatch):
+    import shutil as shutil_module
+    import subprocess as subprocess_module
+
+    from common.format_checkers import CheckOutcome, check_format
+
+    (tmp_path / "recording.mcap").write_bytes(b"fake mcap content")
+    monkeypatch.setattr(shutil_module, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(
+        subprocess_module,
+        "run",
+        lambda *a, **k: subprocess_module.CompletedProcess(args=a, returncode=0, stdout="", stderr=""),
+    )
+    result = check_format(tmp_path, "MCAP", "test_id")
+    assert result.outcome == CheckOutcome.PASSED
