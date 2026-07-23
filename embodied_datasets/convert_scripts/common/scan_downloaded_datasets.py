@@ -52,7 +52,7 @@ def scan_raw_directory(
 ) -> Tuple[List[FoundDataset], List[str]]:
     """datasets: list of (dataset_id, name) pairs, e.g. from the
     registry. Lists every subdirectory directly under
-    data_root/public_datasets_raw/, matches each one to a dataset_id by
+    data_root/raw/, matches each one to a dataset_id by
     normalized id, normalized name, or FOLDER_NAME_ALIASES, and reports
     its total size. Returns (found, unmatched_folder_names) -- unmatched
     non-empty folders are reported by name so nothing is silently
@@ -67,7 +67,7 @@ def scan_raw_directory(
         if dataset_id in known_ids:
             lookup[folder_key] = dataset_id
 
-    raw_root = data_root / "public_datasets_raw"
+    raw_root = data_root / "raw"
     found: List[FoundDataset] = []
     unmatched: List[str] = []
     if not raw_root.is_dir():

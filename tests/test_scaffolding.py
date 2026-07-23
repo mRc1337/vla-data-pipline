@@ -6,8 +6,10 @@ EXPECTED_DIRS = [
     "embodied_datasets/convert_scripts/configs",
     "embodied_datasets/process_scripts/configs",
     "embodied_datasets/verify_scripts/logs",
-    "embodied_datasets/urdf_assets",
-    "embodied_datasets/public_datasets/lerobot_v3_0",
+    "embodied_datasets/data/raw",
+    "embodied_datasets/data/staging",
+    "embodied_datasets/data/final",
+    "embodied_datasets/data/urdf_assets",
 ]
 
 

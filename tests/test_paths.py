@@ -3,16 +3,16 @@ from pathlib import Path
 from common.paths import (
     DEFAULT_DATA_ROOT,
     REPO_ROOT,
-    lerobot_v3_0_final_dir,
-    lerobot_v3_0_staging_dir,
+    final_dir,
     raw_dir,
     resolve_data_root,
+    staging_dir,
     urdf_assets_dir,
 )
 
 
-def test_default_data_root_is_repo_embodied_datasets():
-    assert DEFAULT_DATA_ROOT == REPO_ROOT / "embodied_datasets"
+def test_default_data_root_is_repo_embodied_datasets_data():
+    assert DEFAULT_DATA_ROOT == REPO_ROOT / "embodied_datasets" / "data"
 
 
 def test_resolve_data_root_defaults_when_none():
@@ -30,23 +30,17 @@ def test_resolve_data_root_uses_explicit_value(tmp_path):
 
 def test_raw_dir():
     data_root = Path("/mnt/big_disk")
-    assert raw_dir(data_root, "droid") == Path(
-        "/mnt/big_disk/public_datasets_raw/droid/raw"
-    )
+    assert raw_dir(data_root, "droid") == Path("/mnt/big_disk/raw/droid")
 
 
-def test_lerobot_v3_0_staging_dir():
+def test_staging_dir():
     data_root = Path("/mnt/big_disk")
-    assert lerobot_v3_0_staging_dir(data_root, "droid") == Path(
-        "/mnt/big_disk/public_datasets_raw/droid/lerobot_v3_0_staging"
-    )
+    assert staging_dir(data_root, "droid") == Path("/mnt/big_disk/staging/droid")
 
 
-def test_lerobot_v3_0_final_dir():
+def test_final_dir():
     data_root = Path("/mnt/big_disk")
-    assert lerobot_v3_0_final_dir(data_root, "droid") == Path(
-        "/mnt/big_disk/public_datasets/lerobot_v3_0/droid"
-    )
+    assert final_dir(data_root, "droid") == Path("/mnt/big_disk/final/droid")
 
 
 def test_urdf_assets_dir():

@@ -10,15 +10,15 @@ __pycache__/
 /Qwen_RobotManip.pdf
 /2606.02800v4.pdf
 
-# Heavy dataset directories (raw downloads, converted/staged data, URDFs).
-# These live under --data-root, which defaults to embodied_datasets/ inside
-# the repo when not overridden -- ignore the default location so a script
-# run without --data-root never lands multi-GB data in git. See
-# common/paths.py for the exact layout these patterns mirror.
-embodied_datasets/public_datasets_raw/*/raw/
-embodied_datasets/public_datasets_raw/*/lerobot_v3_0_staging/
-embodied_datasets/public_datasets/lerobot_v3_0/
-embodied_datasets/urdf_assets/
+# Heavy dataset directory (raw downloads, staged/converted data, final
+# processed data, URDFs). Lives under --data-root, which defaults to
+# embodied_datasets/data/ inside the repo when not overridden -- ignore the
+# default location so a script run without --data-root never lands multi-GB
+# data in git. See convert_scripts/common/paths.py for the exact layout this
+# mirrors. The four raw/staging/final/urdf_assets subdirectories each have a
+# force-added (git add -f) .gitkeep placeholder so they still exist after a
+# fresh clone despite being gitignored.
+embodied_datasets/data/
 
 # Design docs / plans written while working the superpowers skill chain
 # (brainstorming -> writing-plans) -- process artifacts, kept locally only.
@@ -28,7 +28,7 @@ docs/superpowers/
 # requires >=3.10; repo root stays 3.9-compatible). See
 # docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
 # section 4.
-embodied_datasets/public_datasets_raw/process_scripts/.venv-process/
+embodied_datasets/process_scripts/.venv-process/
 
 # Subagent-driven-development session artifacts (task briefs, review diffs,
 # progress ledger) -- scratch state from the superpowers dev workflow, kept

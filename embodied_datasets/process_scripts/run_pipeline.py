@@ -58,6 +58,7 @@ def _load_registry_common() -> ModuleType:
     module = sys.modules[alias]
     module.schema = importlib.import_module(f"{alias}.schema")
     module.io = importlib.import_module(f"{alias}.io")
+    module.paths = importlib.import_module(f"{alias}.paths")
     return module
 
 
@@ -259,13 +260,13 @@ def _dir_size_bytes(path: Path) -> int:
     return total
 
 
-def compute_lerobot_v3_0_local_path(output_path: Path, data_root: Path) -> str:
+def compute_final_local_path(output_path: Path, data_root: Path) -> str:
     """Registry field is documented (design doc section 5.1) as relative to
-    `public_datasets/lerobot_v3_0/`, not `public_datasets/` -- so for
-    `output_path == data_root/public_datasets/lerobot_v3_0/<dataset_id>`
-    this yields just `<dataset_id>`.
+    `data/final/`, not `data/` -- so for
+    `output_path == data_root/final/<dataset_id>` this yields just
+    `<dataset_id>`.
     """
-    return str(output_path.relative_to(data_root / "public_datasets" / "lerobot_v3_0"))
+    return str(output_path.relative_to(data_root / "final"))
 
 
 def main(argv: List[str] = None) -> int:
@@ -275,9 +276,10 @@ def main(argv: List[str] = None) -> int:
     args = parser.parse_args(argv)
 
     registry_common = _load_registry_common()
-    data_root = Path(args.data_root) if args.data_root else Path(__file__).resolve().parents[1]
-    registry_path = data_root / "datasets_registry.yaml"
-    dataset_config_path = Path(__file__).resolve().parents[1] / "convert_scripts" / "configs" / f"{args.dataset_id}.yaml"
+    data_root = Path(args.data_root) if args.data_root else registry_common.paths.DEFAULT_DATA_ROOT
+    embodied_root = Path(__file__).resolve().parents[1]
+    registry_path = embodied_root / "datasets_registry.yaml"
+    dataset_config_path = embodied_root / "convert_scripts" / "configs" / f"{args.dataset_id}.yaml"
     process_config_path = Path(__file__).resolve().parent / "configs" / f"{args.dataset_id}.yaml"
 
     entries = registry_common.io.load_registry(registry_path)
@@ -294,8 +296,8 @@ def main(argv: List[str] = None) -> int:
         return 1
 
     dataset_config = registry_common.io.load_dataset_config(dataset_config_path)
-    staging_path = data_root / "public_datasets_raw" / args.dataset_id / "lerobot_v3_0_staging"
-    output_path = data_root / "public_datasets" / "lerobot_v3_0" / args.dataset_id
+    staging_path = registry_common.paths.staging_dir(data_root, args.dataset_id)
+    output_path = registry_common.paths.final_dir(data_root, args.dataset_id)
 
     stats = run_dataset(args.dataset_id, staging_path, output_path, process_config_path, dataset_config=dataset_config)
 
@@ -335,7 +337,7 @@ def main(argv: List[str] = None) -> int:
     entry.process_status = registry_common.schema.ProcessStatus.PROCESSED
     entry.num_episodes = stats["output_episodes"]
     entry.num_frames = stats["output_frames"]
-    entry.lerobot_v3_0_local_path = compute_lerobot_v3_0_local_path(output_path, data_root)
+    entry.final_local_path = compute_final_local_path(output_path, data_root)
     entry.duration_hours = stats["output_frames"] / stats["fps"] / 3600.0
     entry.storage_size_gb = round(_dir_size_bytes(output_path) / 1e9, 2)
     registry_common.io.save_registry(entries, registry_path)
