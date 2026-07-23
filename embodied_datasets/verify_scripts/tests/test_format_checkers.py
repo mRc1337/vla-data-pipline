@@ -170,3 +170,58 @@ def test_check_format_dispatches_custom_to_no_checker(tmp_path):
 def test_check_format_falls_back_to_no_checker_for_unimplemented_format(tmp_path):
     result = check_format(tmp_path, "VRS", "some_id")
     assert result.outcome == CheckOutcome.NO_CHECKER
+
+
+def test_check_rlds_or_tfrecord_passes_on_valid_file(tmp_path):
+    tf = pytest.importorskip("tensorflow")
+    from common.format_checkers import CheckOutcome, check_rlds_or_tfrecord
+
+    raw_path = tmp_path / "raw"
+    raw_path.mkdir(parents=True)
+    with tf.io.TFRecordWriter(str(raw_path / "data.tfrecord")) as writer:
+        for i in range(5):
+            example = tf.train.Example(
+                features=tf.train.Features(feature={"value": tf.train.Feature(int64_list=tf.train.Int64List(value=[i]))})
+            )
+            writer.write(example.SerializeToString())
+
+    result = check_rlds_or_tfrecord(raw_path)
+    assert result.outcome == CheckOutcome.PASSED
+    assert result.episode_count == 5
+
+
+def test_check_rlds_or_tfrecord_fails_on_corrupt_file(tmp_path):
+    pytest.importorskip("tensorflow")
+    from common.format_checkers import CheckOutcome, check_rlds_or_tfrecord
+
+    raw_path = tmp_path / "raw"
+    raw_path.mkdir(parents=True)
+    (raw_path / "data.tfrecord").write_bytes(b"not a real tfrecord file, just garbage bytes")
+
+    result = check_rlds_or_tfrecord(raw_path)
+    assert result.outcome == CheckOutcome.FAILED
+
+
+def test_check_rlds_or_tfrecord_fails_when_no_files_found(tmp_path):
+    pytest.importorskip("tensorflow")
+    from common.format_checkers import CheckOutcome, check_rlds_or_tfrecord
+
+    raw_path = tmp_path / "raw"
+    raw_path.mkdir(parents=True)
+
+    result = check_rlds_or_tfrecord(raw_path)
+    assert result.outcome == CheckOutcome.FAILED
+
+
+def test_check_format_dispatches_rlds_to_check_rlds_or_tfrecord(tmp_path):
+    tf = pytest.importorskip("tensorflow")
+    from common.format_checkers import CheckOutcome, check_format
+
+    raw_path = tmp_path / "raw"
+    raw_path.mkdir(parents=True)
+    with tf.io.TFRecordWriter(str(raw_path / "data.tfrecord")) as writer:
+        example = tf.train.Example(features=tf.train.Features(feature={"value": tf.train.Feature(int64_list=tf.train.Int64List(value=[0]))}))
+        writer.write(example.SerializeToString())
+
+    result = check_format(raw_path, "RLDS", "test_id")
+    assert result.outcome == CheckOutcome.PASSED

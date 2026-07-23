@@ -76,6 +76,29 @@ def check_hdf5(raw_path: Path, required_key_substrings: tuple = ("action", "obs"
     return CheckResult(outcome=CheckOutcome.PASSED, episode_count=episode_count or None)
 
 
+def check_rlds_or_tfrecord(raw_path: Path) -> CheckResult:
+    """"完整遍历不抛异常"（design doc 第6节）-- 只用 tf.data.TFRecordDataset
+    原始遍历，不用 tensorflow_datasets 解码具体字段结构（完整性校验不需要
+    知道 RLDS 的 step/episode schema，只需要确认每条 record 能被读出来，
+    没有 CRC 校验失败/截断等底层损坏）。
+    """
+    import tensorflow as tf
+
+    tfrecord_files = sorted(str(p) for p in raw_path.rglob("*.tfrecord*"))
+    if not tfrecord_files:
+        return CheckResult(outcome=CheckOutcome.FAILED, reason=f"no *.tfrecord* files found under {raw_path}")
+
+    try:
+        dataset = tf.data.TFRecordDataset(tfrecord_files)
+        count = sum(1 for _ in dataset)
+    except Exception as exc:  # tf raises several different exception types on a corrupt/truncated record
+        return CheckResult(outcome=CheckOutcome.FAILED, reason=f"TFRecordDataset iteration failed: {exc}")
+
+    if count == 0:
+        return CheckResult(outcome=CheckOutcome.FAILED, reason="TFRecordDataset contained zero records")
+    return CheckResult(outcome=CheckOutcome.PASSED, episode_count=count)
+
+
 def check_lerobot(raw_path: Path) -> CheckResult:
     from shared.lerobot_io import load_lerobot_episodes
 
@@ -160,6 +183,8 @@ def check_video_decodable(video_paths: List[Path]) -> CheckResult:
 
 def check_format(raw_path: Path, raw_format, dataset_id: str) -> CheckResult:
     raw_format_value = getattr(raw_format, "value", raw_format)
+    if raw_format_value in ("RLDS", "TFRecord"):
+        return check_rlds_or_tfrecord(raw_path)
     if raw_format_value == "HDF5":
         return check_hdf5(raw_path)
     if raw_format_value == "LeRobot":
