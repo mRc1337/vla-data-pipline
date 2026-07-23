@@ -4,6 +4,10 @@ __pycache__/
 *.pyc
 .DS_Store
 
+# Root Python 3.9+ venv for the registry/onboarding tooling (README.md
+# instructs users to create this with `python3 -m venv .venv`).
+/.venv/
+
 # Large reference materials kept locally, not tracked in git (see design doc
 # section 1 for why they're referenced by relative path but not committed).
 /VLA Research.xlsx

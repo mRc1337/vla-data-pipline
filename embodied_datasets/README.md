@@ -477,6 +477,14 @@ observation.state_canonical_mask   # bool, shape (80,)，每帧都写，但整�
   `data/staging/` 原始数据里，本层完全不touch它们。
 - **超过21维的灵巧手会被截断**——目前注册表里没有这种数据集，一旦出现需要重新评估
   槎位宽度（见第4节）。
+- **经 `convert_scripts` 转换的数据集，`data/staging/` 里没有视频**：`shared/lerobot_io.py`
+  的 `write_lerobot_episodes` 目前硬编码 `use_videos=False`，只写
+  `observation.state`/`action`/`task` 这几个 feature，还不支持写视频。这意味着原始数据源里
+  的视频/图像观测，在写入 staging 时会被静默丢弃——`process_scripts` 的
+  `check2_video_state_consistency`/`check3_video_quality` 对任何经过 `convert_scripts`
+  处理的数据集都没有可操作的对象，等同于空跑。这是已知的、当前范围外的局限（不是本轮
+  疏漏）——修复需要给 `write_lerobot_episodes` 加视频写入支持，是另一个独立的功能，留给
+  后续工作。
 
 ### 8. 怎么验证
 

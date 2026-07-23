@@ -25,6 +25,15 @@ from pathlib import Path
 from types import ModuleType
 from typing import List, Optional, Tuple
 
+# NOTE: this puts verify_scripts/ on sys.path so bare `import common` below
+# resolves to verify_scripts/common/ (format_checkers.py's package).
+# convert_scripts/run_convert.py does the analogous thing for its own
+# (differently-shaped) "common" package. Both work correctly in isolation,
+# but if a future script ever imports both run_convert and run_verify into
+# the same process, whichever's `import common` runs first wins
+# (sys.modules caching) and the other's `from common.X import ...` would
+# silently resolve against the wrong package. No current caller does this --
+# just don't be the one who does it silently.
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # verify_scripts/: common (format_checkers)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # embodied_datasets/: shared
 

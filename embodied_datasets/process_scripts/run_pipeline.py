@@ -218,7 +218,7 @@ README_TEMPLATE = """# {name}
   Shadow Hand 实测 21 DOF；该数据集已从注册表移除，目前注册表内机器人采集灵巧手
   数据集的实测最大自由度为 16，见 arcap）；未来若出现超过 21 维的机器人
   灵巧手会被截断。MANO/人手视频数据集（human_hand/human_full_body）完全不经过这一层，
-  不受此限制，完整参数保留在 lerobot_v3_0_staging/ 原始数据中。详见
+  不受此限制，完整参数保留在 data/staging/ 原始数据中。详见
   embodied_datasets/README.md 的"跨本体统一表示层"一节。
 """
 
@@ -276,7 +276,7 @@ def main(argv: List[str] = None) -> int:
     args = parser.parse_args(argv)
 
     registry_common = _load_registry_common()
-    data_root = Path(args.data_root) if args.data_root else registry_common.paths.DEFAULT_DATA_ROOT
+    data_root = registry_common.paths.resolve_data_root(args.data_root)
     embodied_root = Path(__file__).resolve().parents[1]
     registry_path = embodied_root / "datasets_registry.yaml"
     dataset_config_path = embodied_root / "convert_scripts" / "configs" / f"{args.dataset_id}.yaml"
