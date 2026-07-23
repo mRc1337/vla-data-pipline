@@ -14,3 +14,4 @@ ikpy==4.0.0
 pydantic==2.10.3
 PyYAML==6.0.2
 pytest==8.3.4
+h5py==3.12.1
