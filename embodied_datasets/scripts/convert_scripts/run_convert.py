@@ -28,7 +28,7 @@ from common.schema import ConvertStatus, IntegrityStatus  # noqa: E402
 from common_convert.self_check import run_self_check  # noqa: E402
 from shared.lerobot_io import load_lerobot_episodes  # noqa: E402
 
-EMBODIED_ROOT = Path(__file__).resolve().parents[1]
+EMBODIED_ROOT = Path(__file__).resolve().parents[2]
 REGISTRY_PATH = EMBODIED_ROOT / "datasets_registry.yaml"
 CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
 LOGS_DIR = Path(__file__).resolve().parent / "logs"

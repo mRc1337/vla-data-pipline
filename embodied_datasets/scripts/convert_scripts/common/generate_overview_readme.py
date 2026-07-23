@@ -6,7 +6,7 @@ and replaces only the content between the AUTO-GENERATED TABLE markers in
 the README -- everything else in the file is hand-written and left as-is.
 
 Run from repo root:
-    python3 embodied_datasets/convert_scripts/common/generate_overview_readme.py
+    python3 embodied_datasets/scripts/convert_scripts/common/generate_overview_readme.py
 """
 from __future__ import annotations
 
@@ -80,10 +80,10 @@ def replace_marked_section(readme_text: str, table_markdown: str) -> str:
 
 
 def main() -> None:
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = Path(__file__).resolve().parents[4]
     embodied_root = repo_root / "embodied_datasets"
     registry_path = embodied_root / "datasets_registry.yaml"
-    configs_dir = embodied_root / "convert_scripts" / "configs"
+    configs_dir = embodied_root / "scripts" / "convert_scripts" / "configs"
     readme_path = embodied_root / "README.md"
 
     entries = load_registry(registry_path)

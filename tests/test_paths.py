@@ -30,17 +30,17 @@ def test_resolve_data_root_uses_explicit_value(tmp_path):
 
 def test_raw_dir():
     data_root = Path("/mnt/big_disk")
-    assert raw_dir(data_root, "droid") == Path("/mnt/big_disk/raw/droid")
+    assert raw_dir(data_root, "droid") == Path("/mnt/big_disk/public_datasets_raw/droid")
 
 
 def test_staging_dir():
     data_root = Path("/mnt/big_disk")
-    assert staging_dir(data_root, "droid") == Path("/mnt/big_disk/staging/droid")
+    assert staging_dir(data_root, "droid") == Path("/mnt/big_disk/public_datasets_staging/droid")
 
 
 def test_final_dir():
     data_root = Path("/mnt/big_disk")
-    assert final_dir(data_root, "droid") == Path("/mnt/big_disk/final/droid")
+    assert final_dir(data_root, "droid") == Path("/mnt/big_disk/public_datasets/lerobot_v3_0/droid")
 
 
 def test_urdf_assets_dir():

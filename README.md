@@ -39,7 +39,7 @@ python3 -m pytest       # 跑根目录 tests/：测试 convert_scripts/common/ �
 ```bash
 # Ubuntu 系统默认仓库通常没有 3.11，需要先装：
 # sudo apt update && sudo apt install python3.11 python3.11-venv
-cd embodied_datasets/process_scripts
+cd embodied_datasets/scripts/process_scripts
 python3.11 -m venv .venv-process
 source .venv-process/bin/activate
 pip install -r requirements.txt
@@ -52,17 +52,17 @@ pytest                  # 跑 process_scripts 的测试套件
 
 #### 另外三套测试套件，同样跑在这个 `.venv-process`（≥3.10）环境里
 
-`embodied_datasets/shared/`、`embodied_datasets/convert_scripts/tests/`、
-`embodied_datasets/verify_scripts/tests/` 各自有自己的 `pytest.ini`，是三套独立的
+`embodied_datasets/scripts/shared/`、`embodied_datasets/scripts/convert_scripts/tests/`、
+`embodied_datasets/scripts/verify_scripts/tests/` 各自有自己的 `pytest.ini`，是三套独立的
 pytest 运行（既不被根目录 `pyproject.toml` 的 `testpaths=["tests"]` 收集，也不被
 `process_scripts/pytest.ini` 收集）。它们依赖的 `lerobot`/`h5py`/`tensorflow` 只在
 `process_scripts/.venv-process` 里装了，所以复用这个环境，但要先 `cd` 到各自目录再跑
 `pytest`：
 
 ```bash
-cd embodied_datasets/shared && source ../process_scripts/.venv-process/bin/activate && pytest
-cd embodied_datasets/convert_scripts && source ../process_scripts/.venv-process/bin/activate && pytest
-cd embodied_datasets/verify_scripts && source ../process_scripts/.venv-process/bin/activate && pytest
+cd embodied_datasets/scripts/shared && source ../process_scripts/.venv-process/bin/activate && pytest
+cd embodied_datasets/scripts/convert_scripts && source ../process_scripts/.venv-process/bin/activate && pytest
+cd embodied_datasets/scripts/verify_scripts && source ../process_scripts/.venv-process/bin/activate && pytest
 ```
 
 ## License

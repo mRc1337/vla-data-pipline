@@ -18,7 +18,7 @@ class _TempRegistryEntry:
 
         self.dataset_id = registry_entry.id
         self.registry_common = run_verify._load_registry_common()
-        self.registry_path = Path(run_verify.__file__).resolve().parents[1] / "datasets_registry.yaml"
+        self.registry_path = Path(run_verify.__file__).resolve().parents[2] / "datasets_registry.yaml"
         self.dataset_config_path = (
             Path(run_verify.__file__).resolve().parents[1] / "convert_scripts" / "configs" / f"{self.dataset_id}.yaml"
         )
@@ -57,7 +57,7 @@ def test_main_verifies_hdf5_dataset_and_updates_registry(tmp_path):
     )
 
     with _TempRegistryEntry(entry, config) as cfg:
-        raw_path = tmp_path / "raw" / dataset_id
+        raw_path = tmp_path / "public_datasets_raw" / dataset_id
         raw_path.mkdir(parents=True)
         with h5py.File(raw_path / "demo.hdf5", "w") as f:
             demo = f.create_group("data").create_group("demo_0")
@@ -90,7 +90,7 @@ def test_main_marks_skipped_no_checker_for_unregistered_custom_dataset(tmp_path)
     )
 
     with _TempRegistryEntry(entry, config) as cfg:
-        raw_path = tmp_path / "raw" / dataset_id
+        raw_path = tmp_path / "public_datasets_raw" / dataset_id
         raw_path.mkdir(parents=True)
         (raw_path / "some_file.bin").write_bytes(b"data")
 

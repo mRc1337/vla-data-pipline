@@ -18,8 +18,9 @@ __pycache__/
 # processed data, URDFs). Lives under --data-root, which defaults to
 # embodied_datasets/data_root/ inside the repo when not overridden -- ignore the
 # default location so a script run without --data-root never lands multi-GB
-# data in git. See convert_scripts/common/paths.py for the exact layout this
-# mirrors. The four raw/staging/final/urdf_assets subdirectories each have a
+# data in git. See scripts/convert_scripts/common/paths.py for the exact layout this
+# mirrors. The four public_datasets_raw/public_datasets_staging/
+# public_datasets/urdf_assets subdirectories each have a
 # force-added (git add -f) .gitkeep placeholder so they still exist after a
 # fresh clone despite being gitignored.
 embodied_datasets/data_root/
@@ -27,10 +28,10 @@ embodied_datasets/data_root/
 # convert_scripts run logs (warnings/self-check failure detail) -- kept
 # out of git, only the directory structure (via .gitkeep) is tracked. See
 # design doc section 7/9: "详情进日志，registry 只留状态位".
-embodied_datasets/convert_scripts/logs/*.log
+embodied_datasets/scripts/convert_scripts/logs/*.log
 
 # verify_scripts run logs -- same convention as convert_scripts/logs/ above.
-embodied_datasets/verify_scripts/logs/*.log
+embodied_datasets/scripts/verify_scripts/logs/*.log
 
 # Design docs / plans written while working the superpowers skill chain
 # (brainstorming -> writing-plans) -- process artifacts, kept locally only.
@@ -40,7 +41,7 @@ docs/superpowers/
 # requires >=3.10; repo root stays 3.9-compatible). See
 # docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
 # section 4.
-embodied_datasets/process_scripts/.venv-process/
+embodied_datasets/scripts/process_scripts/.venv-process/
 
 # Subagent-driven-development session artifacts (task briefs, review diffs,
 # progress ledger) -- scratch state from the superpowers dev workflow, kept

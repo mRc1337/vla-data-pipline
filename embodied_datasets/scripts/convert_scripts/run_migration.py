@@ -2,7 +2,7 @@
 per-dataset onboarding config stubs.
 
 Run from repo root:
-    python3 embodied_datasets/convert_scripts/run_migration.py
+    python3 embodied_datasets/scripts/convert_scripts/run_migration.py
 """
 from __future__ import annotations
 
@@ -14,12 +14,13 @@ from common.migrate_xlsx_to_registry import (
     read_name_and_link_rows,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 XLSX_PATH = REPO_ROOT / "VLA Research.xlsx"
 REGISTRY_PATH = REPO_ROOT / "embodied_datasets" / "datasets_registry.yaml"
 CONFIGS_DIR = (
     REPO_ROOT
     / "embodied_datasets"
+    / "scripts"
     / "convert_scripts"
     / "configs"
 )

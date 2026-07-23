@@ -7,7 +7,7 @@ been through re-verification, and would make the table unreadable.
 The YAML configs remain the source of truth for those two fields.
 
 Run from repo root:
-    python3 embodied_datasets/convert_scripts/common/generate_full_export.py
+    python3 embodied_datasets/scripts/convert_scripts/common/generate_full_export.py
 """
 from __future__ import annotations
 
@@ -61,10 +61,10 @@ def render_full_table_markdown(
 
 
 def main() -> None:
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = Path(__file__).resolve().parents[4]
     embodied_root = repo_root / "embodied_datasets"
     registry_path = embodied_root / "datasets_registry.yaml"
-    configs_dir = embodied_root / "convert_scripts" / "configs"
+    configs_dir = embodied_root / "scripts" / "convert_scripts" / "configs"
     readme_path = embodied_root / "README.md"
 
     entries = load_registry(registry_path)

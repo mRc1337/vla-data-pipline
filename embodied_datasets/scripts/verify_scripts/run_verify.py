@@ -35,7 +35,7 @@ from typing import List, Optional, Tuple
 # silently resolve against the wrong package. No current caller does this --
 # just don't be the one who does it silently.
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # verify_scripts/: common (format_checkers)
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # embodied_datasets/: shared
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # scripts/: shared
 
 from common.format_checkers import CheckOutcome, check_format, check_scale, check_video_decodable, find_video_files  # noqa: E402
 
@@ -121,7 +121,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     registry_common = _load_registry_common()
     data_root = registry_common.paths.resolve_data_root(args.data_root)
-    registry_path = Path(__file__).resolve().parents[1] / "datasets_registry.yaml"
+    registry_path = Path(__file__).resolve().parents[2] / "datasets_registry.yaml"
     configs_dir = Path(__file__).resolve().parents[1] / "convert_scripts" / "configs"
 
     entries = registry_common.io.load_registry(registry_path)

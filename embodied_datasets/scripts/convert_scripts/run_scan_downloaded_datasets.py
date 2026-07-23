@@ -12,8 +12,8 @@ FOLDER_NAME_ALIASES in that module if a real dataset folder ends up
 there.
 
 Run from repo root:
-    python3 embodied_datasets/convert_scripts/run_scan_downloaded_datasets.py --data-root /path/to/data
-    python3 embodied_datasets/convert_scripts/run_scan_downloaded_datasets.py --data-root /path/to/data --update-registry
+    python3 embodied_datasets/scripts/convert_scripts/run_scan_downloaded_datasets.py --data-root /path/to/data
+    python3 embodied_datasets/scripts/convert_scripts/run_scan_downloaded_datasets.py --data-root /path/to/data --update-registry
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from common.paths import resolve_data_root
 from common.scan_downloaded_datasets import scan_raw_directory
 from common.schema import DownloadStatus
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 REGISTRY_PATH = REPO_ROOT / "embodied_datasets" / "datasets_registry.yaml"
 
 

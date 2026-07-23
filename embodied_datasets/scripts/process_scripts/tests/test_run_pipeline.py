@@ -14,12 +14,13 @@ from run_pipeline import _load_registry_common, compute_final_local_path
 
 def test_compute_final_local_path_is_relative_to_final_dir(tmp_path):
     """Design doc (docs/superpowers/specs/2026-07-21-convert-scripts-verify-scripts-design.md
-    section 9) documents `final_local_path` as relative to `data_root/final/`,
-    matching how `raw_local_path` is relative to `data_root/raw/` -- so the
-    stored value must be just `<dataset_id>`, not `final/<dataset_id>`.
+    section 9) documents `final_local_path` as relative to
+    `data_root/public_datasets/lerobot_v3_0/`, matching how `raw_local_path`
+    is relative to `data_root/public_datasets_raw/` -- so the stored value
+    must be just `<dataset_id>`, not `lerobot_v3_0/<dataset_id>`.
     """
     data_root = tmp_path
-    output_path = data_root / "final" / "droid"
+    output_path = data_root / "public_datasets" / "lerobot_v3_0" / "droid"
 
     result = compute_final_local_path(output_path, data_root)
 
@@ -379,7 +380,7 @@ class _TempDatasetConfigs:
 
         self.dataset_id = registry_entry.id
         self.registry_common = run_pipeline._load_registry_common()
-        self.registry_path = Path(run_pipeline.__file__).resolve().parents[1] / "datasets_registry.yaml"
+        self.registry_path = Path(run_pipeline.__file__).resolve().parents[2] / "datasets_registry.yaml"
         self.process_config_path = Path(run_pipeline.__file__).resolve().parent / "configs" / f"{self.dataset_id}.yaml"
         self.dataset_config_path = (
             Path(run_pipeline.__file__).resolve().parents[1] / "convert_scripts" / "configs" / f"{self.dataset_id}.yaml"
@@ -421,7 +422,7 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
 
     dataset_id = f"zero_survivors_{uuid.uuid4().hex[:8]}"
     data_root = tmp_path / "data_root"
-    staging_path = data_root / "staging" / dataset_id
+    staging_path = data_root / "public_datasets_staging" / dataset_id
     make_synthetic_dataset(staging_path, repo_id=f"test/{dataset_id}", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
 
     registry_common = run_pipeline._load_registry_common()
@@ -452,7 +453,7 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
             cfg.dataset_config_path,
         )
 
-        output_path = data_root / "final" / dataset_id
+        output_path = data_root / "public_datasets" / "lerobot_v3_0" / dataset_id
         exit_code = run_pipeline.main(["--dataset-id", dataset_id, "--data-root", str(data_root)])  # must not raise
 
         assert exit_code == 1
@@ -486,7 +487,7 @@ def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
 
     dataset_id = f"main_success_{uuid.uuid4().hex[:8]}"
     data_root = tmp_path / "data_root"
-    staging_path = data_root / "staging" / dataset_id
+    staging_path = data_root / "public_datasets_staging" / dataset_id
     make_synthetic_dataset(staging_path, repo_id=f"test/{dataset_id}", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
 
     registry_common = run_pipeline._load_registry_common()
@@ -514,7 +515,7 @@ def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
             cfg.dataset_config_path,
         )
 
-        output_path = data_root / "final" / dataset_id
+        output_path = data_root / "public_datasets" / "lerobot_v3_0" / dataset_id
         exit_code = run_pipeline.main(["--dataset-id", dataset_id, "--data-root", str(data_root)])
 
         assert exit_code == 0

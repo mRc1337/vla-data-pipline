@@ -3,12 +3,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_DIRS = [
-    "embodied_datasets/convert_scripts/configs",
-    "embodied_datasets/process_scripts/configs",
-    "embodied_datasets/verify_scripts/logs",
-    "embodied_datasets/data_root/raw",
-    "embodied_datasets/data_root/staging",
-    "embodied_datasets/data_root/final",
+    "embodied_datasets/scripts/convert_scripts/configs",
+    "embodied_datasets/scripts/process_scripts/configs",
+    "embodied_datasets/scripts/verify_scripts/logs",
+    "embodied_datasets/data_root/public_datasets_raw",
+    "embodied_datasets/data_root/public_datasets_staging",
+    "embodied_datasets/data_root/public_datasets/lerobot_v3_0",
     "embodied_datasets/data_root/urdf_assets",
 ]
 

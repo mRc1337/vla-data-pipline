@@ -262,11 +262,12 @@ def _dir_size_bytes(path: Path) -> int:
 
 def compute_final_local_path(output_path: Path, data_root: Path) -> str:
     """Registry field is documented (design doc section 5.1) as relative to
-    `data_root/final/`, not `data_root/` -- so for
-    `output_path == data_root/final/<dataset_id>` this yields just
-    `<dataset_id>`.
+    `data_root/public_datasets/lerobot_v3_0/`, not `data_root/` -- so for
+    `output_path == data_root/public_datasets/lerobot_v3_0/<dataset_id>`
+    this yields just `<dataset_id>`. Mirrors common/paths.py's `final_dir`
+    -- keep both in sync if that layout ever changes.
     """
-    return str(output_path.relative_to(data_root / "final"))
+    return str(output_path.relative_to(data_root / "public_datasets" / "lerobot_v3_0"))
 
 
 def main(argv: List[str] = None) -> int:
@@ -277,9 +278,10 @@ def main(argv: List[str] = None) -> int:
 
     registry_common = _load_registry_common()
     data_root = registry_common.paths.resolve_data_root(args.data_root)
-    embodied_root = Path(__file__).resolve().parents[1]
+    scripts_root = Path(__file__).resolve().parents[1]
+    embodied_root = Path(__file__).resolve().parents[2]
     registry_path = embodied_root / "datasets_registry.yaml"
-    dataset_config_path = embodied_root / "convert_scripts" / "configs" / f"{args.dataset_id}.yaml"
+    dataset_config_path = scripts_root / "convert_scripts" / "configs" / f"{args.dataset_id}.yaml"
     process_config_path = Path(__file__).resolve().parent / "configs" / f"{args.dataset_id}.yaml"
 
     entries = registry_common.io.load_registry(registry_path)

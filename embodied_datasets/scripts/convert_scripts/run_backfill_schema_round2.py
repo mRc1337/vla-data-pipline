@@ -3,7 +3,7 @@ extension's table-driven corrections
 (common/backfill_schema_round2.py) to every existing dataset config.
 
 Run from repo root:
-    python3 embodied_datasets/convert_scripts/run_backfill_schema_round2.py
+    python3 embodied_datasets/scripts/convert_scripts/run_backfill_schema_round2.py
 """
 from __future__ import annotations
 
@@ -12,10 +12,11 @@ from pathlib import Path
 from common.backfill_schema_round2 import apply_round2_corrections
 from common.io import load_dataset_config, save_dataset_config
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 CONFIGS_DIR = (
     REPO_ROOT
     / "embodied_datasets"
+    / "scripts"
     / "convert_scripts"
     / "configs"
 )
