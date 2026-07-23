@@ -35,7 +35,7 @@ python3 -m pytest       # 跑 convert_scripts 的测试套件
 ```bash
 # Ubuntu 系统默认仓库通常没有 3.11，需要先装：
 # sudo apt update && sudo apt install python3.11 python3.11-venv
-cd embodied_datasets/public_datasets_raw/process_scripts
+cd embodied_datasets/process_scripts
 python3.11 -m venv .venv-process
 source .venv-process/bin/activate
 pip install -r requirements.txt

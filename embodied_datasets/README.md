@@ -8,42 +8,42 @@ VLA（视觉-语言-动作）机器人操作数据集的统一注册、清洗、
 
 ```
 embodied_datasets/
-├── datasets_registry.yaml          # 59个数据集的总览表（实测值，随流水线推进更新）
-├── public_datasets_raw/
-│   ├── <dataset_id>/raw/                    # 原始下载数据（重数据，见下方"数据根目录"）
-│   ├── <dataset_id>/lerobot_v3_0_staging/   # 转换后未清洗的中间态（重数据）
-│   ├── convert_scripts/
-│   │   ├── configs/<dataset_id>.yaml   # 每个数据集的调研配置（声明值）
-│   │   └── common/                     # 复用的 schema/io/onboarding 工具
-│   ├── verify_scripts/             # 完整性校验（Plan B，未实现）
-│   └── process_scripts/            # 清洗对齐流水线（9个stage/check模块 + 跨本体统一表示层，
+├── datasets_registry.yaml          # 66个数据集的总览表（实测值，随流水线推进更新）
+├── convert_scripts/
+│   ├── configs/<dataset_id>.yaml   # 每个数据集的调研配置（声明值）
+│   └── common/                     # 复用的 schema/io/onboarding 工具
+├── verify_scripts/                 # 下载完整性校验
+├── process_scripts/                # 清洗对齐流水线（9个stage/check模块 + 跨本体统一表示层，
 │                                    # 见本文档"跨本体统一表示层"一节）
-├── urdf_assets/<robot_platform>/   # 按机器人型号共享的 URDF（重数据）
-└── public_datasets/
-    └── lerobot_v3_0/<dataset_id>/  # 清洗完成的最终数据（重数据）
+├── shared/                         # convert_scripts/process_scripts 跨包复用（Episode/FkChain/
+│                                    # lerobot读写封装）
+└── data/                           # 全部重数据，--data-root 可整体指向仓库外任意路径
+    ├── raw/<dataset_id>/           # 原始下载数据
+    ├── staging/<dataset_id>/       # convert_scripts 产出，process_scripts 输入
+    ├── final/<dataset_id>/         # process_scripts 最终产出
+    └── urdf_assets/<robot_platform>/  # 按机器人型号共享的 URDF
 ```
 
 ## 数据根目录
 
 `datasets_registry.yaml`、`convert_scripts/configs/*.yaml` 和所有脚本代码始终
-留在仓库内，不受下面这条配置影响。只有实际的重数据目录
-（`raw/`、`lerobot_v3_0_staging/`、`public_datasets/lerobot_v3_0/`、
-`urdf_assets/`）可以指向仓库外任意路径，未来所有读写这些目录的脚本都会接受
-一个 `--data-root` 参数：
+留在仓库内，不受下面这条配置影响。只有实际的重数据目录（`data/raw/`、
+`data/staging/`、`data/final/`、`data/urdf_assets/`）可以指向仓库外任意
+路径，读写这些目录的脚本都接受一个 `--data-root` 参数：
 
 ```bash
-python3 some_future_script.py --data-root /mnt/big_disk/vla_data
+python3 run_pipeline.py --data-root /mnt/big_disk/vla_data --dataset-id droid
 ```
 
-不传 `--data-root` 时默认使用仓库内的 `embodied_datasets/`。路径解析逻辑见
-`public_datasets_raw/convert_scripts/common/paths.py`。
+不传 `--data-root` 时默认使用仓库内的 `embodied_datasets/data/`。路径解析
+逻辑见 `convert_scripts/common/paths.py`。
 
 ## 字段含义速查
 
 `datasets_registry.yaml` 是"实测值"总览表（下载/转换/清洗进度），
 `convert_scripts/configs/<id>.yaml` 是每个数据集的"声明值"详细配置（调研得到
 的本体信息、数据表示方式等）。下面整理两个 pydantic 模型的全部字段；权威定义
-永远是 `public_datasets_raw/convert_scripts/common/schema.py` 里的代码，本节
+永远是 `convert_scripts/common/schema.py` 里的代码，本节
 如有出入以代码为准。
 
 下面"当前进度"表格只展示9个核心字段，看不全；每个数据集**全部**约40个声明
@@ -63,8 +63,8 @@ python3 some_future_script.py --data-root /mnt/big_disk/vla_data
 | `integrity_status` | enum | 见下方 `IntegrityStatus` |
 | `convert_status` | enum | 见下方 `ConvertStatus` |
 | `process_status` | enum | 见下方 `ProcessStatus` |
-| `raw_local_path` | str，可空 | 原始数据相对`public_datasets_raw/`的本地路径 |
-| `lerobot_v3_0_local_path` | str，可空 | 清洗完成数据相对`public_datasets/lerobot_v3_0/`的本地路径 |
+| `raw_local_path` | str，可空 | 原始数据相对`data/raw/`的本地路径 |
+| `final_local_path` | str，可空 | 清洗完成数据相对`data/final/`的本地路径 |
 | `storage_size_gb` | float，可空 | 实测占用空间（GB） |
 | `num_episodes` | int，可空 | 实测episode数 |
 | `num_frames` | int，可空 | 实测帧数 |
@@ -82,7 +82,7 @@ python3 some_future_script.py --data-root /mnt/big_disk/vla_data
 
 #### `ConvertStatus`
 `not_converted` / `converting` / `converted` / `failed` —— `convert_scripts`
-（raw → lerobot_v3_0_staging）的执行状态。
+（raw → data/staging）的执行状态。
 
 #### `ProcessStatus`
 `not_processed` / `processing` / `processed` / `failed` —— `process_scripts`
@@ -324,7 +324,7 @@ Onboarding 时调研得到，代表"声明的事实"。除 `id`/`name` 外全部
 
 ```bash
 python3 -c "
-import sys; sys.path.insert(0, 'embodied_datasets/public_datasets_raw/convert_scripts')
+import sys; sys.path.insert(0, 'embodied_datasets/convert_scripts')
 from common.schema import <EnumName>
 for m in <EnumName>: print(m.value)
 "
@@ -349,7 +349,7 @@ for m in <EnumName>: print(m.value)
 
 对应实现：`process_scripts/unify_representation.py`（计算逻辑）+
 `process_scripts/run_pipeline.py`（把计算结果写进最终数据集）+
-`process_scripts/common/io.py`（`write_lerobot_episodes` 的落盘细节）。
+`shared/lerobot_io.py`（`write_lerobot_episodes` 的落盘细节）。
 
 ### 1. 谁会被统一表示，谁不会
 
@@ -474,7 +474,7 @@ observation.state_canonical_mask   # bool, shape (80,)，每帧都写，但整�
   没有独立的地面真值可以核对，正确性完全依赖上游 `DatasetConfig.dof_per_arm` 填得准。
 - **只统一 state，不统一 action**（见第5节）。
 - **不覆盖 MANO/人手视频**（见第1节）——这些数据的完整参数保留在
-  `lerobot_v3_0_staging/` 原始数据里，本层完全不touch它们。
+  `data/staging/` 原始数据里，本层完全不touch它们。
 - **超过21维的灵巧手会被截断**——目前注册表里没有这种数据集，一旦出现需要重新评估
   槎位宽度（见第4节）。
 
@@ -483,7 +483,7 @@ observation.state_canonical_mask   # bool, shape (80,)，每帧都写，但整�
 首次搭建需要先建独立的 `.venv-process`（仓库根 `README.md` 有完整说明）：
 
 ```bash
-cd embodied_datasets/public_datasets_raw/process_scripts
+cd embodied_datasets/process_scripts
 python3.11 -m venv .venv-process
 source .venv-process/bin/activate
 pip install -r requirements.txt
@@ -492,7 +492,7 @@ pip install -r requirements.txt
 之后每次只需要：
 
 ```bash
-cd embodied_datasets/public_datasets_raw/process_scripts
+cd embodied_datasets/process_scripts
 source .venv-process/bin/activate   # 或 .venv-process/bin/pytest 直接调用
 pytest tests/test_unify_representation.py -v   # 本层的单元测试：单臂/双臂/移动底盘/gate/21维灵巧手边界
 pytest tests/test_run_pipeline.py -v           # 验证 canonical_state 真的替换了 episode.state 并写进最终数据集
@@ -588,7 +588,7 @@ episode/25650帧）验证过完整流程：真实下载、`load_lerobot_episodes
 
 <!-- AUTO-GENERATED TABLE END -->
 
-上表由 `python3 public_datasets_raw/convert_scripts/common/generate_overview_readme.py`
+上表由 `python3 embodied_datasets/convert_scripts/common/generate_overview_readme.py`
 生成，只更新 marker 之间的内容；手动新增数据集或更新状态后重新运行以刷新。
 
 ## 完整字段总览
@@ -671,5 +671,5 @@ episode/25650帧）验证过完整流程：真实下载、`load_lerobot_episodes
 
 <!-- AUTO-GENERATED FULL TABLE END -->
 
-上表由 `python3 public_datasets_raw/convert_scripts/common/generate_full_export.py`
+上表由 `python3 embodied_datasets/convert_scripts/common/generate_full_export.py`
 生成，只更新 marker 之间的内容；数据变化后重新运行即可刷新。
