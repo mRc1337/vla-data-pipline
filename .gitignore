@@ -25,6 +25,9 @@ embodied_datasets/data/
 # design doc section 7/9: "详情进日志，registry 只留状态位".
 embodied_datasets/convert_scripts/logs/*.log
 
+# verify_scripts run logs -- same convention as convert_scripts/logs/ above.
+embodied_datasets/verify_scripts/logs/*.log
+
 # Design docs / plans written while working the superpowers skill chain
 # (brainstorming -> writing-plans) -- process artifacts, kept locally only.
 docs/superpowers/
