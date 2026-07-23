@@ -3,7 +3,7 @@ table-driven corrections (common/backfill_schema_refinement.py) to every
 existing dataset config.
 
 Run from repo root:
-    python3 embodied_datasets/public_datasets_raw/convert_scripts/run_backfill_schema_refinement.py
+    python3 embodied_datasets/convert_scripts/run_backfill_schema_refinement.py
 """
 from __future__ import annotations
 

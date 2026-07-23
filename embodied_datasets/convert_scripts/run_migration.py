@@ -2,7 +2,7 @@
 per-dataset onboarding config stubs.
 
 Run from repo root:
-    python3 embodied_datasets/public_datasets_raw/convert_scripts/run_migration.py
+    python3 embodied_datasets/convert_scripts/run_migration.py
 """
 from __future__ import annotations
 

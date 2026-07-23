@@ -7,7 +7,7 @@ been through re-verification, and would make the table unreadable.
 The YAML configs remain the source of truth for those two fields.
 
 Run from repo root:
-    python3 embodied_datasets/public_datasets_raw/convert_scripts/common/generate_full_export.py
+    python3 embodied_datasets/convert_scripts/common/generate_full_export.py
 """
 from __future__ import annotations
 

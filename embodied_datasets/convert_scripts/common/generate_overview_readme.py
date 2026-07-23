@@ -6,7 +6,7 @@ and replaces only the content between the AUTO-GENERATED TABLE markers in
 the README -- everything else in the file is hand-written and left as-is.
 
 Run from repo root:
-    python3 embodied_datasets/public_datasets_raw/convert_scripts/common/generate_overview_readme.py
+    python3 embodied_datasets/convert_scripts/common/generate_overview_readme.py
 """
 from __future__ import annotations
 

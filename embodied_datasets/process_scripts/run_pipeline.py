@@ -275,7 +275,7 @@ def main(argv: List[str] = None) -> int:
     args = parser.parse_args(argv)
 
     registry_common = _load_registry_common()
-    data_root = Path(args.data_root) if args.data_root else Path(__file__).resolve().parents[2]
+    data_root = Path(args.data_root) if args.data_root else Path(__file__).resolve().parents[1]
     registry_path = data_root / "datasets_registry.yaml"
     dataset_config_path = Path(__file__).resolve().parents[1] / "convert_scripts" / "configs" / f"{args.dataset_id}.yaml"
     process_config_path = Path(__file__).resolve().parent / "configs" / f"{args.dataset_id}.yaml"
