@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_DATA_ROOT = REPO_ROOT / "embodied_datasets" / "data"
+DEFAULT_DATA_ROOT = REPO_ROOT / "embodied_datasets" / "data_root"
 
 
 def resolve_data_root(cli_value: Optional[str]) -> Path:

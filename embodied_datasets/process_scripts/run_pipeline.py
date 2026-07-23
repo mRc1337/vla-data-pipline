@@ -218,7 +218,7 @@ README_TEMPLATE = """# {name}
   Shadow Hand 实测 21 DOF；该数据集已从注册表移除，目前注册表内机器人采集灵巧手
   数据集的实测最大自由度为 16，见 arcap）；未来若出现超过 21 维的机器人
   灵巧手会被截断。MANO/人手视频数据集（human_hand/human_full_body）完全不经过这一层，
-  不受此限制，完整参数保留在 data/staging/ 原始数据中。详见
+  不受此限制，完整参数保留在 data_root/staging/ 原始数据中。详见
   embodied_datasets/README.md 的"跨本体统一表示层"一节。
 """
 
@@ -262,7 +262,7 @@ def _dir_size_bytes(path: Path) -> int:
 
 def compute_final_local_path(output_path: Path, data_root: Path) -> str:
     """Registry field is documented (design doc section 5.1) as relative to
-    `data/final/`, not `data/` -- so for
+    `data_root/final/`, not `data_root/` -- so for
     `output_path == data_root/final/<dataset_id>` this yields just
     `<dataset_id>`.
     """

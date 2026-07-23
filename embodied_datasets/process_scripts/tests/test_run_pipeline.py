@@ -14,8 +14,8 @@ from run_pipeline import _load_registry_common, compute_final_local_path
 
 def test_compute_final_local_path_is_relative_to_final_dir(tmp_path):
     """Design doc (docs/superpowers/specs/2026-07-21-convert-scripts-verify-scripts-design.md
-    section 9) documents `final_local_path` as relative to `data/final/`,
-    matching how `raw_local_path` is relative to `data/raw/` -- so the
+    section 9) documents `final_local_path` as relative to `data_root/final/`,
+    matching how `raw_local_path` is relative to `data_root/raw/` -- so the
     stored value must be just `<dataset_id>`, not `final/<dataset_id>`.
     """
     data_root = tmp_path

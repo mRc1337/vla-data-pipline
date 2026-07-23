@@ -16,13 +16,13 @@ __pycache__/
 
 # Heavy dataset directory (raw downloads, staged/converted data, final
 # processed data, URDFs). Lives under --data-root, which defaults to
-# embodied_datasets/data/ inside the repo when not overridden -- ignore the
+# embodied_datasets/data_root/ inside the repo when not overridden -- ignore the
 # default location so a script run without --data-root never lands multi-GB
 # data in git. See convert_scripts/common/paths.py for the exact layout this
 # mirrors. The four raw/staging/final/urdf_assets subdirectories each have a
 # force-added (git add -f) .gitkeep placeholder so they still exist after a
 # fresh clone despite being gitignored.
-embodied_datasets/data/
+embodied_datasets/data_root/
 
 # convert_scripts run logs (warnings/self-check failure detail) -- kept
 # out of git, only the directory structure (via .gitkeep) is tracked. See

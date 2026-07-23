@@ -12,7 +12,7 @@ def test_conversion_report_carries_warnings_and_urdf_path():
         num_episodes=5,
         num_frames=100,
         warnings=["missing task field, defaulted to ''"],
-        urdf_path="/data/urdf_assets/franka_panda/franka_panda.urdf",
+        urdf_path="/data_root/urdf_assets/franka_panda/franka_panda.urdf",
     )
     assert report.warnings == ["missing task field, defaulted to ''"]
-    assert report.urdf_path == "/data/urdf_assets/franka_panda/franka_panda.urdf"
+    assert report.urdf_path == "/data_root/urdf_assets/franka_panda/franka_panda.urdf"

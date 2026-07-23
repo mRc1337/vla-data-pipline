@@ -12,7 +12,7 @@ from common.paths import (
 
 
 def test_default_data_root_is_repo_embodied_datasets_data():
-    assert DEFAULT_DATA_ROOT == REPO_ROOT / "embodied_datasets" / "data"
+    assert DEFAULT_DATA_ROOT == REPO_ROOT / "embodied_datasets" / "data_root"
 
 
 def test_resolve_data_root_defaults_when_none():
