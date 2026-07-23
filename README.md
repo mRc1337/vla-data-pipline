@@ -33,6 +33,8 @@ python3 -m pytest       # 跑 convert_scripts 的测试套件
 `process_scripts`（LeRobot 数据清洗对齐流水线）依赖 `lerobot` 包，需要 Python ≥3.10，跟根目录环境隔离：
 
 ```bash
+# Ubuntu 系统默认仓库通常没有 3.11，需要先装：
+# sudo apt update && sudo apt install python3.11 python3.11-venv
 cd embodied_datasets/public_datasets_raw/process_scripts
 python3.11 -m venv .venv-process
 source .venv-process/bin/activate
@@ -40,7 +42,9 @@ pip install -r requirements.txt
 pytest                  # 跑 process_scripts 的测试套件
 ```
 
-**系统依赖**：处理真实（非合成）视频数据需要系统装 `ffmpeg`（`brew install ffmpeg` 或对应平台的包管理器，不是 pip 依赖）。
+**系统依赖**：处理真实（非合成）视频数据需要系统装 `ffmpeg`（不是 pip 依赖）：
+- macOS：`brew install ffmpeg`
+- Ubuntu/Debian：`sudo apt update && sudo apt install ffmpeg`
 
 ## License
 

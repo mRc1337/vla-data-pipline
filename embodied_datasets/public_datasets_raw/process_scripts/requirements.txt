@@ -4,7 +4,8 @@
 # can actually dlopen -- without system ffmpeg, decoding a real dataset's
 # video crashes at runtime even though every synthetic-fixture test (which
 # never decodes real video) passes. Install via `brew install ffmpeg` (macOS)
-# or your platform's package manager before running against real datasets.
+# or `sudo apt update && sudo apt install ffmpeg` (Ubuntu/Debian, the actual
+# deployment target) before running against real datasets.
 lerobot==0.4.4
 numpy==2.2.6
 scipy==1.17.1
