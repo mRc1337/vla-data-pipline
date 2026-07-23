@@ -12,7 +12,7 @@ from dataclasses import replace
 import numpy as np
 
 from shared.episode import Episode, StageResult
-from common.fk_backend import FkChain
+from shared.fk_backend import FkChain
 from common.schema import ProcessConfig
 
 EEF_POS_WIDTH = 3
