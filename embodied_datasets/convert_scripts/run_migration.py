@@ -14,13 +14,12 @@ from common.migrate_xlsx_to_registry import (
     read_name_and_link_rows,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 XLSX_PATH = REPO_ROOT / "VLA Research.xlsx"
 REGISTRY_PATH = REPO_ROOT / "embodied_datasets" / "datasets_registry.yaml"
 CONFIGS_DIR = (
     REPO_ROOT
     / "embodied_datasets"
-    / "public_datasets_raw"
     / "convert_scripts"
     / "configs"
 )

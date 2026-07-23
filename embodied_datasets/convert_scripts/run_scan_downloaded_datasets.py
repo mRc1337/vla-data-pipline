@@ -25,7 +25,7 @@ from common.paths import resolve_data_root
 from common.scan_downloaded_datasets import scan_raw_directory
 from common.schema import DownloadStatus
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 REGISTRY_PATH = REPO_ROOT / "embodied_datasets" / "datasets_registry.yaml"
 
 

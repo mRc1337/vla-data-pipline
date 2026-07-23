@@ -80,10 +80,10 @@ def replace_marked_section(readme_text: str, table_markdown: str) -> str:
 
 
 def main() -> None:
-    repo_root = Path(__file__).resolve().parents[4]
+    repo_root = Path(__file__).resolve().parents[3]
     embodied_root = repo_root / "embodied_datasets"
     registry_path = embodied_root / "datasets_registry.yaml"
-    configs_dir = embodied_root / "public_datasets_raw" / "convert_scripts" / "configs"
+    configs_dir = embodied_root / "convert_scripts" / "configs"
     readme_path = embodied_root / "README.md"
 
     entries = load_registry(registry_path)

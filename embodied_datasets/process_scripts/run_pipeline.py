@@ -26,7 +26,7 @@ from typing import List, Optional
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from shared.episode import Episode  # noqa: E402
 from common.io import load_process_config  # noqa: E402
