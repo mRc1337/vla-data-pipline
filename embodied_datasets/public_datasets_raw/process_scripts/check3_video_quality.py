@@ -9,7 +9,7 @@ from dataclasses import replace
 import cv2
 import numpy as np
 
-from common.episode import Episode, StageResult
+from shared.episode import Episode, StageResult
 from common.schema import ProcessConfig
 
 

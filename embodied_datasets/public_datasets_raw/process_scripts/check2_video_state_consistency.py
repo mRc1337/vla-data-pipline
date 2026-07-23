@@ -5,7 +5,7 @@ NullClient short-circuits with a skip_reason. See design doc section 7 row 7.
 """
 from __future__ import annotations
 
-from common.episode import Episode, StageResult
+from shared.episode import Episode, StageResult
 from common.schema import ProcessConfig
 from common.service_clients import NullClient, get_video_state_consistency_client
 

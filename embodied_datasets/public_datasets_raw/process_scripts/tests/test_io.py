@@ -176,7 +176,7 @@ def test_load_lerobot_episodes_populates_video_frames(tmp_path: Path):
 
 
 def test_write_lerobot_episodes_produces_loadable_dataset(tmp_path: Path):
-    from common.episode import Episode
+    from shared.episode import Episode
     from common.io import load_lerobot_episodes, write_lerobot_episodes
 
     episodes = [
@@ -199,7 +199,7 @@ def test_write_lerobot_episodes_without_canonical_mask_has_no_mask_feature(tmp_p
     """Explicit regression coverage for the canonical_mask=None default: no
     caller of write_lerobot_episodes existing before this feature was added
     should see a new feature appear in the written dataset."""
-    from common.episode import Episode
+    from shared.episode import Episode
     from common.io import write_lerobot_episodes
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -220,7 +220,7 @@ def test_write_lerobot_episodes_without_canonical_mask_has_no_mask_feature(tmp_p
 
 
 def test_write_lerobot_episodes_with_canonical_mask_adds_mask_feature(tmp_path: Path):
-    from common.episode import Episode
+    from shared.episode import Episode
     from common.io import write_lerobot_episodes
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 

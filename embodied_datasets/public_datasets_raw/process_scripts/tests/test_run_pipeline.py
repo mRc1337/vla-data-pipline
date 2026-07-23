@@ -239,7 +239,7 @@ def test_run_dataset_replaces_state_with_canonical_80dim_for_robot_embodiment(tm
     from run_pipeline import run_dataset
     from common.io import save_process_config, load_process_config
     from common.schema import ProcessConfig
-    from common.episode import Episode
+    from shared.episode import Episode
     import unify_representation
 
     staging_path = tmp_path / "staging"

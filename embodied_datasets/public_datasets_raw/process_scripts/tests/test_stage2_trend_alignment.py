@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from common.episode import Episode
+from shared.episode import Episode
 from common.schema import ProcessConfig
 from stage2_trend_alignment import apply
 

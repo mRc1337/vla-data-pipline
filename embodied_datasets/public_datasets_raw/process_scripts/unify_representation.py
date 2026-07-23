@@ -34,7 +34,7 @@ from typing import Set
 
 import numpy as np
 
-from common.episode import Episode, StageResult
+from shared.episode import Episode, StageResult
 from common.schema import ProcessConfig
 
 JOINT_SLOT = 7

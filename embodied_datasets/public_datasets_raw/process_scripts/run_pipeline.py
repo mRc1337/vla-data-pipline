@@ -26,8 +26,9 @@ from typing import List, Optional
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from common.episode import Episode  # noqa: E402
+from shared.episode import Episode  # noqa: E402
 from common.io import load_lerobot_episodes, load_process_config, write_lerobot_episodes  # noqa: E402
 from common.schema import ProcessConfig  # noqa: E402
 

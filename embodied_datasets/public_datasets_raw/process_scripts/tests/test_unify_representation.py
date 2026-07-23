@@ -4,7 +4,7 @@ lerobot = pytest.importorskip("lerobot")
 
 import numpy as np
 
-from common.episode import Episode
+from shared.episode import Episode
 from common.schema import ProcessConfig
 from unify_representation import apply
 

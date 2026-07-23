@@ -41,7 +41,7 @@ import numpy as np
 import yaml
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
-from .episode import Episode
+from shared.episode import Episode
 from .schema import ProcessConfig
 
 
