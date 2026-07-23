@@ -1,6 +1,4 @@
-"""Synthetic LeRobotDataset builders for tests that need real lerobot I/O
-(as opposed to the stage/check unit tests, which construct Episode numpy
-arrays directly and never touch lerobot).
+"""Synthetic LeRobotDataset builders for shared/lerobot_io.py's tests.
 
 Verified against the installed lerobot==0.4.4 API (lerobot.datasets.lerobot_dataset.
 LeRobotDataset). Notable differences from a naive v2.1-era guess:

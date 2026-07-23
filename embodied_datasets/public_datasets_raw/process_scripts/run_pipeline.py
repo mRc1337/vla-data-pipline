@@ -29,7 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from shared.episode import Episode  # noqa: E402
-from common.io import load_lerobot_episodes, load_process_config, write_lerobot_episodes  # noqa: E402
+from common.io import load_process_config  # noqa: E402
+from shared.lerobot_io import load_lerobot_episodes, write_lerobot_episodes  # noqa: E402
 from common.schema import ProcessConfig  # noqa: E402
 
 import stage1_sudden_change  # noqa: E402
