@@ -6,7 +6,7 @@ datasets_registry.yaml for every matched dataset.
 Folder names are matched to a dataset id/name after normalizing away
 case/hyphen/underscore/dot differences (see
 common/scan_downloaded_datasets.py). Any non-empty folder under
-data_root/raw/ that doesn't match anything is printed as
+data_root/public_datasets_raw/ that doesn't match anything is printed as
 "unmatched" rather than silently skipped -- check
 FOLDER_NAME_ALIASES in that module if a real dataset folder ends up
 there.
@@ -34,7 +34,7 @@ def main() -> None:
     parser.add_argument(
         "--data-root",
         default=None,
-        help="Root directory containing raw/. Defaults to "
+        help="Root directory containing public_datasets_raw/. Defaults to "
         "the in-repo embodied_datasets/ directory.",
     )
     parser.add_argument(
