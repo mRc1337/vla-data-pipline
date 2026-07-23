@@ -7,7 +7,7 @@
 # or `sudo apt update && sudo apt install ffmpeg` (Ubuntu/Debian, the actual
 # deployment target) before running against real datasets.
 lerobot==0.4.4
-numpy==2.2.6
+numpy==2.0.2
 scipy==1.17.1
 opencv-python-headless==4.12.0.88
 ikpy==4.0.0
