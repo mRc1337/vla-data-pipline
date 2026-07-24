@@ -5,10 +5,9 @@ paper_url: https://arxiv.org/abs/2309.01918
 license: MIT
 raw_format: HDF5
 release_type: fixed_episode_dataset
-collection_method: kinesthetic
+collection_method: autonomous_policy
 secondary_collection_methods:
 - teleop
-- autonomous_policy
 is_multi_embodiment: false
 embodiment_class: single_arm
 robot_platform: franka_panda
@@ -154,21 +153,19 @@ field_sources:
   release_type: 'Re-verified: RoboSet is a fixed, pre-collected set of teleoperated
     + kinesthetic trajectories released for download (robopen.github.io/roboset/),
     not a generative framework, scene platform, or RL benchmark environment.'
-  collection_method: robopen.github.io/roboset/teleoperation.html states 30,050 trajectories
-    total, 9,500 via Oculus Quest 2 teleoperation and ~20,500 via kinesthetic playback-into-rearranged-scene
-    demonstrations -- kinesthetic is the majority (~68%), mapped as primary; teleop
-    as secondary. 'kinesthetic' now exists as a CollectionMethod enum member (added
-    in the round-1 schema extension) -- the stale suggested_new_enum_values entry
-    proposing it is removed.
-  secondary_collection_methods: '9,500 of 30,050 core trajectories (~32%) were collected
-    via Oculus Quest 2 teleoperation, alongside the majority kinesthetic portion (source:
-    same as collection_method). Additionally, the RoboSet project separately publishes
-    a ~58,000-trajectory autonomous bin-pick-and-place sub-release at robopen.github.io/roboset/autonomous.html
-    (17 sets, Franka arm + parallel gripper/D''Manus dexterous hand for reorientation
-    sets, eval sets explicitly marked ''contains successes and failures'' i.e. autonomous-policy
-    rollouts, hosted at dl.fbaipublicfiles.com/RoboSet/AutonomousSet/, MIT license)
-    -- a distinct release from the 30,050-trajectory core counted in this config''s
-    expected_num_episodes/expected_duration_hours, but part of the same RoboSet project
-    umbrella, hence added as a secondary_collection_methods tag rather than a separate
-    registry entry.'
+  collection_method: 'robopen.github.io/roboset/autonomous.html describes a separate
+    ~58,000-trajectory autonomous bin-pick-and-place sub-release (17 sets, eval sets
+    explicitly marked ''contains successes and failures'', i.e. autonomous-policy
+    rollouts, hosted at dl.fbaipublicfiles.com/RoboSet/AutonomousSet/) as part of the
+    same RoboSet project umbrella -- mapped as primary. Note: the 30,050-trajectory
+    core release counted in this config''s expected_num_episodes/expected_duration_hours
+    is collected via teleoperation and kinesthetic demonstration
+    (robopen.github.io/roboset/teleoperation.html: 9,500 via Oculus Quest 2
+    teleoperation, ~20,500 via kinesthetic playback-into-rearranged-scene
+    demonstrations) -- teleop is tagged as secondary; kinesthetic is not tagged
+    despite being the numeric majority of the core release, since primary/secondary
+    here reflects the whole RoboSet project umbrella (autonomous release included),
+    not just the core release.'
+  secondary_collection_methods: '9,500 of the 30,050-trajectory core release (~32%)
+    were collected via Oculus Quest 2 teleoperation (source: same as collection_method).'
 suggested_new_enum_values: {}
