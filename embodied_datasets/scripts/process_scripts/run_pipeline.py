@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import importlib.util
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -249,14 +250,19 @@ def generate_dataset_readme(dataset_config, config: ProcessConfig, stats: dict) 
 def _dir_size_bytes(path: Path) -> int:
     """Mirrors convert_scripts/common/scan_downloaded_datasets.py's
     `_dir_size_bytes` (module-private there, so not imported directly across
-    the process_scripts/convert_scripts boundary) -- same rglob-and-sum
-    approach, feeding the same `round(size_bytes / 1e9, 2)` convention
+    the process_scripts/convert_scripts boundary) -- same scandir-based
+    walk, feeding the same `round(size_bytes / 1e9, 2)` convention
     run_scan_downloaded_datasets.py uses for `storage_size_gb`.
     """
     total = 0
-    for entry in path.rglob("*"):
-        if entry.is_file():
-            total += entry.stat().st_size
+    stack = [path]
+    while stack:
+        with os.scandir(stack.pop()) as it:
+            for entry in it:
+                if entry.is_dir():
+                    stack.append(entry.path)
+                elif entry.is_file():
+                    total += entry.stat().st_size
     return total
 
 

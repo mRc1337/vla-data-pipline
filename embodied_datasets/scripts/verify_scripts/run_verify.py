@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import importlib.util
+import os
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -62,9 +63,14 @@ def _load_registry_common() -> ModuleType:
 
 def _dir_size_bytes(path: Path) -> int:
     total = 0
-    for entry in path.rglob("*"):
-        if entry.is_file():
-            total += entry.stat().st_size
+    stack = [path]
+    while stack:
+        with os.scandir(stack.pop()) as it:
+            for entry in it:
+                if entry.is_dir():
+                    stack.append(entry.path)
+                elif entry.is_file():
+                    total += entry.stat().st_size
     return total
 
 

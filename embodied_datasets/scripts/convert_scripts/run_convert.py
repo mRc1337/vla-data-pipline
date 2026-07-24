@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import os
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -36,9 +37,14 @@ LOGS_DIR = Path(__file__).resolve().parent / "logs"
 
 def _dir_size_bytes(path: Path) -> int:
     total = 0
-    for entry in path.rglob("*"):
-        if entry.is_file():
-            total += entry.stat().st_size
+    stack = [path]
+    while stack:
+        with os.scandir(stack.pop()) as it:
+            for entry in it:
+                if entry.is_dir():
+                    stack.append(entry.path)
+                elif entry.is_file():
+                    total += entry.stat().st_size
     return total
 
 

@@ -3,7 +3,7 @@ from common.scan_downloaded_datasets import FoundDataset, scan_raw_directory
 
 def test_scan_raw_directory_matches_exact_id(tmp_path):
     data_root = tmp_path / "data"
-    raw = data_root / "raw" / "droid"
+    raw = data_root / "public_datasets_raw" / "droid"
     raw.mkdir(parents=True)
     (raw / "episode_0.hdf5").write_bytes(b"x" * 100)
 
@@ -14,7 +14,7 @@ def test_scan_raw_directory_matches_exact_id(tmp_path):
 
 def test_scan_raw_directory_matches_folder_named_after_registry_name(tmp_path):
     data_root = tmp_path / "data"
-    raw = data_root / "raw" / "AgiBot-World"
+    raw = data_root / "public_datasets_raw" / "AgiBot-World"
     raw.mkdir(parents=True)
     (raw / "a.bin").write_bytes(b"x" * 50)
 
@@ -27,7 +27,7 @@ def test_scan_raw_directory_matches_folder_named_after_registry_name(tmp_path):
 
 def test_scan_raw_directory_uses_alias_table_for_semantic_mismatches(tmp_path):
     data_root = tmp_path / "data"
-    raw = data_root / "raw" / "RobotSet"
+    raw = data_root / "public_datasets_raw" / "RobotSet"
     raw.mkdir(parents=True)
     (raw / "a.bin").write_bytes(b"x" * 10)
 
@@ -38,7 +38,7 @@ def test_scan_raw_directory_uses_alias_table_for_semantic_mismatches(tmp_path):
 
 def test_scan_raw_directory_matches_lerobot_folder_alias(tmp_path):
     data_root = tmp_path / "data"
-    raw = data_root / "raw" / "lerobot"
+    raw = data_root / "public_datasets_raw" / "lerobot"
     raw.mkdir(parents=True)
     (raw / "a.bin").write_bytes(b"x" * 10)
 
@@ -51,7 +51,7 @@ def test_scan_raw_directory_matches_lerobot_folder_alias(tmp_path):
 
 def test_scan_raw_directory_reports_unmatched_nonempty_folder(tmp_path):
     data_root = tmp_path / "data"
-    raw = data_root / "raw" / "mystery_dataset"
+    raw = data_root / "public_datasets_raw" / "mystery_dataset"
     raw.mkdir(parents=True)
     (raw / "a.bin").write_bytes(b"x" * 10)
 
@@ -69,7 +69,7 @@ def test_scan_raw_directory_skips_missing_root(tmp_path):
 
 def test_scan_raw_directory_skips_empty_folder(tmp_path):
     data_root = tmp_path / "data"
-    raw = data_root / "raw" / "droid"
+    raw = data_root / "public_datasets_raw" / "droid"
     raw.mkdir(parents=True)
     found, unmatched = scan_raw_directory(data_root, [("droid", "DROID")])
     assert found == []
@@ -78,7 +78,7 @@ def test_scan_raw_directory_skips_empty_folder(tmp_path):
 
 def test_scan_raw_directory_sums_nested_files(tmp_path):
     data_root = tmp_path / "data"
-    raw = data_root / "raw" / "droid"
+    raw = data_root / "public_datasets_raw" / "droid"
     nested = raw / "sub"
     nested.mkdir(parents=True)
     (raw / "a.bin").write_bytes(b"x" * 50)

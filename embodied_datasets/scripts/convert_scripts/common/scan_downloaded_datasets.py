@@ -13,6 +13,7 @@ than just a formatting variant.
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Dict, List, NamedTuple, Tuple
@@ -40,10 +41,22 @@ def _normalize(name: str) -> str:
 
 
 def _dir_size_bytes(path: Path) -> int:
+    """os.scandir-based walk instead of Path.rglob(): DirEntry.is_file()/
+    stat() reuse the lstat info the OS already returned from the directory
+    read, where Path.rglob() re-stats every entry from scratch -- on raw
+    download directories with large file counts (many datasets ship as
+    thousands of per-frame images or shards) the difference is the
+    dominant cost of a full registry scan.
+    """
     total = 0
-    for entry in path.rglob("*"):
-        if entry.is_file():
-            total += entry.stat().st_size
+    stack = [path]
+    while stack:
+        with os.scandir(stack.pop()) as it:
+            for entry in it:
+                if entry.is_dir():
+                    stack.append(entry.path)
+                elif entry.is_file():
+                    total += entry.stat().st_size
     return total
 
 
