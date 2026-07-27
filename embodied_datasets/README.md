@@ -1,8 +1,8 @@
 # embodied_datasets
 
 VLA（视觉-语言-动作）机器人操作数据集的统一注册、清洗、对齐流水线。所有数据集
-先转换为 LeRobot v3.0 格式，再按论文方法论做五阶段数值清洗、三项跨模态质检和
-跨本体维度统一。
+先转换为 LeRobot v3.0 格式，再进行五阶段数值清洗、三项跨模态质检和
+跨本体维度统一（具体实现见"process_scripts 处理流程"一节）。
 
 ## 目录结构
 
@@ -14,8 +14,8 @@ embodied_datasets/
 │   │   ├── configs/<dataset_id>.yaml   # 每个数据集的调研配置（声明值）
 │   │   └── common/                     # 复用的 schema/io/onboarding 工具
 │   ├── verify_scripts/                 # 下载完整性校验
-│   ├── process_scripts/                # 清洗对齐流水线（9个stage/check模块 + 跨本体统一表示层，
-│   │                                    # 见本文档"跨本体统一表示层"一节）
+│   ├── process_scripts/                # 清洗对齐流水线（9个stage/check模块，见本文档
+│   │                                    # "process_scripts 处理流程"/"跨本体统一表示层"两节）
 │   └── shared/                         # convert_scripts/process_scripts 跨包复用（Episode/FkChain/
 │                                        # lerobot读写封装）
 └── data_root/                      # 全部重数据，--data-root 可整体指向仓库外任意路径
@@ -340,6 +340,22 @@ for m in <EnumName>: print(m.value)
 3. 用 `parse_and_validate_agent_output()` 校验 Agent 产出的 YAML 能通过
    schema 校验，写回 `configs/<id>.yaml`，`review_status` 保持
    `pending_human_review` 直到人工确认。
+
+## process_scripts 处理流程
+
+`run_pipeline.py` 按顺序对每个 episode 依次跑 Stage1-5，再跑 Check1-3（第三节
+"跨本体统一表示层"另有独立说明，不在下表内）：
+
+| 模块 | 实现 |
+|---|---|
+| `stage1_sudden_change` | Savitzky-Golay 平滑（`scipy.signal.savgol_filter`）后计算 residual/加速度/jerk，任一超过阈值的帧标记为异常并线性插值修复；标记帧占比超过 `episode_reject_threshold` 则整条 episode 拒绝 |
+| `stage2_trend_alignment` | 对 state/action 的每个公共维度做互相关（`scipy.signal.correlate`）估计帧滞后（lag）和方向一致性；lag 绝对值超过 `max_lag_frames` 或方向一致性低于 `da_threshold` 则跳过该 episode，否则按估计的 lag 对齐并裁剪首尾帧 |
+| `stage3_extreme_value` | 两遍处理：先对数据集全部 episode 的每一维算 `quantile_low`/`quantile_high` 分位数界（`gripper_dims_state`/`gripper_dims_action` 声明的夹爪维度豁免），再逐 episode 丢弃超界的帧 |
+| `stage4_fk_consistency` | 仅当 `urdf_available` 且 `action_space ∈ {joint_position, eef_pose}` 时执行：用 `ikpy`（`shared/fk_backend.FkChain`）对关节角做正向运动学，与数据中报告的末端位置比对；系统性中位数偏移超过 `tcp_offset_tolerance` 时整 episode 做偏移修正，偏移方差过大（非系统性）时只标记待人工复核、不改数据 |
+| `stage5_orientation_alignment` | 用配置的 4x4 base-to-world 变换矩阵对每帧末端位置和四元数朝向做坐标变换，统一各数据集的世界坐标系约定；未配置变换矩阵则跳过 |
+| `check1_instruction_consistency` | 语言指令一致性检查，仅接入 `NullClient` 占位——真实VLM服务未实现，按 `NullClient` 给出的 `skip_reason` 直接跳过 |
+| `check2_video_state_consistency` | FK投影位置与SAM3分割结果的IoU一致性检查，仅接入 `NullClient` 占位——真实SAM3服务未实现，直接跳过 |
+| `check3_video_quality` | 三项质检中唯一已实现的一项：用 OpenCV 检测黑屏（平均亮度低于 `black_threshold`）、模糊（Laplacian方差低于 `blur_threshold`）、连续静止帧（帧间差低于 `still_threshold` 且持续帧数达到 `still_min_consecutive_frames`），命中的帧直接丢弃 |
 
 ## 跨本体统一表示层 —— 数据公共规范
 
