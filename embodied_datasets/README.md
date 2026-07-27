@@ -321,7 +321,7 @@ Onboarding 时调研得到，代表"声明的事实"。除 `id`/`name` 外全部
 `pending_human_review` 待人工确认（默认值） / `confirmed` 已人工确认——
 `convert_scripts`运行前应检查这个字段是`confirmed`，防止调研错误直接污染生产流水线。
 
-如果只是想看"某个字段现在有哪些枚举值"，比这份手写文档更可靠的方式是直接跑：
+### 查枚举值
 
 ```bash
 python3 -c "
@@ -452,33 +452,18 @@ observation.state_canonical_mask   # bool, shape (80,)，每帧写入，整数�
 
 ### 8. 验证
 
-首次搭建见仓库根 `README.md`——整个仓库共用一套 `.venv`（Python ≥3.10）：
-
-```bash
-python3.11 -m venv .venv    # 在仓库根目录执行
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-之后每次只需要：
+环境搭建见根目录 `README.md`。
 
 ```bash
 cd embodied_datasets/scripts/process_scripts
-source ../../../.venv/bin/activate   # 相对仓库根 .venv 的路径
+source ../../../.venv/bin/activate
 pytest tests/test_unify_representation.py -v   # 单臂/双臂/移动底盘/gate/21维灵巧手边界
-pytest tests/test_run_pipeline.py -v           # 验证 canonical_state 替换 episode.state 并写入最终数据集
+pytest tests/test_run_pipeline.py -v           # canonical_state 替换 episode.state 并写入最终数据集
 ```
 
-`tests/test_unify_representation.py::test_dexterous_hand_with_21_dof_packs_without_truncation`
-构造21维互不相同的数值，断言全部21维正确落入 `[14:35]` 且 `mask=True`。
+`test_dexterous_hand_with_21_dof_packs_without_truncation`：构造21维数值，断言全部落入 `[14:35]` 且 `mask=True`。
 
-系统需安装 `ffmpeg`（macOS: `brew install ffmpeg`；Ubuntu/Debian:
-`sudo apt update && sudo apt install ffmpeg`）：lerobot 的视频解码器（torchcodec）
-只检查库可否 import，不检查能否 dlopen，未装系统ffmpeg时合成fixture测试仍可全部
-通过，只有解码真实视频轨时才在运行时失败。已用 `lerobot/pusht`（HuggingFace 公开
-的小型v3.0格式数据集，206 episode/25650帧）验证完整流程：下载、
-`load_lerobot_episodes` 读取、9个stage/check模块、最终数据集 `observation.state`
-为80维、`observation.state_canonical_mask` 写入且数值位置正确。
+已用 `lerobot/pusht`（HuggingFace 公开的v3.0格式数据集，206 episode/25650帧）验证完整流程：下载、`load_lerobot_episodes` 读取、9个stage/check模块、最终数据集 `observation.state` 为80维、`observation.state_canonical_mask` 写入且数值位置正确。
 
 ## 当前进度
 

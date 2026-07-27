@@ -17,27 +17,24 @@ vla_data_pipeline/
 
 ## 环境搭建
 
-整个仓库共用一套 venv（Python ≥3.10，`process_scripts` 依赖的 `lerobot`
-包要求的下限）：
-
 ```bash
-# Ubuntu 系统默认仓库通常没有 3.11，需要先装：
-# sudo apt update && sudo apt install python3.11 python3.11-venv
+sudo apt update && sudo apt install python3.11 python3.11-venv
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**系统依赖**：处理视频数据需要系统安装 `ffmpeg`（非 pip 依赖）：
-- macOS：`brew install ffmpeg`
-- Ubuntu/Debian：`sudo apt update && sudo apt install ffmpeg`
-
-仓库里有 5 套各自独立的 pytest 运行（各有自己的 `pytest.ini`/`pyproject.toml`，
-互不收集对方的测试），都激活同一个 `.venv` 即可，只是要先 `cd` 到对应目录：
+## 系统依赖
 
 ```bash
-python3 -m pytest                                    # 根目录 tests/：注册表/onboarding 工具
-(cd embodied_datasets/scripts/process_scripts && pytest)  # 清洗流水线
+sudo apt update && sudo apt install ffmpeg
+```
+
+## 测试
+
+```bash
+python3 -m pytest                                         # 根目录 tests/
+(cd embodied_datasets/scripts/process_scripts && pytest)
 (cd embodied_datasets/scripts/shared && pytest)
 (cd embodied_datasets/scripts/convert_scripts && pytest)
 (cd embodied_datasets/scripts/verify_scripts && pytest)
