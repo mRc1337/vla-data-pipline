@@ -381,9 +381,9 @@ single_arm, dual_arm, half_humanoid, humanoid, mobile_manipulator, quadruped
 （如 EgoAllo）不经过这一层，`observation.state` 保留原始 per-dataset 维度不变，
 完整参数留在 `data_root/public_datasets_staging/` 原始数据中。
 
-### 2. 80 维 canonical 向量布局
+### 2. 128 维 canonical 向量布局
 
-固定总维度 80，按下表切片。`JOINT_SLOT`（7）和 `GRIPPER_SLOT`（21）取自注册表内
+固定总维度 128，按下表切片。`JOINT_SLOT`（7）和 `GRIPPER_SLOT`（21）取自注册表内
 `dof_per_arm`/`dof_per_hand` 的实测最大值（见第4节）；`EEF_SLOT`（7）是固定的位姿
 表示惯例（3维位置 + 4维四元数），与具体数据集无关：
 
@@ -393,8 +393,7 @@ single_arm, dual_arm, half_humanoid, humanoid, mobile_manipulator, quadruped
 | `[7:14]` | 7 | 末端位姿：3维位置 + 4维四元数 | `EEF_SLOT` |
 | `[14:35]` | 21 | 夹爪/灵巧手槎位（见第3节） | `GRIPPER_SLOT` |
 | `[35:70]`（仅双臂数据集） | 35 | arm2，结构与 `[0:35]` 相同 | `ARM_BLOCK_DIM` |
-| `[70:73]` | 3 | 移动底盘 `vx/vy/yaw` 速度，仅 `has_mobile_base=true` 时填充 | `MOBILE_BASE_SLOT` |
-| `[73:80]` | 7 | 预留，当前恒为0 | — |
+| `[70:128]` | 58 | 预留，当前恒为0，给未来全身运控/其它传感器模态留空间 | `RESERVE_SLOT` |
 
 四元数分量顺序（xyzw / wxyz）由 `convert_scripts` onboarding 时约定；
 `unify_representation.py` 按该约定顺序原样写入 `[10:14]`，不做校验或转换。
@@ -402,8 +401,10 @@ single_arm, dual_arm, half_humanoid, humanoid, mobile_manipulator, quadruped
 单臂数据集的 `[35:70]` 恒为0，对应 `mask` 恒为 `False`（表示"没有第二臂"；训练时
 应按 mask 忽略该区间，不应视为第二臂的零速度数据）。
 
-`ARM_BLOCK_DIM = JOINT_SLOT + EEF_SLOT + GRIPPER_SLOT = 35`，
-`MOBILE_BASE_SLOT` 起始位置为 `2 * ARM_BLOCK_DIM`。
+`ARM_BLOCK_DIM = JOINT_SLOT + EEF_SLOT + GRIPPER_SLOT = 35`。移动底盘速度
+（vx/vy/yaw）当前不写入 `[70:128]` 或任何其它槎位——`has_mobile_base=true` 的
+数据集，该部分数值在打包时被排除以免污染臂部槎位，但直接丢弃，不被 canonical
+向量捕获；全身运控/移动底盘的槎位设计留给后续单独决定。
 
 ### 3. 夹爪槎位 `[14:35]` 的分支规则
 
@@ -436,14 +437,14 @@ per-dataset 维度不变。
 
 ### 6. mask 语义
 
-`unify_representation.apply()` 除计算80维向量外，还计算一个80维 bool mask（同一
+`unify_representation.apply()` 除计算128维向量外，还计算一个128维 bool mask（同一
 数据集内所有帧、所有episode共享同一份，仅取决于 `dof_per_arm`/`num_arms`/
 `gripper_type`/`has_mobile_base` 等数据集级配置）。
 
 该 mask 作为独立的 lerobot feature 写入最终数据集：
 
 ```
-observation.state_canonical_mask   # bool, shape (80,)，每帧写入，整数据集内容相同
+observation.state_canonical_mask   # bool, shape (128,)，每帧写入，整数据集内容相同
 ```
 
 `mask[i]=False` 表示第 i 维是该本体不具备对应自由度的零填充，而非测量值为0。
@@ -459,6 +460,8 @@ observation.state_canonical_mask   # bool, shape (80,)，每帧写入，整数�
 - 不覆盖 MANO/人手视频（见第1节），完整参数保留在
   `data_root/public_datasets_staging/` 原始数据中。
 - 超过21维的灵巧手会被截断（见第4节）。
+- 移动底盘速度（vx/vy/yaw）当前不被任何槎位捕获（见第2节）：`has_mobile_base=true`
+  的数据集，该部分数值在打包时被排除以免污染臂部槎位，但直接丢弃。
 - 经 `convert_scripts` 转换的数据集，`data_root/public_datasets_staging/` 中不含
   视频：`shared/lerobot_io.py` 的 `write_lerobot_episodes` 目前硬编码
   `use_videos=False`，只写 `observation.state`/`action`/`task`。原始视频/图像观测
@@ -479,7 +482,7 @@ pytest tests/test_run_pipeline.py -v           # canonical_state 替换 episode.
 
 `test_dexterous_hand_with_21_dof_packs_without_truncation`：构造21维数值，断言全部落入 `[14:35]` 且 `mask=True`。
 
-已用 `lerobot/pusht`（HuggingFace 公开的v3.0格式数据集，206 episode/25650帧）验证完整流程：下载、`load_lerobot_episodes` 读取、9个stage/check模块、最终数据集 `observation.state` 为80维、`observation.state_canonical_mask` 写入且数值位置正确。
+已用 `lerobot/pusht`（HuggingFace 公开的v3.0格式数据集，206 episode/25650帧）验证过完整流程：下载、`load_lerobot_episodes` 读取、9个stage/check模块、最终数据集写出、`observation.state_canonical_mask` 数值位置正确——该次验证在 `CANONICAL_DIM=80` 时进行；改成128维后的覆盖仅来自上面两个 pytest 命令（含合成数据的128维断言），未重新跑真实数据集下载验证。
 
 ## 当前进度
 

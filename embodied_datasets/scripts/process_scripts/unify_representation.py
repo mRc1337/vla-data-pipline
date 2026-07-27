@@ -1,12 +1,15 @@
-"""Cross-embodiment canonical 80-dim state projection (design doc
+"""Cross-embodiment canonical 128-dim state projection (design doc
 section 8). Per-arm 35-dim block = [joint(<=7) | eef_pos(3)+eef_quat(4) |
 gripper_or_hand_slot(<=21)]; dual-arm datasets concatenate arm1[0:35] +
-arm2[35:70]; [70:73] holds mobile-base vx/vy/yaw when has_mobile_base;
-[73:80] is reserved (left zero).
+arm2[35:70]; [70:128] is reserved for future whole-body control / other
+sensor modalities (left zero) -- mobile-base velocity (vx/vy/yaw) is
+carved out of the arm-column split when has_mobile_base is set (so it
+doesn't corrupt arm/gripper packing) but is not itself captured in any
+canonical slot; the raw values live only in staging, not this layout.
 
 Assumes episode.state columns are ALREADY ordered per-arm as [joint |
 eef_pos+eef_quat | gripper_or_hand_slot], concatenated arm-by-arm -- this
-module only pads/truncates/repositions into the fixed 80-dim layout, it
+module only pads/truncates/repositions into the fixed 128-dim layout, it
 does not reorder raw per-dataset columns. That reordering is
 convert_scripts' responsibility.
 
@@ -41,8 +44,7 @@ JOINT_SLOT = 7
 EEF_SLOT = 7
 GRIPPER_SLOT = 21
 ARM_BLOCK_DIM = JOINT_SLOT + EEF_SLOT + GRIPPER_SLOT  # 35
-CANONICAL_DIM = 80
-MOBILE_BASE_SLOT = slice(2 * ARM_BLOCK_DIM, 2 * ARM_BLOCK_DIM + 3)
+CANONICAL_DIM = 128
 
 ROBOT_EMBODIMENT_CLASSES: Set[str] = {
     "single_arm",
@@ -114,15 +116,12 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
     dof_per_arm = max(config.dof_per_arm or 0, 0)
     num_arms = max(1, min(config.num_arms, 2))
     # The mobile-base vx/vy/yaw columns (when present) are appended AFTER
-    # all arm columns in episode.state -- that's what mobile_cols_start =
-    # num_arms * cols_per_arm below assumes. So those trailing 3 columns
-    # must be carved out of the total width BEFORE dividing the remainder
-    # among arms; dividing the full width (arm cols + mobile-base cols) by
-    # num_arms, as before, always leaves a remainder < num_arms <= 2,
-    # which can never satisfy the ">= mobile_cols_start + 3" check below --
-    # making the has_mobile_base branch permanently dead code (mobile-base
-    # velocities silently never captured, mask always False for
-    # MOBILE_BASE_SLOT).
+    # all arm columns in episode.state, and must be carved out of the total
+    # width BEFORE dividing the remainder among arms -- otherwise they'd
+    # shift cols_per_arm and corrupt the arm/gripper packing above. Mobile-
+    # base velocity itself has no slot in the canonical layout (folded into
+    # the [70:128] reserve, not yet implemented), so the carved-out values
+    # are discarded rather than written anywhere.
     mobile_base_width = 3 if config.has_mobile_base else 0
     arm_cols_total = max(episode.state.shape[1] - mobile_base_width, 0)
     cols_per_arm = arm_cols_total // num_arms
@@ -131,12 +130,6 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
         start = arm_idx * cols_per_arm
         arm_cols = episode.state[:, start:start + cols_per_arm]
         _pack_arm(canonical, mask, arm_idx * ARM_BLOCK_DIM, arm_cols, dof_per_arm, config.gripper_type)
-
-    if config.has_mobile_base:
-        mobile_cols_start = num_arms * cols_per_arm
-        if episode.state.shape[1] - mobile_cols_start >= 3:
-            canonical[:, MOBILE_BASE_SLOT] = episode.state[:, mobile_cols_start:mobile_cols_start + 3]
-            mask[MOBILE_BASE_SLOT] = True
 
     return StageResult(
         episode=episode,

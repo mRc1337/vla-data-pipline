@@ -227,8 +227,8 @@ def test_run_dataset_filters_episodes_with_all_frames_dropped(tmp_path):
     assert any(reason == "all_frames_dropped" for _stage, _idx, reason, _rejected in stats["log"])
 
 
-def test_run_dataset_replaces_state_with_canonical_80dim_for_robot_embodiment(tmp_path):
-    """Task 15's unify_representation.apply computes a canonical 80-dim
+def test_run_dataset_replaces_state_with_canonical_128dim_for_robot_embodiment(tmp_path):
+    """Task 15's unify_representation.apply computes a canonical 128-dim
     projection of episode.state into result.stats, but does not itself
     mutate episode.state -- run_dataset must swap it in for robot-collected
     embodiment classes (result.skip_reason is None) before writing the
@@ -276,7 +276,7 @@ def test_run_dataset_replaces_state_with_canonical_80dim_for_robot_embodiment(tm
 
     reloaded = LeRobotDataset(repo_id=output_path.name, root=output_path)
     row0 = reloaded[0]
-    assert tuple(row0["observation.state"].shape) == (80,)
+    assert tuple(row0["observation.state"].shape) == (128,)
     assert "observation.state_canonical_mask" in row0
     written_mask = row0["observation.state_canonical_mask"].numpy().astype(bool)
 

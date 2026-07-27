@@ -34,7 +34,7 @@ def test_single_arm_parallel_jaw_packs_into_first_35_dims():
     result = apply(episode, config)
     canonical = result.stats["canonical_state"]
     mask = result.stats["canonical_mask"]
-    assert canonical.shape == (4, 80)
+    assert canonical.shape == (4, 128)
     assert np.allclose(canonical[:, :6], np.arange(6))
     assert np.allclose(canonical[:, 7:14], [1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0])
     assert np.allclose(canonical[:, 14], 0.5)
@@ -72,20 +72,24 @@ def test_dexterous_hand_with_21_dof_packs_without_truncation():
     result = apply(episode, config)
     canonical = result.stats["canonical_state"]
     mask = result.stats["canonical_mask"]
-    assert canonical.shape == (num_frames, 80)
+    assert canonical.shape == (num_frames, 128)
     assert np.allclose(canonical[:, 14:35], np.arange(21))
     assert np.all(mask[14:35])
     assert not np.any(mask[35:])
 
 
-def test_mobile_base_velocity_is_packed_after_arm_columns():
+def test_mobile_base_columns_excluded_from_arm_packing_but_not_captured():
     # 14 arm cols (single arm) + 3 trailing mobile-base vx/vy/yaw cols = 17.
-    # Regression for a bug where cols_per_arm was computed by dividing the
-    # FULL column count (including the trailing mobile-base columns) by
-    # num_arms, leaving no room for the mobile-base check to ever succeed --
-    # the has_mobile_base branch was permanently dead code.
+    # Mobile-base velocity has no slot in the canonical layout (folded into
+    # the [70:128] reserve, not yet implemented) -- but the trailing 3
+    # columns must still be excluded from the arm-column split, or they'd
+    # shift cols_per_arm and corrupt the arm1 packing checked below.
     num_frames = 3
     state = np.zeros((num_frames, 17))
+    state[:, :6] = np.arange(6)
+    state[:, 6:9] = [1.0, 2.0, 3.0]
+    state[:, 9:13] = [0.0, 0.0, 0.0, 1.0]
+    state[:, 13] = 0.5
     state[:, 14:17] = [0.1, 0.2, 0.3]
     episode = Episode(episode_index=0, timestamps=np.arange(num_frames, dtype=np.float64), state=state, action=state.copy())
     config = ProcessConfig(
@@ -95,8 +99,11 @@ def test_mobile_base_velocity_is_packed_after_arm_columns():
     result = apply(episode, config)
     canonical = result.stats["canonical_state"]
     mask = result.stats["canonical_mask"]
-    assert np.allclose(canonical[:, 70:73], [0.1, 0.2, 0.3])
-    assert np.all(mask[70:73])
+    assert np.allclose(canonical[:, :6], np.arange(6))
+    assert np.allclose(canonical[:, 7:14], [1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0])
+    assert np.allclose(canonical[:, 14], 0.5)
+    assert np.all(canonical[:, 70:128] == 0)
+    assert not np.any(mask[70:128])
 
 
 def test_dof_per_arm_exceeding_available_columns_does_not_crash():
@@ -144,7 +151,7 @@ def test_zero_frames_episode_does_not_crash():
     episode = Episode(episode_index=0, timestamps=np.arange(0, dtype=np.float64), state=state, action=state.copy())
     config = ProcessConfig(id="x", embodiment_class="single_arm", num_arms=1, dof_per_arm=6, gripper_type="parallel_jaw")
     result = apply(episode, config)
-    assert result.stats["canonical_state"].shape == (0, 80)
+    assert result.stats["canonical_state"].shape == (0, 128)
 
 
 def test_dual_arm_packs_arm1_and_arm2_into_correct_blocks():
@@ -170,7 +177,7 @@ def test_dual_arm_packs_arm1_and_arm2_into_correct_blocks():
     result = apply(episode, config)
     canonical = result.stats["canonical_state"]
     mask = result.stats["canonical_mask"]
-    assert canonical.shape == (num_frames, 80)
+    assert canonical.shape == (num_frames, 128)
 
     # arm1 -> canonical[:, 0:35]
     assert np.allclose(canonical[:, 0:6], np.arange(6))
@@ -192,9 +199,9 @@ def test_dual_arm_packs_arm1_and_arm2_into_correct_blocks():
     assert np.all(canonical[:, 50:70] == 0)
     assert not np.any(mask[50:70])
 
-    # no mobile base configured -> [70:80] stays zero/unmasked
-    assert np.all(canonical[:, 70:80] == 0)
-    assert not np.any(mask[70:80])
+    # no mobile base configured -> [70:128] stays zero/unmasked (reserved)
+    assert np.all(canonical[:, 70:128] == 0)
+    assert not np.any(mask[70:128])
 
 
 def test_zero_or_negative_num_arms_clamped_to_one():

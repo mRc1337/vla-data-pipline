@@ -159,7 +159,7 @@ def run_dataset(dataset_id: str, staging_path: Path, output_path: Path, process_
         episode = result.episode
 
         # For robot-collected embodiment classes (result.skip_reason is None),
-        # unify_representation computes a cross-embodiment canonical 80-dim
+        # unify_representation computes a cross-embodiment canonical 128-dim
         # projection of episode.state but does NOT itself replace
         # episode.state (see unify_representation.py's apply() docstring/
         # tests -- it returns the original episode object with the
@@ -215,12 +215,13 @@ README_TEMPLATE = """# {name}
 {processing_log}
 
 ## 已知局限
-- 80 维统一表示层里的灵巧手槎位是 21 维（历史设计依据：曾onboard过的 humanoidbench
+- 128 维统一表示层里的灵巧手槎位是 21 维（历史设计依据：曾onboard过的 humanoidbench
   Shadow Hand 实测 21 DOF；该数据集已从注册表移除，目前注册表内机器人采集灵巧手
   数据集的实测最大自由度为 16，见 arcap）；未来若出现超过 21 维的机器人
   灵巧手会被截断。MANO/人手视频数据集（human_hand/human_full_body）完全不经过这一层，
-  不受此限制，完整参数保留在 data_root/staging/ 原始数据中。详见
-  embodied_datasets/README.md 的"跨本体统一表示层"一节。
+  不受此限制，完整参数保留在 data_root/public_datasets_staging/ 原始数据中。移动底盘
+  速度（vx/vy/yaw）当前不写入任何槎位，has_mobile_base=true 的数据集该部分数值会被
+  丢弃。详见 embodied_datasets/README.md 的"跨本体统一表示层"一节。
 """
 
 
