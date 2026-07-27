@@ -555,7 +555,8 @@ pytest tests/test_run_pipeline.py -v           # 验证 canonical_state 替换 e
 
 <!-- AUTO-GENERATED TABLE END -->
 
-上表由 `python3 embodied_datasets/scripts/convert_scripts/common/generate_overview_readme.py`
+上表由（在仓库根目录执行）
+`python3 -m embodied_datasets.scripts.convert_scripts.common.generate_overview_readme`
 生成，只更新 marker 之间的内容；手动新增数据集或更新状态后重新运行以刷新。
 
 ## 完整字段总览
@@ -638,5 +639,6 @@ pytest tests/test_run_pipeline.py -v           # 验证 canonical_state 替换 e
 
 <!-- AUTO-GENERATED FULL TABLE END -->
 
-上表由 `python3 embodied_datasets/scripts/convert_scripts/common/generate_full_export.py`
+上表由（在仓库根目录执行）
+`python3 -m embodied_datasets.scripts.convert_scripts.common.generate_full_export`
 生成，只更新 marker 之间的内容；数据变化后重新运行即可刷新。

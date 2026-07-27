@@ -6,8 +6,10 @@ provenance/audit text, often several sentences long once a dataset has
 been through re-verification, and would make the table unreadable.
 The YAML configs remain the source of truth for those two fields.
 
-Run from repo root:
-    python3 embodied_datasets/scripts/convert_scripts/common/generate_full_export.py
+Run from repo root (module form, not as a plain script -- this file uses
+package-relative imports, e.g. `from .io import ...`, which only resolve
+under `-m`):
+    python3 -m embodied_datasets.scripts.convert_scripts.common.generate_full_export
 """
 from __future__ import annotations
 

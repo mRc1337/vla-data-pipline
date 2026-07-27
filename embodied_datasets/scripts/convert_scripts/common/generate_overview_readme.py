@@ -5,8 +5,10 @@ section 5). Reads datasets_registry.yaml + convert_scripts/configs/*.yaml
 and replaces only the content between the AUTO-GENERATED TABLE markers in
 the README -- everything else in the file is hand-written and left as-is.
 
-Run from repo root:
-    python3 embodied_datasets/scripts/convert_scripts/common/generate_overview_readme.py
+Run from repo root (module form, not as a plain script -- this file uses
+package-relative imports, e.g. `from .io import ...`, which only resolve
+under `-m`):
+    python3 -m embodied_datasets.scripts.convert_scripts.common.generate_overview_readme
 """
 from __future__ import annotations
 
