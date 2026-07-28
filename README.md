@@ -46,16 +46,9 @@ embodied_datasets/
     └── urdf_assets/<robot_platform>/                       # 按机器人型号共享的 URDF
 ```
 
-`datasets_registry.yaml`、`convert_scripts/configs/*.yaml` 和所有脚本代码始终留在
-仓库内，不受 `--data-root` 影响。只有 `data_root/` 下的重数据目录可以指向仓库外
-任意路径，读写这些目录的脚本都接受一个 `--data-root` 参数：
-
 ```bash
 python3 run_pipeline.py --data-root /mnt/big_disk/vla_data --dataset-id droid
 ```
-
-不传 `--data-root` 时默认使用仓库内的 `embodied_datasets/data_root/`。路径解析
-逻辑见 `scripts/convert_scripts/common/paths.py`。
 
 ## process_scripts 处理流程
 
