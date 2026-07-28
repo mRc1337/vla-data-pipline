@@ -1,16 +1,17 @@
 """Pluggable VLM/SAM3 client interfaces for Check1/Check2.
 get_instruction_consistency_client() wires up a real OpenAIVLMClient (see
 docs/superpowers/specs/2026-07-27-vlm-client-check1-design.md) when
-vlm_service_url is configured. get_video_state_consistency_client() (SAM3)
-still raises NotImplementedError for a real URL -- that's a separate,
-not-yet-designed sub-project. NullClient is the fallback used when the
-corresponding *_service_url config field is unset.
+vlm_service_url is configured. get_video_state_consistency_client() wires
+up a real LocalSam3Client (see
+docs/superpowers/specs/2026-07-28-sam3-check2-camera-calibration-design.md)
+when sam3_checkpoint_path is configured. NullClient is the fallback used
+when the corresponding config field is unset.
 """
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import List, Optional, Protocol
+from typing import List, Optional, Protocol, Tuple
 
 import numpy as np
 
@@ -26,7 +27,7 @@ class InstructionConsistencyClient(Protocol):
 
 
 class VideoStateConsistencyClient(Protocol):
-    def segment(self, frame: np.ndarray) -> np.ndarray: ...
+    def segment(self, frame: np.ndarray, point_prompt: Tuple[float, float]) -> np.ndarray: ...
 
 
 class NullClient:
@@ -36,7 +37,7 @@ class NullClient:
     def check(self, instruction: str, frames: List[np.ndarray]) -> ConsistencyVerdict:
         return ConsistencyVerdict(consistent=True, reason="vlm_service_not_configured")
 
-    def segment(self, frame: np.ndarray) -> np.ndarray:
+    def segment(self, frame: np.ndarray, point_prompt: Tuple[float, float]) -> np.ndarray:
         raise RuntimeError("sam3_service_not_configured")
 
 
@@ -63,10 +64,9 @@ def get_instruction_consistency_client(
     return OpenAIVLMClient(base_url=vlm_service_url, model=vlm_model_name or "qwen2.5-vl-7b-instruct", api_key=api_key)
 
 
-def get_video_state_consistency_client(sam3_service_url: Optional[str]) -> VideoStateConsistencyClient:
-    if not sam3_service_url:
+def get_video_state_consistency_client(sam3_checkpoint_path: Optional[str]) -> VideoStateConsistencyClient:
+    if not sam3_checkpoint_path:
         return NullClient()
-    raise NotImplementedError(
-        "Real SAM3 HTTP client is not implemented yet -- configure "
-        "sam3_service_url=None until the service is selected and deployed."
-    )
+    from common.sam3_client import LocalSam3Client  # local import: mirrors get_instruction_consistency_client's OpenAIVLMClient import
+
+    return LocalSam3Client(checkpoint_path=sam3_checkpoint_path)

@@ -40,9 +40,11 @@ def test_get_video_state_consistency_client_returns_null_client_when_unconfigure
     assert isinstance(client, NullClient)
 
 
-def test_get_video_state_consistency_client_raises_for_real_url():
-    with pytest.raises(NotImplementedError):
-        get_video_state_consistency_client("http://localhost:9001")
+def test_get_video_state_consistency_client_returns_local_sam3_client_when_configured():
+    from common.sam3_client import LocalSam3Client
+
+    client = get_video_state_consistency_client("/fake/checkpoint.pt")
+    assert isinstance(client, LocalSam3Client)
 
 
 def test_null_client_check_reports_not_configured():
@@ -55,4 +57,4 @@ def test_null_client_check_reports_not_configured():
 def test_null_client_segment_raises():
     client = NullClient()
     with pytest.raises(RuntimeError):
-        client.segment(np.zeros((4, 4, 3), dtype=np.uint8))
+        client.segment(np.zeros((4, 4, 3), dtype=np.uint8), (2.0, 2.0))
