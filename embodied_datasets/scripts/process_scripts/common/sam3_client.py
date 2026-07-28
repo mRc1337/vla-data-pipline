@@ -69,4 +69,4 @@ class LocalSam3Client:
         box_centers_y = (boxes[:, 1] + boxes[:, 3]) / 2.0
         distances = (box_centers_x - query_cx) ** 2 + (box_centers_y - query_cy) ** 2
         best_idx = int(torch.argmin(distances).item())
-        return results["masks"][best_idx].numpy().astype(bool)
+        return results["masks"][best_idx].cpu().numpy().astype(bool)
