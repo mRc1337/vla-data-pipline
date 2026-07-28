@@ -1,10 +1,14 @@
-"""Pluggable VLM/SAM3 client interfaces for Check1/Check2. Real HTTP
-clients are not implemented in this phase (see design doc section 12) --
-only the Python interface and the NullClient fallback used when the
+"""Pluggable VLM/SAM3 client interfaces for Check1/Check2.
+get_instruction_consistency_client() wires up a real OpenAIVLMClient (see
+docs/superpowers/specs/2026-07-27-vlm-client-check1-design.md) when
+vlm_service_url is configured. get_video_state_consistency_client() (SAM3)
+still raises NotImplementedError for a real URL -- that's a separate,
+not-yet-designed sub-project. NullClient is the fallback used when the
 corresponding *_service_url config field is unset.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import List, Optional, Protocol
 
@@ -36,13 +40,27 @@ class NullClient:
         raise RuntimeError("sam3_service_not_configured")
 
 
-def get_instruction_consistency_client(vlm_service_url: Optional[str]) -> InstructionConsistencyClient:
+def get_instruction_consistency_client(
+    vlm_service_url: Optional[str],
+    vlm_model_name: Optional[str],
+    vlm_api_key_env: Optional[str],
+) -> InstructionConsistencyClient:
     if not vlm_service_url:
         return NullClient()
-    raise NotImplementedError(
-        "Real VLM HTTP client is not implemented yet -- configure "
-        "vlm_service_url=None until the service is selected and deployed."
-    )
+    if not vlm_api_key_env:
+        raise RuntimeError(
+            f"vlm_service_url={vlm_service_url!r} is configured but vlm_api_key_env is unset -- "
+            "refusing to silently fall back to NullClient for a service the config says should be real."
+        )
+    api_key = os.environ.get(vlm_api_key_env)
+    if not api_key:
+        raise RuntimeError(
+            f"vlm_api_key_env={vlm_api_key_env!r} names an environment variable that is not set -- "
+            "refusing to silently fall back to NullClient for a service the config says should be real."
+        )
+    from common.vlm_client import OpenAIVLMClient  # local import: vlm_client.py imports ConsistencyVerdict from this module at top level
+
+    return OpenAIVLMClient(base_url=vlm_service_url, model=vlm_model_name or "qwen2.5-vl-7b-instruct", api_key=api_key)
 
 
 def get_video_state_consistency_client(sam3_service_url: Optional[str]) -> VideoStateConsistencyClient:
