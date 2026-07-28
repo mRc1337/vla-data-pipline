@@ -62,7 +62,7 @@ python3 run_pipeline.py --data-root /mnt/big_disk/vla_data --dataset-id droid
 | `stage4_fk_consistency` | 仅当 `urdf_available` 且 `action_space ∈ {joint_position, eef_pose}` 时执行：用 `ikpy`（`shared/fk_backend.FkChain`）对关节角做正向运动学，与数据中报告的末端位置比对；系统性中位数偏移超过 `tcp_offset_tolerance` 时整 episode 做偏移修正，偏移方差过大（非系统性）时只标记待人工复核、不改数据 |
 | `stage5_orientation_alignment` | 用配置的 4x4 base-to-world 变换矩阵对每帧末端位置和四元数朝向做坐标变换，统一各数据集的世界坐标系约定；未配置变换矩阵则跳过 |
 | `check1_instruction_consistency` | 语言指令一致性检查：通过OpenAI兼容接口调用VLM（默认模型 `qwen2.5-vl-7b-instruct`，API key经 `vlm_api_key_env` 指定的环境变量读取，从不写入配置文件），对语言指令与均匀采样的最多5帧图像做一致性判断，模型强制输出JSON；网络/解析失败时fail-safe为 `consistent=True`（不误伤好数据），`vlm_service_url` 已配置但密钥缺失时直接报错（不静默退化为跳过） |
-| `check2_video_state_consistency` | FK投影位置与SAM3分割结果的IoU一致性检查，仅接入 `NullClient` 占位——真实SAM3服务未实现，直接跳过 |
+| `check2_video_state_consistency` | 视频-状态一致性检查：把FK算出的机械臂末端3D位置用相机外参变换、针孔投影成像素坐标，按物理半径 `gripper_radius_m` 换算出像素半径画一个圆盘作为"期望区域"，同时把该像素坐标当point prompt喂给本地SAM3模型（`LocalSam3Client`）拿到"实际分割mask"，两者算IoU；从episode均匀采样最多5帧取平均IoU，跟 `iou_threshold` 比，不达标只标记不丢弃 |
 | `check3_video_quality` | 三项质检中唯一已实现的一项：用 OpenCV 检测黑屏（平均亮度低于 `black_threshold`）、模糊（Laplacian方差低于 `blur_threshold`）、连续静止帧（帧间差低于 `still_threshold` 且持续帧数达到 `still_min_consecutive_frames`），命中的帧直接丢弃 |
 
 ## 跨本体统一表示
