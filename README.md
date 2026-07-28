@@ -77,110 +77,26 @@ python3 run_pipeline.py --data-root /mnt/big_disk/vla_data --dataset-id droid
 
 本节定义 `process_scripts` 流水线产出的**最终 LeRobot v3.0 数据集**中，机器人本体
 （robot-collected embodiment）`observation.state` 的格式。这是下游训练/评测脚本
-读取数据时依赖的公共契约；如本节与 `unify_representation.py` 的实际代码不一致，
-以代码为准，请提 issue。
+读取数据时依赖的公共契约。
 
-对应实现：`process_scripts/unify_representation.py`（计算逻辑）+
-`process_scripts/run_pipeline.py`（把计算结果写进最终数据集）+
-`shared/lerobot_io.py`（`write_lerobot_episodes` 的落盘细节）。
+### 1. 128 维 canonical 向量布局
 
-### 1. 适用范围
-
-Gate 条件（`unify_representation.py` 里的 `ROBOT_EMBODIMENT_CLASSES`）：只对以下
-`embodiment_class` 生效——
-
-```
-single_arm, dual_arm, half_humanoid, humanoid, mobile_manipulator, quadruped
-```
-
-`human_hand`（第一/第三人称人手视频，如 H2O、OAKink2、TACO）和 `human_full_body`
-（如 EgoAllo）不经过这一层，`observation.state` 保留原始 per-dataset 维度不变，
-完整参数留在 `data_root/public_datasets_staging/` 原始数据中。
-
-### 2. 128 维 canonical 向量布局
-
-固定总维度 128，按下表切片。`JOINT_SLOT`（7）和 `GRIPPER_SLOT`（21）取自注册表内
-`dof_per_arm`/`dof_per_hand` 的实测最大值（见第4节）；`EEF_SLOT`（7）是固定的位姿
-表示惯例（3维位置 + 4维四元数），与具体数据集无关：
+固定总维度 128，按下表切片：
 
 | 子区间 | 维度 | 内容 | 常量名 |
 |---|---|---|---|
-| `[0:7]`（arm1） | 7 | 关节位置 | `JOINT_SLOT` |
+| `[0:7]` | 7 | 关节位置 | `JOINT_SLOT` |
 | `[7:14]` | 7 | 末端位姿：3维位置 + 4维四元数 | `EEF_SLOT` |
-| `[14:35]` | 21 | 夹爪/灵巧手槎位（见第3节） | `GRIPPER_SLOT` |
-| `[35:70]`（仅双臂数据集） | 35 | arm2，结构与 `[0:35]` 相同 | `ARM_BLOCK_DIM` |
+| `[14:35]` | 21 | 夹爪/灵巧手 | `GRIPPER_SLOT` |
+| `[35:70]`（仅双臂数据集） | 35 | ARM2，结构与 `[0:35]` 相同 | `ARM_BLOCK_DIM` |
 | `[70:128]` | 58 | 预留，当前恒为0，给未来全身运控/其它传感器模态留空间 | `RESERVE_SLOT` |
 
-四元数分量顺序（xyzw / wxyz）由 `convert_scripts` onboarding 时约定；
-`unify_representation.py` 按该约定顺序原样写入 `[10:14]`，不做校验或转换。
-
-单臂数据集的 `[35:70]` 恒为0，对应 `mask` 恒为 `False`（表示"没有第二臂"；训练时
-应按 mask 忽略该区间，不应视为第二臂的零速度数据）。
-
-`ARM_BLOCK_DIM = JOINT_SLOT + EEF_SLOT + GRIPPER_SLOT = 35`。移动底盘速度
-（vx/vy/yaw）当前不写入 `[70:128]` 或任何其它槎位——`has_mobile_base=true` 的
-数据集，该部分数值在打包时被排除以免污染臂部槎位，但直接丢弃，不被 canonical
-向量捕获；全身运控/移动底盘的槎位设计留给后续单独决定。
-
-### 3. 夹爪槎位 `[14:35]` 的分支规则
-
-槎位宽度固定21维，不同 `gripper_type` 使用其中一部分：
-
-- `parallel_jaw` / `three_jaw` / `cage_pinch` / `suction`（简单夹爪）→ 只用
-  **slot0**（1维开合宽度/吸附状态），剩余20维置0、mask=False
-- `dexterous_hand`（灵巧手）→ 使用实际列宽（最多21维，不足补0，超过截断），
-  每一维单独设 mask
-- 其他/未知 gripper_type → 全部置0，mask=False
-
-手腕姿态记录在 `[7:14]` 的末端位姿中，不占用该槎位；这21维仅为手部自身的执行器
-自由度（手指、虎口等）。
-
-### 4. `GRIPPER_SLOT` 宽度
-
-`GRIPPER_SLOT=21`，取自注册表内机器人采集类灵巧手数据集 `dof_per_hand` 实测最大值
-（当前为16，`arcap`），预留余量。若未来出现实测超过21维的灵巧手数据集，需重新评估
-该常量，并同步更新本节、`unify_representation.py` 的 `GRIPPER_SLOT`，以及
-`run_pipeline.py` README 模板中的相应措辞。
-
-人手视频/MANO 数据集（`dexcap`/`h2o`/`oakink2`/`taco`/`vitra`/`hoi4d`/`ph2d` 等，
-`dof_per_hand` 常见15-48维）不受此宽度约束——它们由第1节的 gate 条件排除，不经过
-本层。
-
-### 5. `episode.action` 范围
-
-本层只处理 `observation.state`，不处理 `action`。`action` 在最终输出中保持原始
-per-dataset 维度不变。
-
-### 6. mask 语义
-
-`unify_representation.apply()` 除计算128维向量外，还计算一个128维 bool mask（同一
-数据集内所有帧、所有episode共享同一份，仅取决于 `dof_per_arm`/`num_arms`/
-`gripper_type`/`has_mobile_base` 等数据集级配置）。
-
-该 mask 作为独立的 lerobot feature 写入最终数据集：
+`unify_representation.apply()` 除计算128维向量外，还计算一个128维 bool mask。该
+mask 作为独立的 lerobot feature 写入最终数据集：
 
 ```
 observation.state_canonical_mask   # bool, shape (128,)，每帧写入，整数据集内容相同
 ```
 
-`mask[i]=False` 表示第 i 维是该本体不具备对应自由度的零填充，而非测量值为0。
-训练时应使用该 mask 过滤loss/attention。
-
-### 7. 已知局限
-
-- `dof_per_arm` 配置错误但未超出列宽时无法检测：`_pack_arm` 依赖
-  `config.dof_per_arm` 划分关节/末端位姿边界，配置错误但总列宽仍够用时会将末端
-  位姿/夹爪数据错位写入关节槎位，`mask` 仍为 `True`，无报错信号。正确性依赖上游
-  `DatasetConfig.dof_per_arm` 的准确性。
-- 只统一 `state`，不统一 `action`（见第5节）。
-- 不覆盖 MANO/人手视频（见第1节），完整参数保留在
-  `data_root/public_datasets_staging/` 原始数据中。
-- 超过21维的灵巧手会被截断（见第4节）。
-- 移动底盘速度（vx/vy/yaw）当前不被任何槎位捕获（见第2节）：`has_mobile_base=true`
-  的数据集，该部分数值在打包时被排除以免污染臂部槎位，但直接丢弃。
-- 经 `convert_scripts` 转换的数据集，`data_root/public_datasets_staging/` 中不含
-  视频：`shared/lerobot_io.py` 的 `write_lerobot_episodes` 目前硬编码
-  `use_videos=False`，只写 `observation.state`/`action`/`task`。原始视频/图像观测
-  在写入 staging 时被丢弃，`process_scripts` 的 `check2_video_state_consistency`/
-  `check3_video_quality` 对经 `convert_scripts` 处理的数据集无可操作对象。修复需要
-  为 `write_lerobot_episodes` 添加视频写入支持。
+`mask[i]=False` 表示第 i 维是该本体不具备对应自由度的零填充，而非测量值为0。训练时
+应使用该 mask 过滤loss/attention。
