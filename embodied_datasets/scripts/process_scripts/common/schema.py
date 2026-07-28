@@ -317,6 +317,8 @@ class ProcessConfig(BaseModel):
 
     # Check1: instruction consistency
     vlm_service_url: Optional[str] = None
+    vlm_model_name: Optional[str] = "qwen2.5-vl-7b-instruct"
+    vlm_api_key_env: Optional[str] = None
     has_language_instruction: bool = False
 
     # Check2: video-state consistency

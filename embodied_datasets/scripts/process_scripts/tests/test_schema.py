@@ -41,6 +41,8 @@ def test_process_config_requires_id():
     assert config.has_language_instruction is False
     assert config.urdf_available is False
     assert config.has_camera_calibration is False
+    assert config.vlm_model_name == "qwen2.5-vl-7b-instruct"
+    assert config.vlm_api_key_env is None
     assert config.embodiment_class is None
     assert config.num_arms == 1
     assert config.dof_per_arm is None
@@ -335,3 +337,15 @@ def test_dataset_config_accepts_round2_enum_values():
     ]
     assert config.action_space.value == "discrete_symbolic"
     assert config.camera_views[0].value == "gripper_jaw"
+
+
+def test_process_config_accepts_vlm_fields():
+    config = ProcessConfig(
+        id="x",
+        vlm_service_url="http://localhost:9000/v1",
+        vlm_model_name="custom-model",
+        vlm_api_key_env="MY_VLM_KEY",
+    )
+    assert config.vlm_service_url == "http://localhost:9000/v1"
+    assert config.vlm_model_name == "custom-model"
+    assert config.vlm_api_key_env == "MY_VLM_KEY"
