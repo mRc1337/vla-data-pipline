@@ -9,7 +9,6 @@ from common.schema import (
     HandPoseRepresentation,
     ProcessConfig,
     ReleaseType,
-    RegistryEntry,
     SensorModality,
 )
 
@@ -65,25 +64,6 @@ def test_process_config_per_dim_thresholds_override():
 def test_process_config_rejects_negative_savgol_polyorder():
     with pytest.raises(ValidationError):
         ProcessConfig(id="x", savgol_polyorder=-1)
-
-
-def test_registry_entry_defaults():
-    entry = RegistryEntry(id="droid", name="DROID")
-    assert entry.priority.value == "P2"
-    assert entry.download_status.value == "not_downloaded"
-    assert entry.integrity_status.value == "not_verified"
-    assert entry.convert_status.value == "not_converted"
-    assert entry.process_status.value == "not_processed"
-
-
-def test_registry_entry_rejects_invalid_enum():
-    with pytest.raises(ValidationError):
-        RegistryEntry(id="droid", name="DROID", download_status="downloaded_maybe")
-
-
-def test_registry_entry_rejects_unknown_field():
-    with pytest.raises(ValidationError):
-        RegistryEntry(id="droid", name="DROID", not_a_real_field=1)
 
 
 def test_dataset_config_defaults():

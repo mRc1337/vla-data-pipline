@@ -30,10 +30,9 @@ sudo apt update && sudo apt install ffmpeg
 
 ```
 embodied_datasets/
-├── datasets_registry.yaml                                  # 66个数据集的总览表（实测值，随流水线推进更新）
 └── scripts/
     └── process_scripts/
-        ├── common/                                         # schema/io/paths（RegistryEntry/DatasetConfig/ProcessConfig）
+        ├── common/                                         # schema/io/paths（DatasetConfig/ProcessConfig）
         ├── configs/<dataset_id>.yaml                        # 每个数据集的清洗阈值配置（ProcessConfig）
         ├── registry_configs/<dataset_id>.yaml               # 每个数据集的调研配置（DatasetConfig）
         ├── episode.py / fk_backend.py / lerobot_io.py       # Episode/FkChain/lerobot读写

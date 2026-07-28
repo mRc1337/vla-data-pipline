@@ -1,8 +1,7 @@
 """Resolve the configurable data root and build paths under it for the
 heavy data directories used by process_scripts (public_datasets_staging/,
-public_datasets/lerobot_v3_0/). datasets_registry.yaml and
-registry/configs/ always stay inside the repo and are unaffected
-by this module.
+public_datasets/lerobot_v3_0/). configs/ and registry_configs/ always stay
+inside the repo and are unaffected by this module.
 """
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
-"""Pydantic models for the VLA dataset registry, per-dataset onboarding
-config, and process_scripts cleaning-threshold parameters. Field names
-and enum values must stay in sync with
+"""Pydantic models for the per-dataset onboarding config (DatasetConfig)
+and process_scripts cleaning-threshold parameters (ProcessConfig). Field
+names and enum values must stay in sync with
 docs/superpowers/specs/2026-07-08-vla-data-pipeline-design.md sections 5.1-5.3,
 docs/superpowers/specs/2026-07-10-registry-schema-refinement-design.md
 sections 3-4, docs/superpowers/specs/2026-07-13-registry-schema-round2-design.md
@@ -14,57 +14,6 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class Priority(str, Enum):
-    P0 = "P0"
-    P1 = "P1"
-    P2 = "P2"
-
-
-class DownloadStatus(str, Enum):
-    NOT_DOWNLOADED = "not_downloaded"
-    DOWNLOADING = "downloading"
-    COMPLETED = "completed"
-
-
-class IntegrityStatus(str, Enum):
-    NOT_VERIFIED = "not_verified"
-    VERIFIED = "verified"
-    FAILED = "failed"
-    SKIPPED_NO_CHECKER = "skipped_no_checker"
-
-
-class ConvertStatus(str, Enum):
-    NOT_CONVERTED = "not_converted"
-    CONVERTING = "converting"
-    CONVERTED = "converted"
-    FAILED = "failed"
-
-
-class ProcessStatus(str, Enum):
-    NOT_PROCESSED = "not_processed"
-    PROCESSING = "processing"
-    PROCESSED = "processed"
-    FAILED = "failed"
-
-
-class RegistryEntry(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    name: str
-    priority: Priority = Priority.P2
-    download_status: DownloadStatus = DownloadStatus.NOT_DOWNLOADED
-    integrity_status: IntegrityStatus = IntegrityStatus.NOT_VERIFIED
-    convert_status: ConvertStatus = ConvertStatus.NOT_CONVERTED
-    process_status: ProcessStatus = ProcessStatus.NOT_PROCESSED
-    raw_local_path: Optional[str] = None
-    final_local_path: Optional[str] = None
-    storage_size_gb: Optional[float] = None
-    num_episodes: Optional[int] = None
-    num_frames: Optional[int] = None
-    duration_hours: Optional[float] = None
 
 
 class LicenseEnum(str, Enum):
@@ -328,9 +277,9 @@ class DatasetConfig(BaseModel):
 
 class ProcessConfig(BaseModel):
     """process_scripts/configs/<id>.yaml cleaning-threshold parameters, plus
-    runtime gate fields that run_pipeline.py populates from DatasetConfig/
-    RegistryEntry before calling each stage/check module (these are NOT
-    hand-authored in the yaml file).
+    runtime gate fields that run_pipeline.py populates from DatasetConfig
+    before calling each stage/check module (these are NOT hand-authored in
+    the yaml file).
     """
 
     model_config = ConfigDict(extra="forbid")

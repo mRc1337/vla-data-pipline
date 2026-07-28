@@ -1,13 +1,11 @@
 """Orchestrates Stage1-5 + Check1-3 + unify_representation for one dataset,
-writes the cleaned output, updates datasets_registry.yaml, and generates
-the dataset README. See
+writes the cleaned output, and generates the dataset README. See
 docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
 section 10.
 """
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -16,9 +14,9 @@ from typing import List, Optional
 import numpy as np
 
 from episode import Episode  # noqa: E402
-from common.io import load_dataset_config, load_process_config, load_registry, save_registry  # noqa: E402
+from common.io import load_dataset_config, load_process_config  # noqa: E402
 from common.paths import final_dir, resolve_data_root, staging_dir  # noqa: E402
-from common.schema import ProcessConfig, ProcessStatus  # noqa: E402
+from common.schema import ProcessConfig  # noqa: E402
 from lerobot_io import load_lerobot_episodes, write_lerobot_episodes  # noqa: E402
 
 import stage1_sudden_change  # noqa: E402
@@ -217,34 +215,6 @@ def generate_dataset_readme(dataset_config, config: ProcessConfig, stats: dict) 
     )
 
 
-def _dir_size_bytes(path: Path) -> int:
-    """os.scandir-based walk (DirEntry.is_file()/stat() reuse the lstat info
-    already returned by the directory read, unlike Path.rglob()'s fresh
-    per-entry stat) feeding the `round(size_bytes / 1e9, 2)` convention used
-    for `storage_size_gb`.
-    """
-    total = 0
-    stack = [path]
-    while stack:
-        with os.scandir(stack.pop()) as it:
-            for entry in it:
-                if entry.is_dir():
-                    stack.append(entry.path)
-                elif entry.is_file():
-                    total += entry.stat().st_size
-    return total
-
-
-def compute_final_local_path(output_path: Path, data_root: Path) -> str:
-    """Registry field is documented (design doc section 5.1) as relative to
-    `data_root/public_datasets/lerobot_v3_0/`, not `data_root/` -- so for
-    `output_path == data_root/public_datasets/lerobot_v3_0/<dataset_id>`
-    this yields just `<dataset_id>`. Mirrors common/paths.py's `final_dir`
-    -- keep both in sync if that layout ever changes.
-    """
-    return str(output_path.relative_to(data_root / "public_datasets" / "lerobot_v3_0"))
-
-
 def main(argv: List[str] = None) -> int:
     parser = argparse.ArgumentParser(description="Run the process_scripts cleaning pipeline for one dataset.")
     parser.add_argument("--dataset-id", required=True)
@@ -252,15 +222,11 @@ def main(argv: List[str] = None) -> int:
     args = parser.parse_args(argv)
 
     data_root = resolve_data_root(args.data_root)
-    embodied_root = Path(__file__).resolve().parents[2]
-    registry_path = embodied_root / "datasets_registry.yaml"
     dataset_config_path = Path(__file__).resolve().parent / "registry_configs" / f"{args.dataset_id}.yaml"
     process_config_path = Path(__file__).resolve().parent / "configs" / f"{args.dataset_id}.yaml"
 
-    entries = load_registry(registry_path)
-    entry = next((e for e in entries if e.id == args.dataset_id), None)
-    if entry is None:
-        print(f"error: {args.dataset_id!r} not found in {registry_path}", file=sys.stderr)
+    if not dataset_config_path.exists():
+        print(f"error: {args.dataset_id!r} has no registry_configs/{args.dataset_id}.yaml", file=sys.stderr)
         return 1
 
     dataset_config = load_dataset_config(dataset_config_path)
@@ -274,41 +240,19 @@ def main(argv: List[str] = None) -> int:
         # on an empty episode list), so output_path was never created on
         # disk -- there is nothing to write a README into, and nothing new
         # was actually persisted. Skip the README write (rather than
-        # mkdir-ing an empty directory just to satisfy it) and mark the
-        # registry FAILED instead of PROCESSED, since "processed" would
-        # misrepresent a run that produced zero usable output. Update the
-        # registry AFTER this decision (not before), so a save only ever
-        # reflects a state that matches what's on disk.
+        # mkdir-ing an empty directory just to satisfy it).
         print(
             f"warning: {args.dataset_id!r} produced 0 output episodes ({stats['input_episodes']} input) -- "
             f"nothing written to {output_path}, skipping README generation",
             file=sys.stderr,
         )
-        entry.process_status = ProcessStatus.FAILED
-        entry.num_episodes = 0
-        entry.num_frames = 0
-        entry.duration_hours = 0.0
-        save_registry(entries, registry_path)
         print(f"processed {args.dataset_id}: {stats['input_episodes']} -> 0 episodes (FAILED)")
         return 1
 
-    # Dataset output (and now the README) is fully written to disk before we
-    # touch the registry at all -- so if the README write below were to
-    # raise, save_registry() above/below never runs and the registry keeps
-    # its pre-run state rather than being marked PROCESSED for a run that
-    # didn't actually finish.
     config = load_process_config(process_config_path)
     _apply_gate_fields(config, dataset_config)
     readme_content = generate_dataset_readme(dataset_config, config, stats)
     (output_path / "README.md").write_text(readme_content, encoding="utf-8")
-
-    entry.process_status = ProcessStatus.PROCESSED
-    entry.num_episodes = stats["output_episodes"]
-    entry.num_frames = stats["output_frames"]
-    entry.final_local_path = compute_final_local_path(output_path, data_root)
-    entry.duration_hours = stats["output_frames"] / stats["fps"] / 3600.0
-    entry.storage_size_gb = round(_dir_size_bytes(output_path) / 1e9, 2)
-    save_registry(entries, registry_path)
 
     print(f"processed {args.dataset_id}: {stats['input_episodes']} -> {stats['output_episodes']} episodes")
     return 0

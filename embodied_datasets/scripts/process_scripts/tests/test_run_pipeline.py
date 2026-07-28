@@ -1,5 +1,5 @@
-"""Tests for run_pipeline.py: run_dataset orchestration, main()'s registry
-read/write, and generate_dataset_readme. See
+"""Tests for run_pipeline.py: run_dataset orchestration, main(), and
+generate_dataset_readme. See
 docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
 section 10.
 """
@@ -8,23 +8,6 @@ import pytest
 lerobot = pytest.importorskip("lerobot")
 
 from pathlib import Path
-
-from run_pipeline import compute_final_local_path
-
-
-def test_compute_final_local_path_is_relative_to_final_dir(tmp_path):
-    """Design doc (docs/superpowers/specs/2026-07-21-convert-scripts-verify-scripts-design.md
-    section 9) documents `final_local_path` as relative to
-    `data_root/public_datasets/lerobot_v3_0/`, matching how `raw_local_path`
-    is relative to `data_root/public_datasets_raw/` -- so the stored value
-    must be just `<dataset_id>`, not `lerobot_v3_0/<dataset_id>`.
-    """
-    data_root = tmp_path
-    output_path = data_root / "public_datasets" / "lerobot_v3_0" / "droid"
-
-    result = compute_final_local_path(output_path, data_root)
-
-    assert result == "droid"
 
 
 def test_run_dataset_end_to_end_with_synthetic_data(tmp_path):
@@ -341,66 +324,44 @@ def test_generate_dataset_readme_includes_key_sections():
 
 
 class _TempDatasetConfigs:
-    """main() resolves `process_scripts/configs/<id>.yaml`,
-    `process_scripts/registry_configs/<id>.yaml`, and `datasets_registry.yaml`
-    all relative to run_pipeline.py's own location, never relative to
-    `--data-root` -- the registry and onboarding configs always live in
-    the repo, even when `--data-root` points somewhere else entirely for
-    the heavy staging/final data. So exercising main() end-to-end means
-    appending a throwaway uuid'd RegistryEntry to the real registry and
-    writing (then cleaning up all three) real files under the repo's
-    config directories and registry file, scoped to that same uuid'd
-    dataset id so nothing collides with or corrupts real onboarded
-    datasets.
+    """main() resolves `process_scripts/configs/<id>.yaml` and
+    `process_scripts/registry_configs/<id>.yaml` relative to run_pipeline.py's
+    own location, never relative to `--data-root` -- the onboarding configs
+    always live in the repo, even when `--data-root` points somewhere else
+    entirely for the heavy staging/final data. So exercising main()
+    end-to-end means writing (then cleaning up) real files under the repo's
+    config directories, scoped to a uuid'd dataset id so nothing collides
+    with or corrupts real onboarded datasets.
     """
 
-    def __init__(self, registry_entry):
+    def __init__(self, dataset_id):
         import run_pipeline
-        from common.io import load_registry, save_registry
 
-        self.dataset_id = registry_entry.id
-        self.registry_path = Path(run_pipeline.__file__).resolve().parents[2] / "datasets_registry.yaml"
+        self.dataset_id = dataset_id
         self.process_config_path = Path(run_pipeline.__file__).resolve().parent / "configs" / f"{self.dataset_id}.yaml"
         self.dataset_config_path = (
             Path(run_pipeline.__file__).resolve().parent / "registry_configs" / f"{self.dataset_id}.yaml"
         )
-        entries = load_registry(self.registry_path)
-        entries.append(registry_entry)
-        save_registry(entries, self.registry_path)
-
-    def reload_entry(self):
-        from common.io import load_registry
-
-        entries = load_registry(self.registry_path)
-        return next(e for e in entries if e.id == self.dataset_id)
 
     def __enter__(self):
         return self
 
     def __exit__(self, *exc_info):
-        from common.io import load_registry, save_registry
-
         self.process_config_path.unlink(missing_ok=True)
         self.dataset_config_path.unlink(missing_ok=True)
-        entries = load_registry(self.registry_path)
-        entries = [e for e in entries if e.id != self.dataset_id]
-        save_registry(entries, self.registry_path)
 
 
 def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_path):
     """Reproduces the original crash: main() used to unconditionally write
     `output_path / "README.md"` even though run_dataset() never created
     output_path when every episode is rejected/emptied (write_lerobot_episodes
-    early-returns on an empty list) -- raising FileNotFoundError. It must
-    also not mark the registry PROCESSED (with num_episodes=0) for a run
-    that persisted nothing to disk; FAILED (common/schema.py's
-    ProcessStatus) is the accurate status here.
+    early-returns on an empty list) -- raising FileNotFoundError.
     """
     import uuid
 
     from tests.fixtures import make_synthetic_dataset
     from common.io import save_process_config, save_dataset_config
-    from common.schema import ConvertStatus, DatasetConfig, ProcessConfig, ProcessStatus, RegistryEntry
+    from common.schema import DatasetConfig, ProcessConfig
     import run_pipeline
 
     dataset_id = f"zero_survivors_{uuid.uuid4().hex[:8]}"
@@ -408,9 +369,7 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
     staging_path = data_root / "public_datasets_staging" / "lerobot_v3_0" / dataset_id
     make_synthetic_dataset(staging_path, repo_id=f"test/{dataset_id}", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
 
-    initial_entry = RegistryEntry(id=dataset_id, name="Zero Survivors Test", convert_status=ConvertStatus.CONVERTED)
-
-    with _TempDatasetConfigs(initial_entry) as cfg:
+    with _TempDatasetConfigs(dataset_id) as cfg:
         # Same trick as test_run_dataset_filters_episodes_with_all_frames_dropped:
         # quantile_low == quantile_high collapses stage3's bounds to a single
         # point, dropping essentially every frame of every episode.
@@ -439,30 +398,13 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
         assert exit_code == 1
         assert not output_path.exists()
 
-        # Read back while still inside the `with` block -- __exit__ removes
-        # this throwaway entry from the real registry, so it must be
-        # inspected before that happens.
-        reloaded_entry = cfg.reload_entry()
-        assert reloaded_entry.process_status == ProcessStatus.FAILED
-        assert reloaded_entry.num_episodes == 0
-        assert reloaded_entry.num_frames == 0
-        assert reloaded_entry.duration_hours == 0.0
-        # Nothing was ever written to disk under this run, so storage_size_gb/
-        # final_local_path must not be fabricated for a path that doesn't
-        # exist -- they stay at the registry's pre-run default.
-        assert reloaded_entry.storage_size_gb is None
-        assert reloaded_entry.final_local_path is None
 
-
-def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
-    """Design doc section 10 step 5 lists duration_hours/storage_size_gb
-    alongside process_status/num_episodes/num_frames/final_local_path
-    as registry fields main() must write back after a successful run."""
+def test_main_writes_readme_on_success(tmp_path):
     import uuid
 
     from tests.fixtures import make_synthetic_dataset
     from common.io import save_process_config, save_dataset_config
-    from common.schema import ConvertStatus, DatasetConfig, ProcessConfig, ProcessStatus, RegistryEntry
+    from common.schema import DatasetConfig, ProcessConfig
     import run_pipeline
 
     dataset_id = f"main_success_{uuid.uuid4().hex[:8]}"
@@ -470,9 +412,7 @@ def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
     staging_path = data_root / "public_datasets_staging" / "lerobot_v3_0" / dataset_id
     make_synthetic_dataset(staging_path, repo_id=f"test/{dataset_id}", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
 
-    initial_entry = RegistryEntry(id=dataset_id, name="Main Success Test", convert_status=ConvertStatus.CONVERTED)
-
-    with _TempDatasetConfigs(initial_entry) as cfg:
+    with _TempDatasetConfigs(dataset_id) as cfg:
         save_process_config(
             ProcessConfig(
                 id=dataset_id,
@@ -497,27 +437,17 @@ def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
 
         assert exit_code == 0
         assert (output_path / "README.md").exists()
-        # Independently recompute size from the actual written directory
-        # (rather than hardcoding a byte count) to check the registry value
-        # against reality, not against a copy of the same formula.
-        expected_size_bytes = run_pipeline._dir_size_bytes(output_path)
 
-        # Read back while still inside the `with` block -- __exit__ removes
-        # this throwaway entry from the real registry, so it must be
-        # inspected before that happens.
-        reloaded_entry = cfg.reload_entry()
-        assert reloaded_entry.process_status == ProcessStatus.PROCESSED
-        assert reloaded_entry.num_episodes == 2
-        assert reloaded_entry.num_frames > 0
-        assert reloaded_entry.final_local_path == dataset_id
 
-        expected_duration_hours = reloaded_entry.num_frames / 10.0 / 3600.0
-        assert reloaded_entry.duration_hours == pytest.approx(expected_duration_hours)
+def test_main_returns_error_when_dataset_config_missing(tmp_path):
+    import uuid
 
-        assert reloaded_entry.storage_size_gb is not None
-        # The synthetic fixture dataset is tiny (a handful of parquet rows), so
-        # its rounded GB value can legitimately be 0.0 -- assert against actual
-        # on-disk bytes (which must be nonzero, README.md alone guarantees that)
-        # rather than the rounded GB figure.
-        assert expected_size_bytes > 0
-        assert reloaded_entry.storage_size_gb == round(expected_size_bytes / 1e9, 2)
+    import run_pipeline
+
+    dataset_id = f"missing_config_{uuid.uuid4().hex[:8]}"
+    data_root = tmp_path / "data_root"
+
+    exit_code = run_pipeline.main(["--dataset-id", dataset_id, "--data-root", str(data_root)])
+
+    assert exit_code == 1
+
