@@ -1,6 +1,6 @@
 """Pydantic model for process_scripts/configs/<id>.yaml cleaning-threshold
 parameters, plus runtime gate fields that run_pipeline.py populates from
-convert_scripts' DatasetConfig/RegistryEntry before calling each stage/check
+registry's DatasetConfig/RegistryEntry before calling each stage/check
 module (these are NOT hand-authored in the yaml file). Field names must
 stay in sync with
 docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md

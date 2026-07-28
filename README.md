@@ -33,7 +33,7 @@ sudo apt update && sudo apt install ffmpeg
 embodied_datasets/
 ├── datasets_registry.yaml                                  # 66个数据集的总览表（实测值，随流水线推进更新）
 ├── scripts/
-│   ├── convert_scripts/
+│   ├── registry/
 │   │   ├── configs/<dataset_id>.yaml                       # 每个数据集的调研配置
 │   │   └── common/                                         # 注册表基础设施（schema/io/paths）
 │   ├── process_scripts/                                    # 清洗对齐流水线

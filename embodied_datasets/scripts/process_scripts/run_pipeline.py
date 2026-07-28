@@ -4,10 +4,10 @@ the dataset README. See
 docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
 section 10.
 
-Loads convert_scripts/common (RegistryEntry/DatasetConfig/load_registry/
+Loads registry/common (RegistryEntry/DatasetConfig/load_registry/
 save_registry/load_dataset_config) under the alias "registry_common" via
 importlib.util instead of sys.path, because process_scripts/common and
-convert_scripts/common are both literally named "common" -- putting both
+registry/common are both literally named "common" -- putting both
 directories on sys.path would make whichever imports first win for every
 subsequent `import common` in the process (verified empirically while
 writing this plan). This loader sidesteps that entirely.
@@ -44,14 +44,14 @@ import check2_video_state_consistency  # noqa: E402
 import check3_video_quality  # noqa: E402
 import unify_representation  # noqa: E402
 
-CONVERT_SCRIPTS_COMMON_DIR = Path(__file__).resolve().parents[1] / "convert_scripts" / "common"
+REGISTRY_COMMON_DIR = Path(__file__).resolve().parents[1] / "registry" / "common"
 
 
 def _load_registry_common() -> ModuleType:
     alias = "registry_common"
     if alias not in sys.modules:
         spec = importlib.util.spec_from_file_location(
-            alias, CONVERT_SCRIPTS_COMMON_DIR / "__init__.py", submodule_search_locations=[str(CONVERT_SCRIPTS_COMMON_DIR)]
+            alias, REGISTRY_COMMON_DIR / "__init__.py", submodule_search_locations=[str(REGISTRY_COMMON_DIR)]
         )
         module = importlib.util.module_from_spec(spec)
         sys.modules[alias] = module
@@ -77,7 +77,7 @@ def _apply_gate_fields(config: ProcessConfig, dataset_config) -> None:
 
 
 def _resolve_fps(dataset_config) -> float:
-    """`dataset_config.fps` (convert_scripts' DatasetConfig) is Optional --
+    """`dataset_config.fps` (registry's DatasetConfig) is Optional --
     some registry entries may not have it populated yet. lerobot derives
     every frame's timestamp from frame_index / fps, so it needs a concrete
     scalar regardless of `dataset_config.fps_variable` (that flag just notes
@@ -287,7 +287,7 @@ def main(argv: List[str] = None) -> int:
     scripts_root = Path(__file__).resolve().parents[1]
     embodied_root = Path(__file__).resolve().parents[2]
     registry_path = embodied_root / "datasets_registry.yaml"
-    dataset_config_path = scripts_root / "convert_scripts" / "configs" / f"{args.dataset_id}.yaml"
+    dataset_config_path = scripts_root / "registry" / "configs" / f"{args.dataset_id}.yaml"
     process_config_path = Path(__file__).resolve().parent / "configs" / f"{args.dataset_id}.yaml"
 
     entries = registry_common.io.load_registry(registry_path)

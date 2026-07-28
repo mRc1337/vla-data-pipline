@@ -10,8 +10,8 @@ canonical slot; the raw values live only in staging, not this layout.
 Assumes episode.state columns are ALREADY ordered per-arm as [joint |
 eef_pos+eef_quat | gripper_or_hand_slot], concatenated arm-by-arm -- this
 module only pads/truncates/repositions into the fixed 128-dim layout, it
-does not reorder raw per-dataset columns. That reordering is
-convert_scripts' responsibility.
+does not reorder raw per-dataset columns. That reordering is whatever
+upstream process produced the staging data's responsibility.
 
 Known limitations:
 - This module trusts `config.dof_per_arm` as the authoritative

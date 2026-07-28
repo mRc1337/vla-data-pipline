@@ -128,7 +128,7 @@ def test_dof_per_arm_exceeding_available_columns_does_not_crash():
 def test_negative_dof_per_arm_is_clamped_not_corrupted():
     # dof_per_arm is a field shared across stage4/stage5/unify_representation
     # (common/schema.py leaves it an unconstrained Optional[int], matching
-    # convert_scripts' DatasetConfig). stage5_orientation_alignment.py
+    # registry's DatasetConfig). stage5_orientation_alignment.py
     # already established the convention of clamping negative values to 0
     # at the call site rather than rejecting them in the schema (see its
     # test_negative_dof_per_arm_is_clamped_not_corrupted). Regression for a

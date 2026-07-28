@@ -363,7 +363,7 @@ def test_generate_dataset_readme_includes_key_sections():
 
 class _TempDatasetConfigs:
     """main() resolves `process_scripts/configs/<id>.yaml`,
-    `convert_scripts/configs/<id>.yaml`, and `datasets_registry.yaml` all
+    `registry/configs/<id>.yaml`, and `datasets_registry.yaml` all
     relative to run_pipeline.py's own location, never relative to
     `--data-root` -- the registry and onboarding configs always live in
     the repo, even when `--data-root` points somewhere else entirely for
@@ -383,7 +383,7 @@ class _TempDatasetConfigs:
         self.registry_path = Path(run_pipeline.__file__).resolve().parents[2] / "datasets_registry.yaml"
         self.process_config_path = Path(run_pipeline.__file__).resolve().parent / "configs" / f"{self.dataset_id}.yaml"
         self.dataset_config_path = (
-            Path(run_pipeline.__file__).resolve().parents[1] / "convert_scripts" / "configs" / f"{self.dataset_id}.yaml"
+            Path(run_pipeline.__file__).resolve().parents[1] / "registry" / "configs" / f"{self.dataset_id}.yaml"
         )
         entries = self.registry_common.io.load_registry(self.registry_path)
         entries.append(registry_entry)
@@ -410,7 +410,7 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
     output_path when every episode is rejected/emptied (write_lerobot_episodes
     early-returns on an empty list) -- raising FileNotFoundError. It must
     also not mark the registry PROCESSED (with num_episodes=0) for a run
-    that persisted nothing to disk; FAILED (convert_scripts/common/schema.py's
+    that persisted nothing to disk; FAILED (registry/common/schema.py's
     ProcessStatus) is the accurate status here.
     """
     import uuid

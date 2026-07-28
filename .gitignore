@@ -19,7 +19,7 @@ __pycache__/
 # processed data, URDFs). Lives under --data-root, which defaults to
 # embodied_datasets/data_root/ inside the repo when not overridden -- ignore the
 # default location so a script run without --data-root never lands multi-GB
-# data in git. See scripts/convert_scripts/common/paths.py for the exact layout this
+# data in git. See scripts/registry/common/paths.py for the exact layout this
 # mirrors. The four public_datasets_raw/public_datasets_staging/
 # public_datasets/urdf_assets subdirectories each have a
 # force-added (git add -f) .gitkeep placeholder so they still exist after a

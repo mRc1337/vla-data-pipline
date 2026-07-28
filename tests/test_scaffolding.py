@@ -3,7 +3,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_DIRS = [
-    "embodied_datasets/scripts/convert_scripts/configs",
+    "embodied_datasets/scripts/registry/configs",
     "embodied_datasets/scripts/process_scripts/configs",
     "embodied_datasets/data_root/public_datasets_raw",
     "embodied_datasets/data_root/public_datasets_staging/lerobot_v3_0",
