@@ -6,11 +6,13 @@
 # never decodes real video) passes. Install via `brew install ffmpeg` (macOS)
 # or `sudo apt update && sudo apt install ffmpeg` (Ubuntu/Debian, the actual
 # deployment target) before running against real datasets.
-lerobot==0.4.4
+lerobot[dataset]==0.6.0
 numpy==2.0.2
 scipy==1.17.1
 opencv-python-headless==4.12.0.88
 openai==1.109.1
+torch==2.11.0
+transformers==5.14.1
 ikpy==4.0.0
 pydantic==2.10.3
 PyYAML==6.0.2

@@ -100,7 +100,7 @@ def test_run_dataset_writes_real_fps_from_dataset_config_not_hardcoded_one(tmp_p
 
     assert stats["fps"] == 25.0
     reloaded = LeRobotDataset(repo_id=output_path.name, root=output_path)
-    assert reloaded.meta.info["fps"] == 25.0
+    assert reloaded.meta.info.fps == 25.0
     # frame_index / fps: frame 1's timestamp should be 1/25 = 0.04s, not the
     # pre-fix hardcoded 1/1.0 = 1.0s.
     assert reloaded[1]["timestamp"].item() == pytest.approx(1 / 25.0)
