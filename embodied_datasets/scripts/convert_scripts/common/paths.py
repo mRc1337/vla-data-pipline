@@ -26,7 +26,7 @@ def raw_dir(data_root: Path, dataset_id: str) -> Path:
 
 
 def staging_dir(data_root: Path, dataset_id: str) -> Path:
-    return data_root / "public_datasets_staging" / dataset_id
+    return data_root / "public_datasets_staging" / "lerobot_v3_0" / dataset_id
 
 
 def final_dir(data_root: Path, dataset_id: str) -> Path:

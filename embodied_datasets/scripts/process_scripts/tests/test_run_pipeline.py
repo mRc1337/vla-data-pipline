@@ -422,7 +422,7 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
 
     dataset_id = f"zero_survivors_{uuid.uuid4().hex[:8]}"
     data_root = tmp_path / "data_root"
-    staging_path = data_root / "public_datasets_staging" / dataset_id
+    staging_path = data_root / "public_datasets_staging" / "lerobot_v3_0" / dataset_id
     make_synthetic_dataset(staging_path, repo_id=f"test/{dataset_id}", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
 
     registry_common = run_pipeline._load_registry_common()
@@ -487,7 +487,7 @@ def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
 
     dataset_id = f"main_success_{uuid.uuid4().hex[:8]}"
     data_root = tmp_path / "data_root"
-    staging_path = data_root / "public_datasets_staging" / dataset_id
+    staging_path = data_root / "public_datasets_staging" / "lerobot_v3_0" / dataset_id
     make_synthetic_dataset(staging_path, repo_id=f"test/{dataset_id}", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
 
     registry_common = run_pipeline._load_registry_common()

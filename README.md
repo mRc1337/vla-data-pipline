@@ -41,7 +41,7 @@ embodied_datasets/
 │   └── shared/                                             # convert_scripts/process_scripts 跨包复用
 └── data_root/                                              # --data-root 可整体指向仓库外任意路径
     ├── public_datasets_raw/<dataset_id>/                   # 原始下载数据
-    ├── public_datasets_staging/<dataset_id>/               # convert_scripts 产出，process_scripts 输入
+    ├── public_datasets_staging/lerobot_v3_0/<dataset_id>/  # convert_scripts 产出，process_scripts 输入
     ├── public_datasets/lerobot_v3_0/<dataset_id>/          # process_scripts 最终产出
     └── urdf_assets/<robot_platform>/                       # 按机器人型号共享的 URDF
 ```

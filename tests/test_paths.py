@@ -35,7 +35,7 @@ def test_raw_dir():
 
 def test_staging_dir():
     data_root = Path("/mnt/big_disk")
-    assert staging_dir(data_root, "droid") == Path("/mnt/big_disk/public_datasets_staging/droid")
+    assert staging_dir(data_root, "droid") == Path("/mnt/big_disk/public_datasets_staging/lerobot_v3_0/droid")
 
 
 def test_final_dir():
