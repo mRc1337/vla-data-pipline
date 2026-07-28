@@ -1,4 +1,4 @@
-"""Check2: video-state consistency (FK projection vs SAM3 point-prompt
+"""Check2: video-state consistency (FK projection vs SAM3 box+text-prompt
 segmentation IoU), gated by urdf_available AND has_camera_calibration. See
 docs/superpowers/specs/2026-07-28-sam3-check2-camera-calibration-design.md.
 """
@@ -23,7 +23,7 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
     if not config.has_camera_calibration or not episode.camera_calibration:
         return StageResult(episode=episode, skip_reason="camera_calibration_not_available")
 
-    client = get_video_state_consistency_client(config.sam3_checkpoint_path)
+    client = get_video_state_consistency_client(config.sam3_model_id, config.sam3_text_prompt, config.sam3_hf_token_env)
     if isinstance(client, NullClient):
         return StageResult(episode=episode, skip_reason="sam3_service_not_configured")
 
@@ -66,7 +66,8 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
         pixel_radius = calibration.fx * config.gripper_radius_m / z_cam
         frame_shape = frames_view[t].shape[:2]
         expected_mask = _disk_mask(frame_shape, (u, v), pixel_radius)
-        actual_mask = client.segment(frames_view[t], (u, v))
+        box_prompt = (u - pixel_radius, v - pixel_radius, u + pixel_radius, v + pixel_radius)
+        actual_mask = client.segment(frames_view[t], box_prompt)
         ious.append(_iou(expected_mask, actual_mask))
 
     if not ious:

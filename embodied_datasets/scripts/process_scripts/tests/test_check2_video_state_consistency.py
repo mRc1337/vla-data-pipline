@@ -49,7 +49,9 @@ def _config(**overrides):
         id="x",
         urdf_available=True,
         has_camera_calibration=True,
-        sam3_checkpoint_path="/fake/checkpoint.pt",
+        sam3_model_id="facebook/sam3",
+        sam3_text_prompt="robot gripper",
+        sam3_hf_token_env="TEST_SAM3_TOKEN",
         gripper_radius_m=0.05,
         urdf_path=URDF_PATH,
         dof_per_arm=2,
@@ -57,6 +59,11 @@ def _config(**overrides):
     )
     defaults.update(overrides)
     return ProcessConfig(**defaults)
+
+
+@pytest.fixture(autouse=True)
+def _sam3_token_env(monkeypatch):
+    monkeypatch.setenv("TEST_SAM3_TOKEN", "fake-token")
 
 
 def test_skips_when_urdf_not_available():
@@ -73,11 +80,18 @@ def test_skips_when_camera_calibration_not_available():
     assert result.skip_reason == "camera_calibration_not_available"
 
 
-def test_reports_sam3_not_configured_when_checkpoint_unset():
+def test_reports_sam3_not_configured_when_model_id_unset():
     episode = _episode(camera_calibration={"observation.image": _calibration()})
-    config = _config(sam3_checkpoint_path=None)
+    config = _config(sam3_model_id=None)
     result = apply(episode, config)
     assert result.skip_reason == "sam3_service_not_configured"
+
+
+def test_raises_when_model_id_set_but_hf_token_env_missing():
+    episode = _episode(camera_calibration={"observation.image": _calibration()})
+    config = _config(sam3_hf_token_env=None)
+    with pytest.raises(RuntimeError):
+        apply(episode, config)
 
 
 def test_skips_when_calibration_missing_for_chosen_view():
@@ -135,9 +149,11 @@ def test_apply_reports_high_mean_iou_when_sam3_mask_matches_disk(monkeypatch):
     episode = _episode(camera_calibration={"observation.image": calibration})
     config = _config()
 
-    def fake_segment(self, frame, point_prompt):
-        pixel_radius = calibration.fx * config.gripper_radius_m / 1.5
-        return _disk_mask(frame.shape[:2], point_prompt, pixel_radius)
+    def fake_segment(self, frame, box_prompt):
+        x0, y0, x1, y1 = box_prompt
+        center = ((x0 + x1) / 2.0, (y0 + y1) / 2.0)
+        radius = (x1 - x0) / 2.0
+        return _disk_mask(frame.shape[:2], center, radius)
 
     from common.sam3_client import LocalSam3Client
 
@@ -153,7 +169,7 @@ def test_apply_flags_video_state_inconsistent_when_sam3_mask_does_not_match(monk
     episode = _episode(camera_calibration={"observation.image": _calibration()})
     config = _config()
 
-    def fake_segment(self, frame, point_prompt):
+    def fake_segment(self, frame, box_prompt):
         mask = np.zeros(frame.shape[:2], dtype=bool)
         mask[0, 0] = True  # far from the projected point (image center), no overlap
         return mask
