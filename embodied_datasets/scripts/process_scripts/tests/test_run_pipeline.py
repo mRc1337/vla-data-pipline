@@ -1,5 +1,5 @@
-"""Tests for run_pipeline.py: the sibling-package registry loader,
-run_dataset orchestration, and generate_dataset_readme. See
+"""Tests for run_pipeline.py: run_dataset orchestration, main()'s registry
+read/write, and generate_dataset_readme. See
 docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
 section 10.
 """
@@ -9,7 +9,7 @@ lerobot = pytest.importorskip("lerobot")
 
 from pathlib import Path
 
-from run_pipeline import _load_registry_common, compute_final_local_path
+from run_pipeline import compute_final_local_path
 
 
 def test_compute_final_local_path_is_relative_to_final_dir(tmp_path):
@@ -25,25 +25,6 @@ def test_compute_final_local_path_is_relative_to_final_dir(tmp_path):
     result = compute_final_local_path(output_path, data_root)
 
     assert result == "droid"
-
-
-def test_load_registry_common_exposes_expected_symbols():
-    registry_common = _load_registry_common()
-    assert hasattr(registry_common.schema, "RegistryEntry")
-    assert hasattr(registry_common.schema, "DatasetConfig")
-    assert hasattr(registry_common.io, "load_registry")
-    assert hasattr(registry_common.io, "save_registry")
-    assert hasattr(registry_common.paths, "staging_dir")
-    assert hasattr(registry_common.paths, "final_dir")
-
-
-def test_load_registry_common_does_not_shadow_process_scripts_common():
-    from common.schema import ProcessConfig
-
-    _load_registry_common()
-    from common.schema import ProcessConfig as ProcessConfigAfter
-
-    assert ProcessConfig is ProcessConfigAfter
 
 
 def test_run_dataset_end_to_end_with_synthetic_data(tmp_path):
@@ -106,9 +87,9 @@ def test_run_dataset_writes_real_fps_from_dataset_config_not_hardcoded_one(tmp_p
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     from tests.fixtures import make_synthetic_dataset
-    from run_pipeline import run_dataset, _load_registry_common
+    from run_pipeline import run_dataset
     from common.io import save_process_config
-    from common.schema import ProcessConfig
+    from common.schema import DatasetConfig, ProcessConfig
 
     staging_path = tmp_path / "staging"
     make_synthetic_dataset(staging_path, repo_id="test/fps", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
@@ -129,8 +110,7 @@ def test_run_dataset_writes_real_fps_from_dataset_config_not_hardcoded_one(tmp_p
         config_path,
     )
 
-    registry_common = _load_registry_common()
-    dataset_config = registry_common.schema.DatasetConfig(id="fps_test", name="FPS Test", fps=25.0)
+    dataset_config = DatasetConfig(id="fps_test", name="FPS Test", fps=25.0)
 
     output_path = tmp_path / "output"
     stats = run_dataset("fps_test", staging_path, output_path, config_path, dataset_config=dataset_config)
@@ -148,9 +128,9 @@ def test_run_dataset_falls_back_to_default_fps_when_dataset_config_fps_unset(tmp
     it populated. run_dataset must fall back to a sensible default rather
     than crashing (None/0 would break frame_index / fps in lerobot)."""
     from tests.fixtures import make_synthetic_dataset
-    from run_pipeline import run_dataset, _load_registry_common
+    from run_pipeline import run_dataset
     from common.io import save_process_config
-    from common.schema import ProcessConfig
+    from common.schema import DatasetConfig, ProcessConfig
 
     staging_path = tmp_path / "staging"
     make_synthetic_dataset(staging_path, repo_id="test/nofps", num_episodes=1, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
@@ -171,8 +151,7 @@ def test_run_dataset_falls_back_to_default_fps_when_dataset_config_fps_unset(tmp
         config_path,
     )
 
-    registry_common = _load_registry_common()
-    dataset_config = registry_common.schema.DatasetConfig(id="nofps_test", name="No FPS Test")
+    dataset_config = DatasetConfig(id="nofps_test", name="No FPS Test")
     assert dataset_config.fps is None
 
     output_path = tmp_path / "output"
@@ -241,7 +220,7 @@ def test_run_dataset_replaces_state_with_canonical_128dim_for_robot_embodiment(t
     from run_pipeline import run_dataset
     from common.io import save_process_config, load_process_config
     from common.schema import ProcessConfig
-    from shared.episode import Episode
+    from episode import Episode
     import unify_representation
 
     staging_path = tmp_path / "staging"
@@ -363,8 +342,8 @@ def test_generate_dataset_readme_includes_key_sections():
 
 class _TempDatasetConfigs:
     """main() resolves `process_scripts/configs/<id>.yaml`,
-    `registry/configs/<id>.yaml`, and `datasets_registry.yaml` all
-    relative to run_pipeline.py's own location, never relative to
+    `process_scripts/registry_configs/<id>.yaml`, and `datasets_registry.yaml`
+    all relative to run_pipeline.py's own location, never relative to
     `--data-root` -- the registry and onboarding configs always live in
     the repo, even when `--data-root` points somewhere else entirely for
     the heavy staging/final data. So exercising main() end-to-end means
@@ -377,31 +356,35 @@ class _TempDatasetConfigs:
 
     def __init__(self, registry_entry):
         import run_pipeline
+        from common.io import load_registry, save_registry
 
         self.dataset_id = registry_entry.id
-        self.registry_common = run_pipeline._load_registry_common()
         self.registry_path = Path(run_pipeline.__file__).resolve().parents[2] / "datasets_registry.yaml"
         self.process_config_path = Path(run_pipeline.__file__).resolve().parent / "configs" / f"{self.dataset_id}.yaml"
         self.dataset_config_path = (
-            Path(run_pipeline.__file__).resolve().parents[1] / "registry" / "configs" / f"{self.dataset_id}.yaml"
+            Path(run_pipeline.__file__).resolve().parent / "registry_configs" / f"{self.dataset_id}.yaml"
         )
-        entries = self.registry_common.io.load_registry(self.registry_path)
+        entries = load_registry(self.registry_path)
         entries.append(registry_entry)
-        self.registry_common.io.save_registry(entries, self.registry_path)
+        save_registry(entries, self.registry_path)
 
     def reload_entry(self):
-        entries = self.registry_common.io.load_registry(self.registry_path)
+        from common.io import load_registry
+
+        entries = load_registry(self.registry_path)
         return next(e for e in entries if e.id == self.dataset_id)
 
     def __enter__(self):
         return self
 
     def __exit__(self, *exc_info):
+        from common.io import load_registry, save_registry
+
         self.process_config_path.unlink(missing_ok=True)
         self.dataset_config_path.unlink(missing_ok=True)
-        entries = self.registry_common.io.load_registry(self.registry_path)
+        entries = load_registry(self.registry_path)
         entries = [e for e in entries if e.id != self.dataset_id]
-        self.registry_common.io.save_registry(entries, self.registry_path)
+        save_registry(entries, self.registry_path)
 
 
 def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_path):
@@ -410,14 +393,14 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
     output_path when every episode is rejected/emptied (write_lerobot_episodes
     early-returns on an empty list) -- raising FileNotFoundError. It must
     also not mark the registry PROCESSED (with num_episodes=0) for a run
-    that persisted nothing to disk; FAILED (registry/common/schema.py's
+    that persisted nothing to disk; FAILED (common/schema.py's
     ProcessStatus) is the accurate status here.
     """
     import uuid
 
     from tests.fixtures import make_synthetic_dataset
-    from common.io import save_process_config
-    from common.schema import ProcessConfig
+    from common.io import save_process_config, save_dataset_config
+    from common.schema import ConvertStatus, DatasetConfig, ProcessConfig, ProcessStatus, RegistryEntry
     import run_pipeline
 
     dataset_id = f"zero_survivors_{uuid.uuid4().hex[:8]}"
@@ -425,10 +408,7 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
     staging_path = data_root / "public_datasets_staging" / "lerobot_v3_0" / dataset_id
     make_synthetic_dataset(staging_path, repo_id=f"test/{dataset_id}", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
 
-    registry_common = run_pipeline._load_registry_common()
-    initial_entry = registry_common.schema.RegistryEntry(
-        id=dataset_id, name="Zero Survivors Test", convert_status=registry_common.schema.ConvertStatus.CONVERTED
-    )
+    initial_entry = RegistryEntry(id=dataset_id, name="Zero Survivors Test", convert_status=ConvertStatus.CONVERTED)
 
     with _TempDatasetConfigs(initial_entry) as cfg:
         # Same trick as test_run_dataset_filters_episodes_with_all_frames_dropped:
@@ -448,8 +428,8 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
             ),
             cfg.process_config_path,
         )
-        registry_common.io.save_dataset_config(
-            registry_common.schema.DatasetConfig(id=dataset_id, name="Zero Survivors Test", fps=10.0),
+        save_dataset_config(
+            DatasetConfig(id=dataset_id, name="Zero Survivors Test", fps=10.0),
             cfg.dataset_config_path,
         )
 
@@ -463,7 +443,7 @@ def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_pat
         # this throwaway entry from the real registry, so it must be
         # inspected before that happens.
         reloaded_entry = cfg.reload_entry()
-        assert reloaded_entry.process_status == registry_common.schema.ProcessStatus.FAILED
+        assert reloaded_entry.process_status == ProcessStatus.FAILED
         assert reloaded_entry.num_episodes == 0
         assert reloaded_entry.num_frames == 0
         assert reloaded_entry.duration_hours == 0.0
@@ -481,8 +461,8 @@ def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
     import uuid
 
     from tests.fixtures import make_synthetic_dataset
-    from common.io import save_process_config
-    from common.schema import ProcessConfig
+    from common.io import save_process_config, save_dataset_config
+    from common.schema import ConvertStatus, DatasetConfig, ProcessConfig, ProcessStatus, RegistryEntry
     import run_pipeline
 
     dataset_id = f"main_success_{uuid.uuid4().hex[:8]}"
@@ -490,10 +470,7 @@ def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
     staging_path = data_root / "public_datasets_staging" / "lerobot_v3_0" / dataset_id
     make_synthetic_dataset(staging_path, repo_id=f"test/{dataset_id}", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
 
-    registry_common = run_pipeline._load_registry_common()
-    initial_entry = registry_common.schema.RegistryEntry(
-        id=dataset_id, name="Main Success Test", convert_status=registry_common.schema.ConvertStatus.CONVERTED
-    )
+    initial_entry = RegistryEntry(id=dataset_id, name="Main Success Test", convert_status=ConvertStatus.CONVERTED)
 
     with _TempDatasetConfigs(initial_entry) as cfg:
         save_process_config(
@@ -510,8 +487,8 @@ def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
             ),
             cfg.process_config_path,
         )
-        registry_common.io.save_dataset_config(
-            registry_common.schema.DatasetConfig(id=dataset_id, name="Main Success Test", fps=10.0),
+        save_dataset_config(
+            DatasetConfig(id=dataset_id, name="Main Success Test", fps=10.0),
             cfg.dataset_config_path,
         )
 
@@ -529,7 +506,7 @@ def test_main_updates_duration_hours_and_storage_size_gb_on_success(tmp_path):
         # this throwaway entry from the real registry, so it must be
         # inspected before that happens.
         reloaded_entry = cfg.reload_entry()
-        assert reloaded_entry.process_status == registry_common.schema.ProcessStatus.PROCESSED
+        assert reloaded_entry.process_status == ProcessStatus.PROCESSED
         assert reloaded_entry.num_episodes == 2
         assert reloaded_entry.num_frames > 0
         assert reloaded_entry.final_local_path == dataset_id

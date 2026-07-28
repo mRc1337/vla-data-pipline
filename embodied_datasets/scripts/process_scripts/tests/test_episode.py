@@ -4,7 +4,7 @@ lerobot = pytest.importorskip("lerobot")
 
 import numpy as np
 
-from shared.episode import Episode, StageResult
+from episode import Episode, StageResult
 
 
 def test_episode_construction():

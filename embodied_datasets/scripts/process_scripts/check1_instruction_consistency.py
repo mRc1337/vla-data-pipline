@@ -5,7 +5,7 @@ directly as the StageResult.skip_reason. See design doc section 7 row 6.
 """
 from __future__ import annotations
 
-from shared.episode import Episode, StageResult
+from episode import Episode, StageResult
 from common.schema import ProcessConfig
 from common.service_clients import NullClient, get_instruction_consistency_client
 

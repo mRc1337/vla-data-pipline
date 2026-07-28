@@ -8,8 +8,8 @@ import numpy as np
 
 
 def test_load_lerobot_episodes_round_trips_synthetic_dataset(tmp_path: Path):
-    from shared.tests.fixtures import make_synthetic_dataset
-    from shared.lerobot_io import load_lerobot_episodes
+    from tests.fixtures import make_synthetic_dataset
+    from lerobot_io import load_lerobot_episodes
 
     dataset_root = tmp_path / "synthetic_ds"
     make_synthetic_dataset(dataset_root, repo_id="test/synthetic", num_episodes=2, num_frames=5, state_dim=3, action_dim=2)
@@ -22,8 +22,8 @@ def test_load_lerobot_episodes_round_trips_synthetic_dataset(tmp_path: Path):
 
 
 def test_load_lerobot_episodes_populates_language_instruction_from_task(tmp_path: Path):
-    from shared.tests.fixtures import make_synthetic_dataset
-    from shared.lerobot_io import load_lerobot_episodes
+    from tests.fixtures import make_synthetic_dataset
+    from lerobot_io import load_lerobot_episodes
 
     dataset_root = tmp_path / "synthetic_ds_with_task"
     make_synthetic_dataset(
@@ -40,8 +40,8 @@ def test_load_lerobot_episodes_maps_empty_task_to_none_instruction(tmp_path: Pat
     use when Episode.language_instruction was originally None -- it must load back
     as None, not "", so check1_instruction_consistency.py's `not
     episode.language_instruction` gate treats it as absent."""
-    from shared.tests.fixtures import make_synthetic_dataset
-    from shared.lerobot_io import load_lerobot_episodes
+    from tests.fixtures import make_synthetic_dataset
+    from lerobot_io import load_lerobot_episodes
 
     dataset_root = tmp_path / "synthetic_ds_empty_task"
     make_synthetic_dataset(dataset_root, repo_id="test/synthetic_empty_task", num_episodes=1, num_frames=3, task="")
@@ -61,7 +61,7 @@ def test_load_lerobot_episodes_raises_on_inconsistent_per_frame_task(tmp_path: P
     across frames of the same episode."""
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
-    from shared.lerobot_io import load_lerobot_episodes
+    from lerobot_io import load_lerobot_episodes
 
     dataset_root = tmp_path / "synthetic_ds_inconsistent_task"
     features = {
@@ -88,8 +88,8 @@ def test_load_lerobot_episodes_raises_on_inconsistent_per_frame_task(tmp_path: P
 
 
 def test_load_lerobot_episodes_populates_video_frames(tmp_path: Path):
-    from shared.tests.fixtures import make_synthetic_dataset
-    from shared.lerobot_io import load_lerobot_episodes
+    from tests.fixtures import make_synthetic_dataset
+    from lerobot_io import load_lerobot_episodes
 
     dataset_root = tmp_path / "synthetic_ds_with_video"
     make_synthetic_dataset(
@@ -115,8 +115,8 @@ def test_load_lerobot_episodes_populates_video_frames(tmp_path: Path):
 
 
 def test_write_lerobot_episodes_produces_loadable_dataset(tmp_path: Path):
-    from shared.episode import Episode
-    from shared.lerobot_io import load_lerobot_episodes, write_lerobot_episodes
+    from episode import Episode
+    from lerobot_io import load_lerobot_episodes, write_lerobot_episodes
 
     episodes = [
         Episode(
@@ -138,8 +138,8 @@ def test_write_lerobot_episodes_without_canonical_mask_has_no_mask_feature(tmp_p
     """Explicit regression coverage for the canonical_mask=None default: no
     caller of write_lerobot_episodes existing before this feature was added
     should see a new feature appear in the written dataset."""
-    from shared.episode import Episode
-    from shared.lerobot_io import write_lerobot_episodes
+    from episode import Episode
+    from lerobot_io import write_lerobot_episodes
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     episodes = [
@@ -159,8 +159,8 @@ def test_write_lerobot_episodes_without_canonical_mask_has_no_mask_feature(tmp_p
 
 
 def test_write_lerobot_episodes_with_canonical_mask_adds_mask_feature(tmp_path: Path):
-    from shared.episode import Episode
-    from shared.lerobot_io import write_lerobot_episodes
+    from episode import Episode
+    from lerobot_io import write_lerobot_episodes
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     mask = np.zeros(80, dtype=bool)

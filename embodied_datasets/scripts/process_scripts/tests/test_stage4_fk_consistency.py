@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from shared.episode import Episode
+from episode import Episode
 from common.schema import ProcessConfig
 from stage4_fk_consistency import apply
 

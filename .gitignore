@@ -4,8 +4,8 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Single Python 3.10+ venv for the whole repo (registry tools plus
-# process_scripts/shared, which need lerobot -- requires >=3.10).
+# Single Python 3.10+ venv for the whole repo (process_scripts needs
+# lerobot -- requires >=3.10).
 # README.md instructs users to create this with `python3.11 -m venv .venv`.
 /.venv/
 
@@ -19,7 +19,7 @@ __pycache__/
 # processed data, URDFs). Lives under --data-root, which defaults to
 # embodied_datasets/data_root/ inside the repo when not overridden -- ignore the
 # default location so a script run without --data-root never lands multi-GB
-# data in git. See scripts/registry/common/paths.py for the exact layout this
+# data in git. See scripts/process_scripts/common/paths.py for the exact layout this
 # mirrors. The four public_datasets_raw/public_datasets_staging/
 # public_datasets/urdf_assets subdirectories each have a
 # force-added (git add -f) .gitkeep placeholder so they still exist after a

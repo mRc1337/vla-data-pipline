@@ -7,7 +7,7 @@ lerobot = pytest.importorskip("lerobot")
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from shared.episode import Episode
+from episode import Episode
 from common.schema import ProcessConfig
 from stage5_orientation_alignment import apply
 

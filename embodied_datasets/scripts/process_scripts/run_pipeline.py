@@ -3,36 +3,23 @@ writes the cleaned output, updates datasets_registry.yaml, and generates
 the dataset README. See
 docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
 section 10.
-
-Loads registry/common (RegistryEntry/DatasetConfig/load_registry/
-save_registry/load_dataset_config) under the alias "registry_common" via
-importlib.util instead of sys.path, because process_scripts/common and
-registry/common are both literally named "common" -- putting both
-directories on sys.path would make whichever imports first win for every
-subsequent `import common` in the process (verified empirically while
-writing this plan). This loader sidesteps that entirely.
 """
 from __future__ import annotations
 
 import argparse
-import importlib
-import importlib.util
 import os
 import sys
 from dataclasses import replace
 from pathlib import Path
-from types import ModuleType
 from typing import List, Optional
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from shared.episode import Episode  # noqa: E402
-from common.io import load_process_config  # noqa: E402
-from shared.lerobot_io import load_lerobot_episodes, write_lerobot_episodes  # noqa: E402
-from common.schema import ProcessConfig  # noqa: E402
+from episode import Episode  # noqa: E402
+from common.io import load_dataset_config, load_process_config, load_registry, save_registry  # noqa: E402
+from common.paths import final_dir, resolve_data_root, staging_dir  # noqa: E402
+from common.schema import ProcessConfig, ProcessStatus  # noqa: E402
+from lerobot_io import load_lerobot_episodes, write_lerobot_episodes  # noqa: E402
 
 import stage1_sudden_change  # noqa: E402
 import stage2_trend_alignment  # noqa: E402
@@ -43,24 +30,6 @@ import check1_instruction_consistency  # noqa: E402
 import check2_video_state_consistency  # noqa: E402
 import check3_video_quality  # noqa: E402
 import unify_representation  # noqa: E402
-
-REGISTRY_COMMON_DIR = Path(__file__).resolve().parents[1] / "registry" / "common"
-
-
-def _load_registry_common() -> ModuleType:
-    alias = "registry_common"
-    if alias not in sys.modules:
-        spec = importlib.util.spec_from_file_location(
-            alias, REGISTRY_COMMON_DIR / "__init__.py", submodule_search_locations=[str(REGISTRY_COMMON_DIR)]
-        )
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[alias] = module
-        spec.loader.exec_module(module)
-    module = sys.modules[alias]
-    module.schema = importlib.import_module(f"{alias}.schema")
-    module.io = importlib.import_module(f"{alias}.io")
-    module.paths = importlib.import_module(f"{alias}.paths")
-    return module
 
 
 def _apply_gate_fields(config: ProcessConfig, dataset_config) -> None:
@@ -282,23 +251,21 @@ def main(argv: List[str] = None) -> int:
     parser.add_argument("--data-root", default=None)
     args = parser.parse_args(argv)
 
-    registry_common = _load_registry_common()
-    data_root = registry_common.paths.resolve_data_root(args.data_root)
-    scripts_root = Path(__file__).resolve().parents[1]
+    data_root = resolve_data_root(args.data_root)
     embodied_root = Path(__file__).resolve().parents[2]
     registry_path = embodied_root / "datasets_registry.yaml"
-    dataset_config_path = scripts_root / "registry" / "configs" / f"{args.dataset_id}.yaml"
+    dataset_config_path = Path(__file__).resolve().parent / "registry_configs" / f"{args.dataset_id}.yaml"
     process_config_path = Path(__file__).resolve().parent / "configs" / f"{args.dataset_id}.yaml"
 
-    entries = registry_common.io.load_registry(registry_path)
+    entries = load_registry(registry_path)
     entry = next((e for e in entries if e.id == args.dataset_id), None)
     if entry is None:
         print(f"error: {args.dataset_id!r} not found in {registry_path}", file=sys.stderr)
         return 1
 
-    dataset_config = registry_common.io.load_dataset_config(dataset_config_path)
-    staging_path = registry_common.paths.staging_dir(data_root, args.dataset_id)
-    output_path = registry_common.paths.final_dir(data_root, args.dataset_id)
+    dataset_config = load_dataset_config(dataset_config_path)
+    staging_path = staging_dir(data_root, args.dataset_id)
+    output_path = final_dir(data_root, args.dataset_id)
 
     stats = run_dataset(args.dataset_id, staging_path, output_path, process_config_path, dataset_config=dataset_config)
 
@@ -317,11 +284,11 @@ def main(argv: List[str] = None) -> int:
             f"nothing written to {output_path}, skipping README generation",
             file=sys.stderr,
         )
-        entry.process_status = registry_common.schema.ProcessStatus.FAILED
+        entry.process_status = ProcessStatus.FAILED
         entry.num_episodes = 0
         entry.num_frames = 0
         entry.duration_hours = 0.0
-        registry_common.io.save_registry(entries, registry_path)
+        save_registry(entries, registry_path)
         print(f"processed {args.dataset_id}: {stats['input_episodes']} -> 0 episodes (FAILED)")
         return 1
 
@@ -335,13 +302,13 @@ def main(argv: List[str] = None) -> int:
     readme_content = generate_dataset_readme(dataset_config, config, stats)
     (output_path / "README.md").write_text(readme_content, encoding="utf-8")
 
-    entry.process_status = registry_common.schema.ProcessStatus.PROCESSED
+    entry.process_status = ProcessStatus.PROCESSED
     entry.num_episodes = stats["output_episodes"]
     entry.num_frames = stats["output_frames"]
     entry.final_local_path = compute_final_local_path(output_path, data_root)
     entry.duration_hours = stats["output_frames"] / stats["fps"] / 3600.0
     entry.storage_size_gb = round(_dir_size_bytes(output_path) / 1e9, 2)
-    registry_common.io.save_registry(entries, registry_path)
+    save_registry(entries, registry_path)
 
     print(f"processed {args.dataset_id}: {stats['input_episodes']} -> {stats['output_episodes']} episodes")
     return 0

@@ -5,5 +5,5 @@ description = "VLA robotics dataset registry, onboarding, conversion, and cleani
 requires-python = ">=3.10"
 
 [tool.pytest.ini_options]
-pythonpath = ["embodied_datasets/scripts/registry"]
-testpaths = ["tests"]
+pythonpath = ["embodied_datasets/scripts/process_scripts"]
+testpaths = ["embodied_datasets/scripts/process_scripts/tests"]

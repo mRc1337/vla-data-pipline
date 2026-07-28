@@ -4,7 +4,7 @@ lerobot = pytest.importorskip("lerobot")
 
 import numpy as np
 
-from shared.episode import Episode
+from episode import Episode
 from common.schema import ProcessConfig
 from check2_video_state_consistency import apply
 

@@ -38,7 +38,7 @@ from typing import List, Optional
 import numpy as np
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
-from .episode import Episode
+from episode import Episode
 
 
 def load_lerobot_episodes(dataset_path: Path) -> List[Episode]:

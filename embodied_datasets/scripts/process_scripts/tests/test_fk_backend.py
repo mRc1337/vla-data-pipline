@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from shared.fk_backend import FkChain
+from fk_backend import FkChain
 
 URDF_PATH = str(Path(__file__).parent / "fixtures" / "simple_arm.urdf")
 

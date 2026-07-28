@@ -6,10 +6,9 @@ VLA（视觉-语言-动作）机器人操作数据集的统一处理流水线。
 
 ```
 vla_data_pipeline/
-├── embodied_datasets/     # 全部实际工作：数据集注册表、清洗流水线
-├── tests/                  # 注册表基础设施（schema/io/paths）的测试套件
+├── embodied_datasets/     # 全部实际工作：数据集注册表、清洗流水线（唯一子目录 scripts/process_scripts/）
 ├── requirements.txt        # 全仓库共用的依赖清单
-└── pyproject.toml          # pytest 配置 + 项目元数据
+└── pyproject.toml          # pytest 配置（指向 process_scripts/tests）+ 项目元数据
 ```
 
 ## 环境搭建
@@ -32,17 +31,19 @@ sudo apt update && sudo apt install ffmpeg
 ```
 embodied_datasets/
 ├── datasets_registry.yaml                                  # 66个数据集的总览表（实测值，随流水线推进更新）
-├── scripts/
-│   ├── registry/
-│   │   ├── configs/<dataset_id>.yaml                       # 每个数据集的调研配置
-│   │   └── common/                                         # 注册表基础设施（schema/io/paths）
-│   ├── process_scripts/                                    # 清洗对齐流水线
-│   └── shared/                                             # process_scripts 用（Episode/FkChain/lerobot读写）
-└── data_root/                                              # --data-root 可整体指向仓库外任意路径
-    ├── public_datasets_raw/<dataset_id>/                   # 原始下载数据
-    ├── public_datasets_staging/lerobot_v3_0/<dataset_id>/  # process_scripts 输入（外部转换产出）
-    ├── public_datasets/lerobot_v3_0/<dataset_id>/          # process_scripts 最终产出
-    └── urdf_assets/<robot_platform>/                       # 按机器人型号共享的 URDF
+└── scripts/
+    └── process_scripts/
+        ├── common/                                         # schema/io/paths（RegistryEntry/DatasetConfig/ProcessConfig）
+        ├── configs/<dataset_id>.yaml                        # 每个数据集的清洗阈值配置（ProcessConfig）
+        ├── registry_configs/<dataset_id>.yaml               # 每个数据集的调研配置（DatasetConfig）
+        ├── episode.py / fk_backend.py / lerobot_io.py       # Episode/FkChain/lerobot读写
+        └── stage1-5 / check1-3 / unify_representation.py / run_pipeline.py
+
+embodied_datasets/data_root/                                # --data-root 可整体指向仓库外任意路径
+├── public_datasets_raw/<dataset_id>/                       # 原始下载数据
+├── public_datasets_staging/lerobot_v3_0/<dataset_id>/      # process_scripts 输入（外部转换产出）
+├── public_datasets/lerobot_v3_0/<dataset_id>/              # process_scripts 最终产出
+└── urdf_assets/<robot_platform>/                           # 按机器人型号共享的 URDF
 ```
 
 ```bash

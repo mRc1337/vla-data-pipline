@@ -10,7 +10,7 @@ from dataclasses import replace
 import numpy as np
 from scipy.signal import savgol_filter
 
-from shared.episode import Episode, StageResult
+from episode import Episode, StageResult
 from common.schema import ProcessConfig
 
 
