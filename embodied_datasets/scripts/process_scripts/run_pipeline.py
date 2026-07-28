@@ -221,7 +221,7 @@ README_TEMPLATE = """# {name}
   灵巧手会被截断。MANO/人手视频数据集（human_hand/human_full_body）完全不经过这一层，
   不受此限制，完整参数保留在 data_root/public_datasets_staging/ 原始数据中。移动底盘
   速度（vx/vy/yaw）当前不写入任何槎位，has_mobile_base=true 的数据集该部分数值会被
-  丢弃。详见 embodied_datasets/README.md 的"跨本体统一表示层"一节。
+  丢弃。详见仓库根 README.md 的"跨本体统一表示"一节。
 """
 
 
