@@ -29,7 +29,8 @@ def test_process_config_requires_id():
     assert config.world_frame_convention == "robot_base"
     assert config.base_to_world_transform is None
     assert config.vlm_service_url is None
-    assert config.sam3_service_url is None
+    assert config.sam3_checkpoint_path is None
+    assert config.gripper_radius_m is None
     assert config.iou_threshold == 0.5
     assert config.camera_frame_delta_pose_enabled is False
     assert config.gripper_dims_state == []
@@ -349,3 +350,9 @@ def test_process_config_accepts_vlm_fields():
     assert config.vlm_service_url == "http://localhost:9000/v1"
     assert config.vlm_model_name == "custom-model"
     assert config.vlm_api_key_env == "MY_VLM_KEY"
+
+
+def test_process_config_accepts_sam3_fields():
+    config = ProcessConfig(id="x", sam3_checkpoint_path="/models/sam3.pt", gripper_radius_m=0.04)
+    assert config.sam3_checkpoint_path == "/models/sam3.pt"
+    assert config.gripper_radius_m == 0.04

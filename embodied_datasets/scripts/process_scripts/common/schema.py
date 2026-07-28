@@ -322,7 +322,8 @@ class ProcessConfig(BaseModel):
     has_language_instruction: bool = False
 
     # Check2: video-state consistency
-    sam3_service_url: Optional[str] = None
+    sam3_checkpoint_path: Optional[str] = None
+    gripper_radius_m: Optional[float] = None
     iou_threshold: float = 0.5
     urdf_available: bool = False
     has_camera_calibration: bool = False
