@@ -7,13 +7,13 @@ VLA（视觉-语言-动作）机器人操作数据集的统一注册、下载、
 ```
 vla_data_pipeline/
 ├── embodied_datasets/     # 全部实际工作：数据集注册表、onboarding、转换、清洗流水线
-│   └── README.md          # 详细文档：目录结构、字段参考、跨本体统一表示层规范、如何 onboard 新数据集
+│   └── README.md          # 详细文档：目录结构、数据存储方式、process_scripts 处理流程、跨本体统一表示层规范
 ├── tests/                  # convert_scripts（注册表/onboarding工具）的测试套件
 ├── requirements.txt        # 全仓库共用的依赖清单
 └── pyproject.toml          # pytest 配置 + 项目元数据
 ```
 
-详细文档见 [`embodied_datasets/README.md`](embodied_datasets/README.md)——包括完整的数据集注册表字段参考、`process_scripts` 清洗流水线的跨本体统一表示层规范、以及 onboarding 新数据集的流程。
+详细文档见 [`embodied_datasets/README.md`](embodied_datasets/README.md)——数据存储方式、`process_scripts` 清洗流水线的处理流程与跨本体统一表示层规范。
 
 ## 环境搭建
 
