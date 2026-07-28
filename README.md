@@ -70,11 +70,7 @@ python3 run_pipeline.py --data-root /mnt/big_disk/vla_data --dataset-id droid
 
 本节定义 `process_scripts` 流水线产出的**最终 LeRobot v3.0 数据集**中，机器人本体
 （robot-collected embodiment）`observation.state` 的格式。这是下游训练/评测脚本
-读取数据时依赖的公共契约。
-
-### 1. 128 维 canonical 向量布局
-
-固定总维度 128，按下表切片：
+读取数据时依赖的公共契约。128 维 canonical 向量固定总维度 128，按下表切片：
 
 | 子区间 | 维度 | 内容 | 常量名 |
 |---|---|---|---|
