@@ -29,7 +29,9 @@ def test_process_config_requires_id():
     assert config.world_frame_convention == "robot_base"
     assert config.base_to_world_transform is None
     assert config.vlm_service_url is None
-    assert config.sam3_checkpoint_path is None
+    assert config.sam3_model_id is None
+    assert config.sam3_text_prompt == "robot gripper"
+    assert config.sam3_hf_token_env is None
     assert config.gripper_radius_m is None
     assert config.iou_threshold == 0.5
     assert config.camera_frame_delta_pose_enabled is False
@@ -353,6 +355,21 @@ def test_process_config_accepts_vlm_fields():
 
 
 def test_process_config_accepts_sam3_fields():
-    config = ProcessConfig(id="x", sam3_checkpoint_path="/models/sam3.pt", gripper_radius_m=0.04)
-    assert config.sam3_checkpoint_path == "/models/sam3.pt"
+    config = ProcessConfig(
+        id="x",
+        sam3_model_id="facebook/sam3",
+        sam3_text_prompt="robot hand",
+        sam3_hf_token_env="MY_HF_TOKEN",
+        gripper_radius_m=0.04,
+    )
+    assert config.sam3_model_id == "facebook/sam3"
+    assert config.sam3_text_prompt == "robot hand"
+    assert config.sam3_hf_token_env == "MY_HF_TOKEN"
     assert config.gripper_radius_m == 0.04
+
+
+def test_process_config_sam3_text_prompt_defaults_to_robot_gripper():
+    config = ProcessConfig(id="x")
+    assert config.sam3_text_prompt == "robot gripper"
+    assert config.sam3_model_id is None
+    assert config.sam3_hf_token_env is None

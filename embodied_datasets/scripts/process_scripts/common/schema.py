@@ -322,10 +322,9 @@ class ProcessConfig(BaseModel):
     has_language_instruction: bool = False
 
     # Check2: video-state consistency
-    # NOTE: LocalSam3Client's SAM3 SDK integration is not implemented yet (see common/sam3_client.py)
-    # -- setting this to a real path will raise NotImplementedError the first time Check2 actually
-    # calls .segment(), uncaught by run_pipeline.py. Leave unset until SAM3 is wired up.
-    sam3_checkpoint_path: Optional[str] = None
+    sam3_model_id: Optional[str] = None
+    sam3_text_prompt: str = "robot gripper"
+    sam3_hf_token_env: Optional[str] = None
     gripper_radius_m: Optional[float] = None
     iou_threshold: float = 0.5
     urdf_available: bool = False
