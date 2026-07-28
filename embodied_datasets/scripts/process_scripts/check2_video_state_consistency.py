@@ -80,8 +80,8 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
 
 
 def _sample_frame_indices(total: int) -> List[int]:
-    """Same sampling rule as Check1's _sample_frames: T <= MAX_SAMPLED_FRAMES
-    returns every index; otherwise first, last, evenly spaced in between."""
+    """Same sampling rule as `common/vlm_client.py::_sample_frames` (used by Check1):
+    T <= MAX_SAMPLED_FRAMES returns every index; otherwise first, last, evenly spaced in between."""
     if total <= MAX_SAMPLED_FRAMES:
         return list(range(total))
     indices = np.linspace(0, total - 1, num=MAX_SAMPLED_FRAMES).round().astype(int)

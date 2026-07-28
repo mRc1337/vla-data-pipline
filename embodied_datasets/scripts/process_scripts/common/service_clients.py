@@ -67,6 +67,6 @@ def get_instruction_consistency_client(
 def get_video_state_consistency_client(sam3_checkpoint_path: Optional[str]) -> VideoStateConsistencyClient:
     if not sam3_checkpoint_path:
         return NullClient()
-    from common.sam3_client import LocalSam3Client  # local import: mirrors get_instruction_consistency_client's OpenAIVLMClient import
+    from common.sam3_client import LocalSam3Client  # local import: keeps the sam3 SDK dependency isolated to when SAM3 is actually configured; no circular-import risk here (unlike OpenAIVLMClient's case above), since sam3_client.py has no dependency back on this module
 
     return LocalSam3Client(checkpoint_path=sam3_checkpoint_path)
