@@ -190,3 +190,111 @@ def test_write_lerobot_episodes_with_canonical_mask_adds_mask_feature(tmp_path: 
         written_mask = row["observation.state_canonical_mask"].numpy().astype(bool)
         assert written_mask.shape == (80,)
         assert np.array_equal(written_mask, mask)
+
+
+def test_load_lerobot_episodes_populates_camera_calibration(tmp_path: Path):
+    from tests.fixtures import make_synthetic_dataset
+    from lerobot_io import load_lerobot_episodes
+
+    extrinsics = np.eye(4, dtype=np.float32)
+    dataset_root = tmp_path / "synthetic_ds_with_calibration"
+    make_synthetic_dataset(
+        dataset_root,
+        repo_id="test/synthetic_calibration",
+        num_episodes=1,
+        num_frames=3,
+        include_video=True,
+        camera_calibration={"fx": 100.0, "fy": 100.0, "cx": 16.0, "cy": 16.0, "extrinsics": extrinsics},
+    )
+
+    episodes = load_lerobot_episodes(dataset_root)
+    calibration = episodes[0].camera_calibration["observation.image"]
+    assert calibration.fx == 100.0
+    assert calibration.fy == 100.0
+    assert calibration.cx == 16.0
+    assert calibration.cy == 16.0
+    assert np.array_equal(calibration.extrinsics, extrinsics)
+
+
+def test_load_lerobot_episodes_defaults_camera_calibration_to_empty_dict_when_absent(tmp_path: Path):
+    from tests.fixtures import make_synthetic_dataset
+    from lerobot_io import load_lerobot_episodes
+
+    dataset_root = tmp_path / "synthetic_ds_no_calibration"
+    make_synthetic_dataset(dataset_root, repo_id="test/synthetic_no_calibration", num_episodes=1, num_frames=3)
+
+    episodes = load_lerobot_episodes(dataset_root)
+    assert episodes[0].camera_calibration == {}
+
+
+def test_load_lerobot_episodes_raises_when_only_intrinsics_present(tmp_path: Path):
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    from lerobot_io import load_lerobot_episodes
+
+    dataset_root = tmp_path / "synthetic_ds_only_intrinsics"
+    features = {
+        "observation.state": {"dtype": "float32", "shape": (2,), "names": None},
+        "action": {"dtype": "float32", "shape": (2,), "names": None},
+        "observation.image": {"dtype": "video", "shape": (32, 32, 3), "names": ["height", "width", "channel"]},
+        "observation.image_intrinsics": {"dtype": "float32", "shape": (4,), "names": None},
+    }
+    dataset = LeRobotDataset.create(
+        repo_id="test/synthetic_only_intrinsics", fps=10, root=dataset_root, features=features, use_videos=True
+    )
+    dataset.add_frame(
+        {
+            "observation.state": np.zeros(2, dtype=np.float32),
+            "action": np.zeros(2, dtype=np.float32),
+            "task": "x",
+            "observation.image": np.zeros((32, 32, 3), dtype=np.uint8),
+            "observation.image_intrinsics": np.zeros(4, dtype=np.float32),
+        }
+    )
+    dataset.save_episode()
+    dataset.finalize()
+
+    with pytest.raises(ValueError, match="only one of"):
+        load_lerobot_episodes(dataset_root)
+
+
+def test_load_lerobot_episodes_raises_on_inconsistent_per_frame_intrinsics(tmp_path: Path):
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    from lerobot_io import load_lerobot_episodes
+
+    dataset_root = tmp_path / "synthetic_ds_inconsistent_intrinsics"
+    features = {
+        "observation.state": {"dtype": "float32", "shape": (2,), "names": None},
+        "action": {"dtype": "float32", "shape": (2,), "names": None},
+        "observation.image": {"dtype": "video", "shape": (32, 32, 3), "names": ["height", "width", "channel"]},
+        "observation.image_intrinsics": {"dtype": "float32", "shape": (4,), "names": None},
+        "observation.image_extrinsics": {"dtype": "float32", "shape": (16,), "names": None},
+    }
+    dataset = LeRobotDataset.create(
+        repo_id="test/synthetic_inconsistent_intrinsics",
+        fps=10,
+        root=dataset_root,
+        features=features,
+        use_videos=True,
+    )
+    intrinsics_values = [
+        np.array([100.0, 100.0, 16.0, 16.0], dtype=np.float32),
+        np.array([200.0, 100.0, 16.0, 16.0], dtype=np.float32),
+    ]
+    for intrinsics in intrinsics_values:
+        dataset.add_frame(
+            {
+                "observation.state": np.zeros(2, dtype=np.float32),
+                "action": np.zeros(2, dtype=np.float32),
+                "task": "x",
+                "observation.image": np.zeros((32, 32, 3), dtype=np.uint8),
+                "observation.image_intrinsics": intrinsics,
+                "observation.image_extrinsics": np.eye(4, dtype=np.float32).reshape(16),
+            }
+        )
+    dataset.save_episode()
+    dataset.finalize()
+
+    with pytest.raises(ValueError, match="inconsistent per-frame"):
+        load_lerobot_episodes(dataset_root)

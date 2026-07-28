@@ -35,6 +35,7 @@ LeRobotDataset). Notable differences from a naive v2.1-era guess:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -56,12 +57,20 @@ def make_synthetic_dataset(
     fps: float = 10.0,
     task: str = "synthetic",
     include_video: bool = False,
+    camera_calibration: Optional[dict] = None,
 ) -> Path:
     """Build a tiny lerobot dataset for I/O tests.
 
     `task` and `include_video` default to the pre-existing behavior
     (a fixed "synthetic" task string, no video feature) so every caller
     written before these parameters existed keeps working unchanged.
+
+    `camera_calibration`, if given, is a dict with keys "fx", "fy", "cx",
+    "cy" (floats) and "extrinsics" (a (4,4) array-like) -- written as the
+    same constant value on every frame of every episode, under
+    f"{_VIDEO_KEY}_intrinsics"/f"{_VIDEO_KEY}_extrinsics". Only meaningful
+    together with include_video=True (there is no video key to attach
+    calibration to otherwise). Callers that don't pass it are unaffected.
     """
     features = {
         "observation.state": {"dtype": "float32", "shape": (state_dim,), "names": None},
@@ -73,6 +82,9 @@ def make_synthetic_dataset(
             "shape": (_VIDEO_HEIGHT, _VIDEO_WIDTH, 3),
             "names": ["height", "width", "channel"],
         }
+    if camera_calibration is not None:
+        features[f"{_VIDEO_KEY}_intrinsics"] = {"dtype": "float32", "shape": (4,), "names": None}
+        features[f"{_VIDEO_KEY}_extrinsics"] = {"dtype": "float32", "shape": (16,), "names": None}
     # Video encoding requires an integer fps (see module docstring); the
     # non-video path keeps accepting/passing through the float `fps` as-is,
     # matching pre-existing behavior for every caller that doesn't ask for
@@ -81,6 +93,19 @@ def make_synthetic_dataset(
     dataset = LeRobotDataset.create(
         repo_id=repo_id, fps=create_fps, root=root, features=features, use_videos=include_video
     )
+    calibration_intrinsics = None
+    calibration_extrinsics = None
+    if camera_calibration is not None:
+        calibration_intrinsics = np.array(
+            [
+                camera_calibration["fx"],
+                camera_calibration["fy"],
+                camera_calibration["cx"],
+                camera_calibration["cy"],
+            ],
+            dtype=np.float32,
+        )
+        calibration_extrinsics = np.asarray(camera_calibration["extrinsics"], dtype=np.float32).reshape(16)
     rng = np.random.RandomState(0)
     for _episode in range(num_episodes):
         for _frame in range(num_frames):
@@ -91,6 +116,9 @@ def make_synthetic_dataset(
             }
             if include_video:
                 frame[_VIDEO_KEY] = rng.randint(0, 256, size=(_VIDEO_HEIGHT, _VIDEO_WIDTH, 3), dtype=np.uint8)
+            if camera_calibration is not None:
+                frame[f"{_VIDEO_KEY}_intrinsics"] = calibration_intrinsics
+                frame[f"{_VIDEO_KEY}_extrinsics"] = calibration_extrinsics
             dataset.add_frame(frame)
         dataset.save_episode()
     dataset.finalize()

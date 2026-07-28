@@ -33,12 +33,60 @@ LeRobotDataset), which differs from a naive v2.1-era guess in a few load-bearing
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
-from episode import Episode
+from episode import CameraCalibration, Episode
+
+
+def _load_camera_calibration(dataset, video_keys, rows, episode_index: int) -> Dict[str, CameraCalibration]:
+    """See docs/superpowers/specs/2026-07-28-sam3-check2-camera-calibration-design.md
+    section 2.2: for each video key, `<key>_intrinsics` (shape (4,),
+    [fx, fy, cx, cy]) and `<key>_extrinsics` (shape (16,), flattened
+    row-major camera_from_base 4x4) are optional per-frame features. Both
+    present -> validate identical across every frame of this episode (same
+    "must be episode-constant" contract as `task`/language_instruction
+    above) and build a CameraCalibration from frame 0. Only one present ->
+    the data is self-contradictory, raise. Neither present -> this view has
+    no calibration, no entry in the returned dict.
+    """
+    calibration: Dict[str, CameraCalibration] = {}
+    for video_key in video_keys:
+        intrinsics_key = f"{video_key}_intrinsics"
+        extrinsics_key = f"{video_key}_extrinsics"
+        has_intrinsics = intrinsics_key in dataset.meta.features
+        has_extrinsics = extrinsics_key in dataset.meta.features
+        if has_intrinsics != has_extrinsics:
+            raise ValueError(
+                f"episode {episode_index} view {video_key!r} has only one of "
+                f"{intrinsics_key!r}/{extrinsics_key!r} -- both or neither must be present"
+            )
+        if not has_intrinsics:
+            continue
+
+        first_intrinsics = rows[0][intrinsics_key].numpy()
+        first_extrinsics = rows[0][extrinsics_key].numpy()
+        for i, row in enumerate(rows):
+            if not np.array_equal(row[intrinsics_key].numpy(), first_intrinsics):
+                raise ValueError(
+                    f"episode {episode_index} view {video_key!r} has inconsistent per-frame "
+                    f"{intrinsics_key!r}: frame 0 has {first_intrinsics.tolist()}, "
+                    f"frame {i} has {row[intrinsics_key].numpy().tolist()}"
+                )
+            if not np.array_equal(row[extrinsics_key].numpy(), first_extrinsics):
+                raise ValueError(
+                    f"episode {episode_index} view {video_key!r} has inconsistent per-frame "
+                    f"{extrinsics_key!r}: frame 0 has {first_extrinsics.tolist()}, "
+                    f"frame {i} has {row[extrinsics_key].numpy().tolist()}"
+                )
+
+        fx, fy, cx, cy = [float(v) for v in first_intrinsics]
+        calibration[video_key] = CameraCalibration(
+            fx=fx, fy=fy, cx=cx, cy=cy, extrinsics=first_extrinsics.reshape(4, 4).astype(float)
+        )
+    return calibration
 
 
 def load_lerobot_episodes(dataset_path: Path) -> List[Episode]:
@@ -94,6 +142,8 @@ def load_lerobot_episodes(dataset_path: Path) -> List[Episode]:
             stacked_hwc = np.transpose(stacked_chw, (0, 2, 3, 1))
             frames[video_key] = np.clip(np.round(stacked_hwc * 255.0), 0, 255).astype(np.uint8)
 
+        camera_calibration = _load_camera_calibration(dataset, video_keys, rows, episode_index)
+
         episodes.append(
             Episode(
                 episode_index=episode_index,
@@ -102,6 +152,7 @@ def load_lerobot_episodes(dataset_path: Path) -> List[Episode]:
                 action=action,
                 frames=frames,
                 language_instruction=language_instruction,
+                camera_calibration=camera_calibration,
             )
         )
     return episodes
