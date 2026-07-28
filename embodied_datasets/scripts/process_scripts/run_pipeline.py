@@ -249,11 +249,10 @@ def generate_dataset_readme(dataset_config, config: ProcessConfig, stats: dict) 
 
 
 def _dir_size_bytes(path: Path) -> int:
-    """Mirrors convert_scripts/common/scan_downloaded_datasets.py's
-    `_dir_size_bytes` (module-private there, so not imported directly across
-    the process_scripts/convert_scripts boundary) -- same scandir-based
-    walk, feeding the same `round(size_bytes / 1e9, 2)` convention
-    run_scan_downloaded_datasets.py uses for `storage_size_gb`.
+    """os.scandir-based walk (DirEntry.is_file()/stat() reuse the lstat info
+    already returned by the directory read, unlike Path.rglob()'s fresh
+    per-entry stat) feeding the `round(size_bytes / 1e9, 2)` convention used
+    for `storage_size_gb`.
     """
     total = 0
     stack = [path]
@@ -295,13 +294,6 @@ def main(argv: List[str] = None) -> int:
     entry = next((e for e in entries if e.id == args.dataset_id), None)
     if entry is None:
         print(f"error: {args.dataset_id!r} not found in {registry_path}", file=sys.stderr)
-        return 1
-    if entry.convert_status != registry_common.schema.ConvertStatus.CONVERTED:
-        print(
-            f"error: {args.dataset_id!r} has convert_status={entry.convert_status!r}, "
-            "expected 'converted' -- run convert_scripts first",
-            file=sys.stderr,
-        )
         return 1
 
     dataset_config = registry_common.io.load_dataset_config(dataset_config_path)

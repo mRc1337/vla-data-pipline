@@ -6,8 +6,8 @@ VLA（视觉-语言-动作）机器人操作数据集的统一处理流水线。
 
 ```
 vla_data_pipeline/
-├── embodied_datasets/     # 全部实际工作：数据集注册表、onboarding、转换、清洗流水线
-├── tests/                  # convert_scripts（注册表/onboarding工具）的测试套件
+├── embodied_datasets/     # 全部实际工作：数据集注册表、清洗流水线
+├── tests/                  # 注册表基础设施（schema/io/paths）的测试套件
 ├── requirements.txt        # 全仓库共用的依赖清单
 └── pyproject.toml          # pytest 配置 + 项目元数据
 ```
@@ -35,13 +35,12 @@ embodied_datasets/
 ├── scripts/
 │   ├── convert_scripts/
 │   │   ├── configs/<dataset_id>.yaml                       # 每个数据集的调研配置
-│   │   └── common/                                         # 复用的 schema/io/onboarding 工具
-│   ├── verify_scripts/                                     # 下载完整性校验
+│   │   └── common/                                         # 注册表基础设施（schema/io/paths）
 │   ├── process_scripts/                                    # 清洗对齐流水线
-│   └── shared/                                             # convert_scripts/process_scripts 跨包复用
+│   └── shared/                                             # process_scripts 用（Episode/FkChain/lerobot读写）
 └── data_root/                                              # --data-root 可整体指向仓库外任意路径
     ├── public_datasets_raw/<dataset_id>/                   # 原始下载数据
-    ├── public_datasets_staging/lerobot_v3_0/<dataset_id>/  # convert_scripts 产出，process_scripts 输入
+    ├── public_datasets_staging/lerobot_v3_0/<dataset_id>/  # process_scripts 输入（外部转换产出）
     ├── public_datasets/lerobot_v3_0/<dataset_id>/          # process_scripts 最终产出
     └── urdf_assets/<robot_platform>/                       # 按机器人型号共享的 URDF
 ```

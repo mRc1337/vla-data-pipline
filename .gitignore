@@ -4,10 +4,9 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Single Python 3.10+ venv for the whole repo (registry/onboarding tools
-# plus process_scripts/shared/convert_scripts/verify_scripts, which need
-# lerobot -- requires >=3.10). README.md instructs users to create this
-# with `python3.11 -m venv .venv`.
+# Single Python 3.10+ venv for the whole repo (registry tools plus
+# process_scripts/shared, which need lerobot -- requires >=3.10).
+# README.md instructs users to create this with `python3.11 -m venv .venv`.
 /.venv/
 
 # Large reference materials kept locally, not tracked in git (see design doc
@@ -26,14 +25,6 @@ __pycache__/
 # force-added (git add -f) .gitkeep placeholder so they still exist after a
 # fresh clone despite being gitignored.
 embodied_datasets/data_root/
-
-# convert_scripts run logs (warnings/self-check failure detail) -- kept
-# out of git, only the directory structure (via .gitkeep) is tracked. See
-# design doc section 7/9: "详情进日志，registry 只留状态位".
-embodied_datasets/scripts/convert_scripts/logs/*.log
-
-# verify_scripts run logs -- same convention as convert_scripts/logs/ above.
-embodied_datasets/scripts/verify_scripts/logs/*.log
 
 # Design docs / plans written while working the superpowers skill chain
 # (brainstorming -> writing-plans) -- process artifacts, kept locally only.

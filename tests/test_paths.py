@@ -4,10 +4,8 @@ from common.paths import (
     DEFAULT_DATA_ROOT,
     REPO_ROOT,
     final_dir,
-    raw_dir,
     resolve_data_root,
     staging_dir,
-    urdf_assets_dir,
 )
 
 
@@ -28,11 +26,6 @@ def test_resolve_data_root_uses_explicit_value(tmp_path):
     assert resolve_data_root(str(custom)) == custom.resolve()
 
 
-def test_raw_dir():
-    data_root = Path("/mnt/big_disk")
-    assert raw_dir(data_root, "droid") == Path("/mnt/big_disk/public_datasets_raw/droid")
-
-
 def test_staging_dir():
     data_root = Path("/mnt/big_disk")
     assert staging_dir(data_root, "droid") == Path("/mnt/big_disk/public_datasets_staging/lerobot_v3_0/droid")
@@ -41,10 +34,3 @@ def test_staging_dir():
 def test_final_dir():
     data_root = Path("/mnt/big_disk")
     assert final_dir(data_root, "droid") == Path("/mnt/big_disk/public_datasets/lerobot_v3_0/droid")
-
-
-def test_urdf_assets_dir():
-    data_root = Path("/mnt/big_disk")
-    assert urdf_assets_dir(data_root, "franka_panda") == Path(
-        "/mnt/big_disk/urdf_assets/franka_panda"
-    )

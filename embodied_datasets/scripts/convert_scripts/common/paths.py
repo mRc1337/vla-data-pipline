@@ -1,10 +1,8 @@
 """Resolve the configurable data root and build paths under it for the
-heavy data directories (public_datasets_raw/, public_datasets_staging/,
-public_datasets/lerobot_v3_0/, urdf_assets/).
-datasets_registry.yaml and convert_scripts/configs/ always stay inside the
-repo and are unaffected by this module -- see
-docs/superpowers/specs/2026-07-21-convert-scripts-verify-scripts-design.md
-section 4.
+heavy data directories used by process_scripts (public_datasets_staging/,
+public_datasets/lerobot_v3_0/). datasets_registry.yaml and
+convert_scripts/configs/ always stay inside the repo and are unaffected
+by this module.
 """
 from __future__ import annotations
 
@@ -21,17 +19,9 @@ def resolve_data_root(cli_value: Optional[str]) -> Path:
     return DEFAULT_DATA_ROOT
 
 
-def raw_dir(data_root: Path, dataset_id: str) -> Path:
-    return data_root / "public_datasets_raw" / dataset_id
-
-
 def staging_dir(data_root: Path, dataset_id: str) -> Path:
     return data_root / "public_datasets_staging" / "lerobot_v3_0" / dataset_id
 
 
 def final_dir(data_root: Path, dataset_id: str) -> Path:
     return data_root / "public_datasets" / "lerobot_v3_0" / dataset_id
-
-
-def urdf_assets_dir(data_root: Path, robot_platform: str) -> Path:
-    return data_root / "urdf_assets" / robot_platform
