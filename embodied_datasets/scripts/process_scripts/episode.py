@@ -1,6 +1,8 @@
 """In-memory data structures every stage/check module operates on. See
 docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
-section 6.
+section 6 and
+docs/superpowers/specs/2026-07-28-sam3-check2-camera-calibration-design.md
+section 2.
 """
 from __future__ import annotations
 
@@ -11,6 +13,15 @@ import numpy as np
 
 
 @dataclass
+class CameraCalibration:
+    fx: float
+    fy: float
+    cx: float
+    cy: float
+    extrinsics: np.ndarray  # (4,4), camera_from_base: p_cam = extrinsics @ [*p_base, 1]
+
+
+@dataclass
 class Episode:
     episode_index: int
     timestamps: np.ndarray
@@ -18,6 +29,7 @@ class Episode:
     action: np.ndarray
     frames: Dict[str, np.ndarray] = field(default_factory=dict)
     language_instruction: Optional[str] = None
+    camera_calibration: Dict[str, CameraCalibration] = field(default_factory=dict)
 
 
 @dataclass
