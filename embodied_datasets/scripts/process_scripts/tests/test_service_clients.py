@@ -36,14 +36,26 @@ def test_get_instruction_consistency_client_returns_openai_client_when_fully_con
 
 
 def test_get_video_state_consistency_client_returns_null_client_when_unconfigured():
-    client = get_video_state_consistency_client(None)
+    client = get_video_state_consistency_client(None, "robot gripper", None)
     assert isinstance(client, NullClient)
 
 
-def test_get_video_state_consistency_client_returns_local_sam3_client_when_configured():
+def test_get_video_state_consistency_client_raises_when_hf_token_env_not_set():
+    with pytest.raises(RuntimeError):
+        get_video_state_consistency_client("facebook/sam3", "robot gripper", None)
+
+
+def test_get_video_state_consistency_client_raises_when_named_env_var_missing(monkeypatch):
+    monkeypatch.delenv("MISSING_SAM3_TOKEN", raising=False)
+    with pytest.raises(RuntimeError):
+        get_video_state_consistency_client("facebook/sam3", "robot gripper", "MISSING_SAM3_TOKEN")
+
+
+def test_get_video_state_consistency_client_returns_local_sam3_client_when_fully_configured(monkeypatch):
+    monkeypatch.setenv("TEST_SAM3_TOKEN", "secret")
+    client = get_video_state_consistency_client("facebook/sam3", "robot gripper", "TEST_SAM3_TOKEN")
     from common.sam3_client import LocalSam3Client
 
-    client = get_video_state_consistency_client("/fake/checkpoint.pt")
     assert isinstance(client, LocalSam3Client)
 
 
@@ -57,4 +69,4 @@ def test_null_client_check_reports_not_configured():
 def test_null_client_segment_raises():
     client = NullClient()
     with pytest.raises(RuntimeError):
-        client.segment(np.zeros((4, 4, 3), dtype=np.uint8), (2.0, 2.0))
+        client.segment(np.zeros((4, 4, 3), dtype=np.uint8), (1.0, 1.0, 3.0, 3.0))

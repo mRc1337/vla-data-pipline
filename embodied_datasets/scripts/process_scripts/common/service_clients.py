@@ -4,7 +4,7 @@ docs/superpowers/specs/2026-07-27-vlm-client-check1-design.md) when
 vlm_service_url is configured. get_video_state_consistency_client() wires
 up a real LocalSam3Client (see
 docs/superpowers/specs/2026-07-28-sam3-check2-camera-calibration-design.md)
-when sam3_checkpoint_path is configured. NullClient is the fallback used
+when sam3_model_id is configured. NullClient is the fallback used
 when the corresponding config field is unset.
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ class InstructionConsistencyClient(Protocol):
 
 
 class VideoStateConsistencyClient(Protocol):
-    def segment(self, frame: np.ndarray, point_prompt: Tuple[float, float]) -> np.ndarray: ...
+    def segment(self, frame: np.ndarray, box_prompt: Tuple[float, float, float, float]) -> np.ndarray: ...
 
 
 class NullClient:
@@ -37,7 +37,7 @@ class NullClient:
     def check(self, instruction: str, frames: List[np.ndarray]) -> ConsistencyVerdict:
         return ConsistencyVerdict(consistent=True, reason="vlm_service_not_configured")
 
-    def segment(self, frame: np.ndarray, point_prompt: Tuple[float, float]) -> np.ndarray:
+    def segment(self, frame: np.ndarray, box_prompt: Tuple[float, float, float, float]) -> np.ndarray:
         raise RuntimeError("sam3_service_not_configured")
 
 
@@ -64,9 +64,24 @@ def get_instruction_consistency_client(
     return OpenAIVLMClient(base_url=vlm_service_url, model=vlm_model_name or "qwen2.5-vl-7b-instruct", api_key=api_key)
 
 
-def get_video_state_consistency_client(sam3_checkpoint_path: Optional[str]) -> VideoStateConsistencyClient:
-    if not sam3_checkpoint_path:
+def get_video_state_consistency_client(
+    sam3_model_id: Optional[str],
+    sam3_text_prompt: str,
+    sam3_hf_token_env: Optional[str],
+) -> VideoStateConsistencyClient:
+    if not sam3_model_id:
         return NullClient()
+    if not sam3_hf_token_env:
+        raise RuntimeError(
+            f"sam3_model_id={sam3_model_id!r} is configured but sam3_hf_token_env is unset -- "
+            "refusing to silently fall back to NullClient for a gated model the config says should be real."
+        )
+    hf_token = os.environ.get(sam3_hf_token_env)
+    if not hf_token:
+        raise RuntimeError(
+            f"sam3_hf_token_env={sam3_hf_token_env!r} names an environment variable that is not set -- "
+            "refusing to silently fall back to NullClient for a gated model the config says should be real."
+        )
     from common.sam3_client import LocalSam3Client  # local import: keeps the sam3 SDK dependency isolated to when SAM3 is actually configured; no circular-import risk here (unlike OpenAIVLMClient's case above), since sam3_client.py has no dependency back on this module
 
-    return LocalSam3Client(checkpoint_path=sam3_checkpoint_path)
+    return LocalSam3Client(model_id=sam3_model_id, text_prompt=sam3_text_prompt, hf_token=hf_token)
