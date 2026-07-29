@@ -1,13 +1,10 @@
-"""Tests for run_pipeline.py: run_dataset orchestration, main(), and
-generate_dataset_readme. See
+"""Tests for run_pipeline.py: run_dataset orchestration and main(). See
 docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
 section 10.
 """
 import pytest
 
 lerobot = pytest.importorskip("lerobot")
-
-from pathlib import Path
 
 
 def test_run_dataset_end_to_end_with_synthetic_data(tmp_path):
@@ -52,7 +49,7 @@ def test_run_dataset_end_to_end_with_synthetic_data(tmp_path):
     )
 
     output_path = tmp_path / "output"
-    stats = run_dataset("e2e_test", staging_path, output_path, config_path)
+    stats = run_dataset(staging_path, output_path, config_path)
 
     assert stats["input_episodes"] == 3
     assert stats["output_episodes"] == 3
@@ -61,18 +58,18 @@ def test_run_dataset_end_to_end_with_synthetic_data(tmp_path):
     assert output_path.exists()
 
 
-def test_run_dataset_writes_real_fps_from_dataset_config_not_hardcoded_one(tmp_path):
+def test_run_dataset_writes_configured_fps_not_hardcoded_default(tmp_path):
     """write_lerobot_episodes derives every frame's timestamp from
     frame_index / fps, so a hardcoded fps=1.0 (the pre-fix behavior)
     corrupts the written dataset's temporal metadata. run_dataset must
-    thread dataset_config.fps through instead.
+    thread config.fps through instead.
     """
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     from tests.fixtures import make_synthetic_dataset
     from run_pipeline import run_dataset
     from common.io import save_process_config
-    from common.schema import DatasetConfig, ProcessConfig
+    from common.schema import ProcessConfig
 
     staging_path = tmp_path / "staging"
     make_synthetic_dataset(staging_path, repo_id="test/fps", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
@@ -81,6 +78,7 @@ def test_run_dataset_writes_real_fps_from_dataset_config_not_hardcoded_one(tmp_p
     save_process_config(
         ProcessConfig(
             id="fps_test",
+            fps=25.0,
             episode_reject_threshold=0.9,
             residual_threshold=5.0,
             accel_threshold=5.0,
@@ -93,10 +91,8 @@ def test_run_dataset_writes_real_fps_from_dataset_config_not_hardcoded_one(tmp_p
         config_path,
     )
 
-    dataset_config = DatasetConfig(id="fps_test", name="FPS Test", fps=25.0)
-
     output_path = tmp_path / "output"
-    stats = run_dataset("fps_test", staging_path, output_path, config_path, dataset_config=dataset_config)
+    stats = run_dataset(staging_path, output_path, config_path)
 
     assert stats["fps"] == 25.0
     reloaded = LeRobotDataset(repo_id=output_path.name, root=output_path)
@@ -106,39 +102,35 @@ def test_run_dataset_writes_real_fps_from_dataset_config_not_hardcoded_one(tmp_p
     assert reloaded[1]["timestamp"].item() == pytest.approx(1 / 25.0)
 
 
-def test_run_dataset_falls_back_to_default_fps_when_dataset_config_fps_unset(tmp_path):
-    """`DatasetConfig.fps` is Optional -- some registry entries may not have
-    it populated. run_dataset must fall back to a sensible default rather
-    than crashing (None/0 would break frame_index / fps in lerobot)."""
+def test_run_dataset_falls_back_to_default_fps_when_unset(tmp_path):
+    """`ProcessConfig.fps` is Optional -- a config author may not set it.
+    run_dataset must fall back to a sensible default rather than crashing
+    (None/0 would break frame_index / fps in lerobot)."""
     from tests.fixtures import make_synthetic_dataset
     from run_pipeline import run_dataset
     from common.io import save_process_config
-    from common.schema import DatasetConfig, ProcessConfig
+    from common.schema import ProcessConfig
 
     staging_path = tmp_path / "staging"
     make_synthetic_dataset(staging_path, repo_id="test/nofps", num_episodes=1, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
 
     config_path = tmp_path / "config.yaml"
-    save_process_config(
-        ProcessConfig(
-            id="nofps_test",
-            episode_reject_threshold=0.9,
-            residual_threshold=5.0,
-            accel_threshold=5.0,
-            jerk_threshold=5.0,
-            da_threshold=0.0,
-            max_lag_frames=10,
-            quantile_low=0.0,
-            quantile_high=1.0,
-        ),
-        config_path,
+    config = ProcessConfig(
+        id="nofps_test",
+        episode_reject_threshold=0.9,
+        residual_threshold=5.0,
+        accel_threshold=5.0,
+        jerk_threshold=5.0,
+        da_threshold=0.0,
+        max_lag_frames=10,
+        quantile_low=0.0,
+        quantile_high=1.0,
     )
-
-    dataset_config = DatasetConfig(id="nofps_test", name="No FPS Test")
-    assert dataset_config.fps is None
+    assert config.fps is None
+    save_process_config(config, config_path)
 
     output_path = tmp_path / "output"
-    stats = run_dataset("nofps_test", staging_path, output_path, config_path, dataset_config=dataset_config)  # must not raise
+    stats = run_dataset(staging_path, output_path, config_path)  # must not raise
 
     assert stats["fps"] == 1.0
 
@@ -182,7 +174,7 @@ def test_run_dataset_filters_episodes_with_all_frames_dropped(tmp_path):
     )
 
     output_path = tmp_path / "output"
-    stats = run_dataset("allbad_test", staging_path, output_path, config_path)
+    stats = run_dataset(staging_path, output_path, config_path)
 
     assert stats["output_episodes"] == 0
     assert not output_path.exists()
@@ -232,7 +224,7 @@ def test_run_dataset_replaces_state_with_canonical_128dim_for_robot_embodiment(t
     )
 
     output_path = tmp_path / "output"
-    stats = run_dataset("canon_test", staging_path, output_path, config_path)
+    stats = run_dataset(staging_path, output_path, config_path)
 
     assert stats["output_episodes"] == 2
 
@@ -284,7 +276,7 @@ def test_run_dataset_leaves_state_unchanged_for_non_robot_embodiment(tmp_path):
     )
 
     output_path = tmp_path / "output"
-    stats = run_dataset("nonrobot_test", staging_path, output_path, config_path)
+    stats = run_dataset(staging_path, output_path, config_path)
 
     assert stats["output_episodes"] == 2
 
@@ -294,160 +286,91 @@ def test_run_dataset_leaves_state_unchanged_for_non_robot_embodiment(tmp_path):
     assert "observation.state_canonical_mask" not in row0
 
 
-def test_generate_dataset_readme_includes_key_sections():
-    from types import SimpleNamespace
-
-    from run_pipeline import generate_dataset_readme
-    from common.schema import ProcessConfig
-
-    dataset_config = SimpleNamespace(
-        name="DROID",
-        source_url="https://droid-dataset.github.io/",
-        license="CC-BY-4.0",
-        robot_platform="franka_panda",
-        state_dim=15,
-        action_dim=7,
-    )
-    config = ProcessConfig(id="droid", embodiment_class="single_arm", num_arms=1, gripper_type="parallel_jaw")
-    stats = {
-        "input_episodes": 10,
-        "output_episodes": 8,
-        "output_frames": 4000,
-        "log": [("stage1_sudden_change", 0, None, False)],
-    }
-
-    readme = generate_dataset_readme(dataset_config, config, stats)
-    assert "DROID" in readme
-    assert "清洗前 episode 数: 10" in readme
-    assert "清洗后 episode 数: 8" in readme
-    assert "已知局限" in readme
-
-
-class _TempDatasetConfigs:
-    """main() resolves `process_scripts/configs/<id>.yaml` and
-    `process_scripts/registry_configs/<id>.yaml` relative to run_pipeline.py's
-    own location, never relative to `--data-root` -- the onboarding configs
-    always live in the repo, even when `--data-root` points somewhere else
-    entirely for the heavy staging/final data. So exercising main()
-    end-to-end means writing (then cleaning up) real files under the repo's
-    config directories, scoped to a uuid'd dataset id so nothing collides
-    with or corrupts real onboarded datasets.
-    """
-
-    def __init__(self, dataset_id):
-        import run_pipeline
-
-        self.dataset_id = dataset_id
-        self.process_config_path = Path(run_pipeline.__file__).resolve().parent / "configs" / f"{self.dataset_id}.yaml"
-        self.dataset_config_path = (
-            Path(run_pipeline.__file__).resolve().parent / "registry_configs" / f"{self.dataset_id}.yaml"
-        )
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc_info):
-        self.process_config_path.unlink(missing_ok=True)
-        self.dataset_config_path.unlink(missing_ok=True)
-
-
 def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_path):
     """Reproduces the original crash: main() used to unconditionally write
     `output_path / "README.md"` even though run_dataset() never created
     output_path when every episode is rejected/emptied (write_lerobot_episodes
     early-returns on an empty list) -- raising FileNotFoundError.
     """
-    import uuid
-
     from tests.fixtures import make_synthetic_dataset
-    from common.io import save_process_config, save_dataset_config
-    from common.schema import DatasetConfig, ProcessConfig
+    from common.io import save_process_config
+    from common.schema import ProcessConfig
     import run_pipeline
 
-    dataset_id = f"zero_survivors_{uuid.uuid4().hex[:8]}"
-    data_root = tmp_path / "data_root"
-    staging_path = data_root / "public_datasets_staging" / "lerobot_v3_0" / dataset_id
-    make_synthetic_dataset(staging_path, repo_id=f"test/{dataset_id}", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
+    staging_path = tmp_path / "staging"
+    make_synthetic_dataset(staging_path, repo_id="test/zero_survivors", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
 
-    with _TempDatasetConfigs(dataset_id) as cfg:
-        # Same trick as test_run_dataset_filters_episodes_with_all_frames_dropped:
-        # quantile_low == quantile_high collapses stage3's bounds to a single
-        # point, dropping essentially every frame of every episode.
-        save_process_config(
-            ProcessConfig(
-                id=dataset_id,
-                episode_reject_threshold=0.9,
-                residual_threshold=5.0,
-                accel_threshold=5.0,
-                jerk_threshold=5.0,
-                da_threshold=0.0,
-                max_lag_frames=10,
-                quantile_low=0.5,
-                quantile_high=0.5,
-            ),
-            cfg.process_config_path,
-        )
-        save_dataset_config(
-            DatasetConfig(id=dataset_id, name="Zero Survivors Test", fps=10.0),
-            cfg.dataset_config_path,
-        )
+    config_path = tmp_path / "config.yaml"
+    # Same trick as test_run_dataset_filters_episodes_with_all_frames_dropped:
+    # quantile_low == quantile_high collapses stage3's bounds to a single
+    # point, dropping essentially every frame of every episode.
+    save_process_config(
+        ProcessConfig(
+            id="zero_survivors",
+            episode_reject_threshold=0.9,
+            residual_threshold=5.0,
+            accel_threshold=5.0,
+            jerk_threshold=5.0,
+            da_threshold=0.0,
+            max_lag_frames=10,
+            quantile_low=0.5,
+            quantile_high=0.5,
+        ),
+        config_path,
+    )
 
-        output_path = data_root / "public_datasets" / "lerobot_v3_0" / dataset_id
-        exit_code = run_pipeline.main(["--dataset-id", dataset_id, "--data-root", str(data_root)])  # must not raise
-
-        assert exit_code == 1
-        assert not output_path.exists()
-
-
-def test_main_writes_readme_on_success(tmp_path):
-    import uuid
-
-    from tests.fixtures import make_synthetic_dataset
-    from common.io import save_process_config, save_dataset_config
-    from common.schema import DatasetConfig, ProcessConfig
-    import run_pipeline
-
-    dataset_id = f"main_success_{uuid.uuid4().hex[:8]}"
-    data_root = tmp_path / "data_root"
-    staging_path = data_root / "public_datasets_staging" / "lerobot_v3_0" / dataset_id
-    make_synthetic_dataset(staging_path, repo_id=f"test/{dataset_id}", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
-
-    with _TempDatasetConfigs(dataset_id) as cfg:
-        save_process_config(
-            ProcessConfig(
-                id=dataset_id,
-                episode_reject_threshold=0.9,
-                residual_threshold=5.0,
-                accel_threshold=5.0,
-                jerk_threshold=5.0,
-                da_threshold=0.0,
-                max_lag_frames=10,
-                quantile_low=0.0,
-                quantile_high=1.0,
-            ),
-            cfg.process_config_path,
-        )
-        save_dataset_config(
-            DatasetConfig(id=dataset_id, name="Main Success Test", fps=10.0),
-            cfg.dataset_config_path,
-        )
-
-        output_path = data_root / "public_datasets" / "lerobot_v3_0" / dataset_id
-        exit_code = run_pipeline.main(["--dataset-id", dataset_id, "--data-root", str(data_root)])
-
-        assert exit_code == 0
-        assert (output_path / "README.md").exists()
-
-
-def test_main_returns_error_when_dataset_config_missing(tmp_path):
-    import uuid
-
-    import run_pipeline
-
-    dataset_id = f"missing_config_{uuid.uuid4().hex[:8]}"
-    data_root = tmp_path / "data_root"
-
-    exit_code = run_pipeline.main(["--dataset-id", dataset_id, "--data-root", str(data_root)])
+    output_path = tmp_path / "output"
+    exit_code = run_pipeline.main(
+        ["--input", str(staging_path), "--output", str(output_path), "--config", str(config_path)]
+    )  # must not raise
 
     assert exit_code == 1
+    assert not output_path.exists()
 
+
+def test_main_succeeds_and_writes_output(tmp_path):
+    from tests.fixtures import make_synthetic_dataset
+    from common.io import save_process_config
+    from common.schema import ProcessConfig
+    import run_pipeline
+
+    staging_path = tmp_path / "staging"
+    make_synthetic_dataset(staging_path, repo_id="test/main_success", num_episodes=2, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
+
+    config_path = tmp_path / "config.yaml"
+    save_process_config(
+        ProcessConfig(
+            id="main_success",
+            episode_reject_threshold=0.9,
+            residual_threshold=5.0,
+            accel_threshold=5.0,
+            jerk_threshold=5.0,
+            da_threshold=0.0,
+            max_lag_frames=10,
+            quantile_low=0.0,
+            quantile_high=1.0,
+        ),
+        config_path,
+    )
+
+    output_path = tmp_path / "output"
+    exit_code = run_pipeline.main(
+        ["--input", str(staging_path), "--output", str(output_path), "--config", str(config_path)]
+    )
+
+    assert exit_code == 0
+    assert output_path.exists()
+
+
+def test_main_returns_error_when_config_missing(tmp_path):
+    import run_pipeline
+
+    staging_path = tmp_path / "staging"
+    output_path = tmp_path / "output"
+    config_path = tmp_path / "missing_config.yaml"
+
+    exit_code = run_pipeline.main(
+        ["--input", str(staging_path), "--output", str(output_path), "--config", str(config_path)]
+    )
+
+    assert exit_code == 1

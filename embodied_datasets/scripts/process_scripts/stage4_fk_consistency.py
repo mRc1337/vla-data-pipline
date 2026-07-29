@@ -1,9 +1,9 @@
 """Stage4: joint-to-eef forward-kinematics consistency check. Gated by
-fk_check_feasible = urdf_available AND action_space in
-{joint_position, eef_pose} (computed by run_pipeline.py and written into
-config before calling apply()). Systematic median TCP offset is corrected;
-high-variance (non-systematic) offset is left alone and flagged for manual
-review. See design doc section 7 row 4.
+`config.fk_check_feasible` (a plain hand-authored bool -- set it true only
+when `urdf_path` is set and the action space is joint_position/eef_pose).
+Systematic median TCP offset is corrected; high-variance (non-systematic)
+offset is left alone and flagged for manual review. See design doc
+section 7 row 4.
 """
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
-"""Orchestrates Stage1-5 + Check1-3 + unify_representation for one dataset,
-writes the cleaned output, and generates the dataset README. See
+"""Orchestrates Stage1-5 + Check1-3 + unify_representation for one lerobot
+dataset and writes the cleaned/aligned output. See
 docs/superpowers/specs/2026-07-17-process-scripts-cleaning-alignment-design.md
 section 10.
 """
@@ -14,9 +14,7 @@ from typing import List, Optional
 import numpy as np
 
 from episode import Episode  # noqa: E402
-from common.io import load_dataset_config, load_process_config  # noqa: E402
-from common.paths import final_dir, resolve_data_root, staging_dir  # noqa: E402
-from common.schema import ProcessConfig  # noqa: E402
+from common.io import load_process_config  # noqa: E402
 from lerobot_io import load_lerobot_episodes, write_lerobot_episodes  # noqa: E402
 
 import stage1_sudden_change  # noqa: E402
@@ -30,41 +28,11 @@ import check3_video_quality  # noqa: E402
 import unify_representation  # noqa: E402
 
 
-def _apply_gate_fields(config: ProcessConfig, dataset_config) -> None:
-    action_space = getattr(dataset_config.action_space, "value", dataset_config.action_space)
-    config.fk_check_feasible = bool(dataset_config.urdf_available) and action_space in {"joint_position", "eef_pose"}
-    config.urdf_available = bool(dataset_config.urdf_available)
-    config.has_camera_calibration = bool(dataset_config.has_camera_calibration)
-    config.has_language_instruction = bool(dataset_config.has_language_instruction)
-    config.embodiment_class = getattr(dataset_config.embodiment_class, "value", dataset_config.embodiment_class)
-    config.num_arms = dataset_config.num_arms or 1
-    config.dof_per_arm = dataset_config.dof_per_arm
-    config.gripper_type = getattr(dataset_config.gripper_type, "value", dataset_config.gripper_type) or "unknown"
-    config.has_mobile_base = bool(dataset_config.has_mobile_base)
-
-
-def _resolve_fps(dataset_config) -> float:
-    """`dataset_config.fps` (registry's DatasetConfig) is Optional --
-    some registry entries may not have it populated yet. lerobot derives
-    every frame's timestamp from frame_index / fps, so it needs a concrete
-    scalar regardless of `dataset_config.fps_variable` (that flag just notes
-    the *original* recording had non-uniform fps; it doesn't change what we
-    write here, since lerobot has no per-frame-variable-fps concept). Fall
-    back to the pre-existing hardcoded default (1.0) only when fps is
-    genuinely unknown, rather than crashing.
-    """
-    if dataset_config is not None and dataset_config.fps:
-        return float(dataset_config.fps)
-    return 1.0
-
-
-def run_dataset(dataset_id: str, staging_path: Path, output_path: Path, process_config_path: Path, dataset_config=None) -> dict:
+def run_dataset(input_path: Path, output_path: Path, process_config_path: Path) -> dict:
     config = load_process_config(process_config_path)
-    if dataset_config is not None:
-        _apply_gate_fields(config, dataset_config)
-    fps = _resolve_fps(dataset_config)
+    fps = config.fps or 1.0
 
-    episodes = load_lerobot_episodes(staging_path)
+    episodes = load_lerobot_episodes(input_path)
     log: List[tuple] = []
 
     survivors = []
@@ -144,7 +112,7 @@ def run_dataset(dataset_id: str, staging_path: Path, output_path: Path, process_
         final_episodes.append(episode)
 
     if final_episodes:
-        write_lerobot_episodes(final_episodes, output_path, fps=fps, robot_type=dataset_id, canonical_mask=canonical_mask)
+        write_lerobot_episodes(final_episodes, output_path, fps=fps, robot_type=config.id, canonical_mask=canonical_mask)
 
     total_frames = sum(ep.state.shape[0] for ep in final_episodes)
     return {
@@ -156,105 +124,36 @@ def run_dataset(dataset_id: str, staging_path: Path, output_path: Path, process_
     }
 
 
-README_TEMPLATE = """# {name}
-
-## 基本信息
-- 来源: {source_url}
-- License: {license}
-
-## 本体信息
-- embodiment_class: {embodiment_class}
-- robot_platform: {robot_platform}
-- num_arms: {num_arms}
-- gripper_type: {gripper_type}
-
-## 规模
-- 清洗前 episode 数: {input_episodes}
-- 清洗后 episode 数: {output_episodes}
-- 清洗后帧数: {output_frames}
-
-## 表示层
-- state_dim: {state_dim}
-- action_dim: {action_dim}
-- world_frame_convention: {world_frame_convention}
-
-## 处理记录
-{processing_log}
-
-## 已知局限
-- 128 维统一表示层里的灵巧手槎位是 21 维（历史设计依据：曾onboard过的 humanoidbench
-  Shadow Hand 实测 21 DOF；该数据集已从注册表移除，目前注册表内机器人采集灵巧手
-  数据集的实测最大自由度为 16，见 arcap）；未来若出现超过 21 维的机器人
-  灵巧手会被截断。MANO/人手视频数据集（human_hand/human_full_body）完全不经过这一层，
-  不受此限制，完整参数保留在 data_root/public_datasets_staging/lerobot_v3_0/ 原始数据中。移动底盘
-  速度（vx/vy/yaw）当前不写入任何槎位，has_mobile_base=true 的数据集该部分数值会被
-  丢弃。详见仓库根 README.md 的"跨本体统一表示"一节。
-"""
-
-
-def generate_dataset_readme(dataset_config, config: ProcessConfig, stats: dict) -> str:
-    processing_log_lines = [
-        f"- {stage}: episode {episode_index} -> {skip_reason or ('rejected' if rejected else 'ok')}"
-        for stage, episode_index, skip_reason, rejected in stats["log"]
-    ]
-    return README_TEMPLATE.format(
-        name=dataset_config.name,
-        source_url=dataset_config.source_url or "unknown",
-        license=getattr(dataset_config.license, "value", dataset_config.license) or "unknown",
-        embodiment_class=config.embodiment_class or "unknown",
-        robot_platform=getattr(dataset_config.robot_platform, "value", dataset_config.robot_platform) or "unknown",
-        num_arms=config.num_arms,
-        gripper_type=config.gripper_type,
-        input_episodes=stats["input_episodes"],
-        output_episodes=stats["output_episodes"],
-        output_frames=stats["output_frames"],
-        state_dim=dataset_config.state_dim or "unknown",
-        action_dim=dataset_config.action_dim or "unknown",
-        world_frame_convention=config.world_frame_convention,
-        processing_log="\n".join(processing_log_lines) or "- (no episodes processed)",
-    )
-
-
 def main(argv: List[str] = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the process_scripts cleaning pipeline for one dataset.")
-    parser.add_argument("--dataset-id", required=True)
-    parser.add_argument("--data-root", default=None)
+    parser = argparse.ArgumentParser(description="Run the process_scripts cleaning/alignment pipeline on a lerobot dataset.")
+    parser.add_argument("--input", required=True, help="Path to the input lerobot dataset.")
+    parser.add_argument("--output", required=True, help="Path to write the cleaned/aligned lerobot dataset to.")
+    parser.add_argument("--config", required=True, help="Path to the ProcessConfig yaml (cleaning/alignment parameters).")
     args = parser.parse_args(argv)
 
-    data_root = resolve_data_root(args.data_root)
-    dataset_config_path = Path(__file__).resolve().parent / "registry_configs" / f"{args.dataset_id}.yaml"
-    process_config_path = Path(__file__).resolve().parent / "configs" / f"{args.dataset_id}.yaml"
+    input_path = Path(args.input)
+    output_path = Path(args.output)
+    process_config_path = Path(args.config)
 
-    if not dataset_config_path.exists():
-        print(f"error: {args.dataset_id!r} has no registry_configs/{args.dataset_id}.yaml", file=sys.stderr)
+    if not process_config_path.exists():
+        print(f"error: config file not found: {process_config_path}", file=sys.stderr)
         return 1
 
-    dataset_config = load_dataset_config(dataset_config_path)
-    staging_path = staging_dir(data_root, args.dataset_id)
-    output_path = final_dir(data_root, args.dataset_id)
-
-    stats = run_dataset(args.dataset_id, staging_path, output_path, process_config_path, dataset_config=dataset_config)
+    stats = run_dataset(input_path, output_path, process_config_path)
 
     if stats["output_episodes"] == 0:
         # run_dataset() never called write_lerobot_episodes (it early-returns
         # on an empty episode list), so output_path was never created on
-        # disk -- there is nothing to write a README into, and nothing new
-        # was actually persisted. Skip the README write (rather than
-        # mkdir-ing an empty directory just to satisfy it).
+        # disk -- there is nothing new persisted.
         print(
-            f"warning: {args.dataset_id!r} produced 0 output episodes ({stats['input_episodes']} input) -- "
-            f"nothing written to {output_path}, skipping README generation",
+            f"warning: produced 0 output episodes ({stats['input_episodes']} input) -- "
+            f"nothing written to {output_path}",
             file=sys.stderr,
         )
-        print(f"processed {args.dataset_id}: {stats['input_episodes']} -> 0 episodes (FAILED)")
+        print(f"processed: {stats['input_episodes']} -> 0 episodes (FAILED)")
         return 1
 
-    config = load_process_config(process_config_path)
-    _apply_gate_fields(config, dataset_config)
-    readme_content = generate_dataset_readme(dataset_config, config, stats)
-    (output_path / "README.md").write_text(readme_content, encoding="utf-8")
-
-    print(f"processed {args.dataset_id}: {stats['input_episodes']} -> {stats['output_episodes']} episodes")
+    print(f"processed: {stats['input_episodes']} -> {stats['output_episodes']} episodes")
     return 0
 
 

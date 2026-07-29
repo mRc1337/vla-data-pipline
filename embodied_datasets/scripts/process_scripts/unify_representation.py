@@ -28,8 +28,8 @@ Known limitations:
   dim -- with `mask=True` set on those wrong dims and no error raised.
   Correctness here depends entirely on `dof_per_arm` being accurate for
   the arm it describes; getting that right is `run_pipeline.py`'s /
-  the upstream `DatasetConfig`'s responsibility, not something this
-  module verifies or can verify.
+  the config author's responsibility, not something this module verifies
+  or can verify.
 """
 from __future__ import annotations
 

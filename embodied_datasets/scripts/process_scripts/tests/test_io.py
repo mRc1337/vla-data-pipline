@@ -4,13 +4,8 @@ lerobot = pytest.importorskip("lerobot")
 
 from pathlib import Path
 
-from common.io import (
-    load_dataset_config,
-    load_process_config,
-    save_dataset_config,
-    save_process_config,
-)
-from common.schema import DatasetConfig, ProcessConfig
+from common.io import load_process_config, save_process_config
+from common.schema import ProcessConfig
 
 
 def test_save_then_load_round_trip(tmp_path: Path):
@@ -69,16 +64,3 @@ def test_round_trip_preserves_optional_nested_dict_field(tmp_path: Path):
     # Verify inner keys are actually int, not str
     assert all(isinstance(k, int) for k in loaded.extreme_value_bounds["state"].keys())
     assert all(isinstance(k, int) for k in loaded.extreme_value_bounds["action"].keys())
-
-
-def test_dataset_config_round_trip(tmp_path):
-    path = tmp_path / "droid.yaml"
-    config = DatasetConfig(
-        id="droid", name="DROID", source_url="https://a", license="MIT"
-    )
-    save_dataset_config(config, path)
-    loaded = load_dataset_config(path)
-    assert loaded.id == "droid"
-    assert loaded.source_url == "https://a"
-    assert loaded.license.value == "MIT"
-    assert loaded.review_status.value == "pending_human_review"
