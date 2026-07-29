@@ -8,7 +8,6 @@ from common.schema import (
     DatasetConfig,
     HandPoseRepresentation,
     ProcessConfig,
-    ReleaseType,
     SensorModality,
 )
 
@@ -76,7 +75,6 @@ def test_dataset_config_defaults():
     assert config.review_status.value == "pending_human_review"
     assert config.camera_views == []
     assert config.license is None
-    assert config.field_sources == {}
 
 
 def test_dataset_config_rejects_unknown_robot_platform():
@@ -130,19 +128,6 @@ def test_embodiment_class_quadruped():
     assert EmbodimentClass.QUADRUPED.value == "quadruped"
 
 
-def test_collection_method_new_members():
-    from common.schema import CollectionMethod
-
-    assert CollectionMethod.AR_HAPTIC_GUIDED.value == "ar_haptic_guided_synthesis"
-    assert CollectionMethod.SCENE_ASSET_CURATION.value == "scene_asset_curation"
-
-
-def test_raw_format_vrs():
-    from common.schema import RawFormat
-
-    assert RawFormat.VRS.value == "VRS"
-
-
 def test_gripper_type_three_jaw():
     from common.schema import GripperType
 
@@ -154,13 +139,6 @@ def test_action_frame_new_members():
 
     assert ActionFrame.RELATIVE_TRAJECTORY.value == "relative_trajectory"
     assert ActionFrame.MIXED_DELTA_ABSOLUTE.value == "mixed_delta_absolute"
-
-
-def test_release_type_members():
-    assert ReleaseType.FIXED_EPISODE_DATASET.value == "fixed_episode_dataset"
-    assert ReleaseType.GENERATION_FRAMEWORK.value == "generation_framework"
-    assert ReleaseType.SCENE_PLATFORM.value == "scene_platform"
-    assert ReleaseType.RL_BENCHMARK_ENV.value == "rl_benchmark_env"
 
 
 def test_hand_pose_representation_members():
@@ -179,49 +157,26 @@ def test_sensor_modality_members():
 
 def test_dataset_config_new_fields_default():
     config = DatasetConfig(id="droid", name="DROID")
-    assert config.release_type is None
-    assert config.is_multi_embodiment is None
-    assert config.paper_url is None
-    assert config.secondary_collection_methods == []
     assert config.additional_modalities == []
     assert config.has_synchronized_multiview_rig is None
     assert config.dof_per_hand is None
     assert config.hand_pose_representation is None
-    assert config.expected_duration_hours is None
-    assert config.num_subjects is None
-    assert config.num_scenes is None
-    assert config.num_objects is None
 
 
 def test_dataset_config_new_fields_accept_valid_values():
     config = DatasetConfig(
         id="droid",
         name="DROID",
-        release_type="generation_framework",
-        is_multi_embodiment=True,
-        paper_url="https://arxiv.org/abs/1234.5678",
-        secondary_collection_methods=["simulation"],
         additional_modalities=["force_torque", "tactile"],
         has_synchronized_multiview_rig=True,
         dof_per_hand=16,
         hand_pose_representation="mano",
-        expected_duration_hours=41.3,
-        num_subjects=19,
-        num_scenes=100,
-        num_objects=50,
     )
-    assert config.release_type.value == "generation_framework"
-    assert config.secondary_collection_methods[0].value == "simulation"
     assert [m.value for m in config.additional_modalities] == [
         "force_torque",
         "tactile",
     ]
     assert config.hand_pose_representation.value == "mano"
-
-
-def test_dataset_config_rejects_invalid_release_type():
-    with pytest.raises(ValidationError):
-        DatasetConfig(id="droid", name="DROID", release_type="not_a_real_type")
 
 
 def test_dataset_config_rejects_invalid_modality():
@@ -250,19 +205,6 @@ def test_robot_platform_round2_new_members():
     assert RobotPlatform.R1PRO.value == "r1pro"
     assert RobotPlatform.X1_EVE.value == "1x_eve"
     assert RobotPlatform.VIRTUAL_AGENT.value == "virtual_agent"
-
-
-def test_collection_method_round2_new_members():
-    from common.schema import CollectionMethod
-
-    assert CollectionMethod.KINESTHETIC.value == "kinesthetic"
-    assert CollectionMethod.SCRIPTED.value == "scripted"
-    assert CollectionMethod.EGO_EXO_HUMAN.value == "ego_exo_human"
-    assert CollectionMethod.MOCAP_MULTIVIEW_HUMAN.value == "mocap_multiview_human"
-    assert (
-        CollectionMethod.SYNTHETIC_MULTIMODAL_AUGMENTATION.value
-        == "synthetic_multimodal_augmentation"
-    )
 
 
 def test_license_round2_new_members():
@@ -319,7 +261,6 @@ def test_dataset_config_accepts_round2_enum_values():
         id="droid",
         name="DROID",
         robot_platform="abb_yumi",
-        collection_method="ego_exo_human",
         license="custom_research_eula",
         embodiment_class="half_humanoid",
         gripper_type="mixed",
@@ -329,7 +270,6 @@ def test_dataset_config_accepts_round2_enum_values():
         camera_views=["gripper_jaw"],
     )
     assert config.robot_platform.value == "abb_yumi"
-    assert config.collection_method.value == "ego_exo_human"
     assert config.license.value == "custom_research_eula"
     assert config.embodiment_class.value == "half_humanoid"
     assert config.gripper_type.value == "mixed"

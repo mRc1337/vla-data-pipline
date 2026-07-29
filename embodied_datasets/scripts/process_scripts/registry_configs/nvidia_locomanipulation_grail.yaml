@@ -1,14 +1,7 @@
 id: nvidia_locomanipulation_grail
 name: NVIDIA Locomanipulation-GRAIL
 source_url: https://huggingface.co/datasets/nvidia/PhysicalAI-Robotics-Locomanipulation-GRAIL
-paper_url: https://arxiv.org/abs/2606.05160
 license: Apache-2.0
-raw_format: Custom
-release_type: fixed_episode_dataset
-collection_method: human_to_robot_synthesis
-secondary_collection_methods:
-- simulation
-is_multi_embodiment: false
 embodiment_class: humanoid
 robot_platform: unitree_g1
 num_arms: 2
@@ -31,105 +24,5 @@ has_camera_calibration: true
 depth_coverage: none
 additional_modalities: []
 has_language_instruction: false
-num_task_types: 6
 urdf_available: false
-urdf_source: not_found
-expected_num_episodes: 22189
-expected_duration_hours: 61.52
-num_objects: 6857
 review_status: pending_human_review
-field_sources:
-  license: 'HF README License/Terms of Use: ''Use of the released dataset is governed
-    by the Apache License, Version 2.0.'' This applies to the core motion trajectories,
-    4D HOI recon, per-motion metadata, and procedural/Hunyuan3D-generated object assets.
-    Note the repo has per-subtree license heterogeneity: RoboCasa-derived object USD
-    assets (pickup_table, pickup_ground categories) are CC-BY-4.0, ComAsset-derived
-    assets are ODC-BY, and bundled model checkpoints under checkpoint/ retain their
-    own upstream licenses (NVIDIA Open Model License / third-party) -- a single LicenseEnum
-    value cannot capture this heterogeneity, so Apache-2.0 (the dataset''s own top-level
-    declared license) is recorded here.'
-  raw_format: 'HF repo file listing (dataset layout section of README): per-motion
-    data shipped as Python pickle (.pkl) files for recon/robot/objects/meta, plus
-    .mp4 video and .usd assets -- no match among RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord/VRS,
-    closest fit is Custom.'
-  release_type: 'HF README: released as a fixed library of pre-generated motion sequences
-    partitioned by HOI category (data/<hoi_category>/...), not a live generation tool
-    for end users; matches fixed_episode_dataset.'
-  collection_method: 'HF README ''Data Collection Method'' section: ''Hybrid — Automatic''
-    -- synthetic video (Blender + Kling AI) is reconstructed to 4D SMPL-X human-object
-    motion and retargeted to the Unitree G1 skeleton via GMR IK; matches human_to_robot_synthesis.'
-  secondary_collection_methods: 'HF README: retargeted motion drives a SONIC RL tracking
-    policy in Isaac Lab, and the released robot/object trajectories are ''what the
-    simulated G1 + object realize in simulation'' under contact dynamics -- physics-validated
-    in sim, hence simulation as a secondary collection method.'
-  is_multi_embodiment: 'HF README + dataset tags: single robot platform, Unitree G1
-    only (''Single robot platform — G1 only'' listed under Technical Limitations).'
-  embodiment_class: HF dataset tags include 'unitree-g1' and description states 'Unitree
-    G1 humanoid robot'.
-  robot_platform: 'HF README Additional Statistics table: ''Robot platform: Unitree
-    G1 (29 body DOFs + 7x2 hand DOFs)''.'
-  num_arms: Unitree G1 is a bimanual humanoid (2 arms); standard hardware configuration,
-    consistent with HF README's whole-body DOF breakdown.
-  dof_per_arm: Inferred from Unitree G1 public hardware spec (7 DOF per arm) combined
-    with HF README's total of 29 body DOFs (12 leg + 3 waist + 14 arm = 29), not stated
-    as a standalone per-arm number in the dataset card itself.
-  dof_per_hand: 'HF README Additional Statistics table: ''Robot platform: Unitree
-    G1 (29 body DOFs + 7x2 hand DOFs)'' -- 7 DOF per hand.'
-  gripper_type: Robot has actuated hand DOFs (7 per hand, hand_dof_pos field in robot/*.pkl)
-    rather than a simple parallel jaw; matches dexterous_hand.
-  hand_pose_representation: 'HF README dataset layout: robot/<seq>.pkl stores ''29
-    body DOFs + hand_dof_pos'' -- hand encoded as joint DOF positions, matching joint_angles
-    (distinct from the human-side SMPL-X hand pose used only during reconstruction).'
-  has_mobile_base: Unitree G1 is a legged (bipedal) humanoid with no separate wheeled/tracked
-    mobile base; locomotion is via the humanoid legs themselves.
-  action_space: 'HF README Explainability table: Output is ''G1 robot trajectory (T,
-    29) + hand DOFs'' -- a per-timestep joint-position kinematic trajectory.'
-  action_frame: 'HF README: robot/objects trajectories are given in absolute world-frame
-    coordinates (object 6-DoF is ''xyz + quat'' in world frame; recon is ''world frame''),
-    not delta/relative encodings.'
-  rotation_representation: 'HF README Explainability table: object 6-DoF pose format
-    explicitly given as ''(T, 7) (xyz + quat)'' -- quaternion orientation encoding.'
-  action_dim: 'HF README dataset layout: ''robot/<...>.pkl # post-RL G1 robot trajectory
-    (29 body DOFs + hand_dof_pos)'' -- 29 is the explicitly documented body-DOF dimension
-    (hand DOFs are a separate array, not merged into this figure).'
-  fps: 'HF README Additional Statistics table: ''Released trajectory rate: 25 Hz''
-    (source synthetic video and SMPL-X reconstruction are at 24 fps, but the released
-    robot/object trajectories are resampled to 25 Hz).'
-  fps_variable: HF README states a single fixed released trajectory rate of 25 Hz
-    across all categories.
-  num_camera_views: 'HF README dataset layout: each motion ships exactly one source
-    synthetic video (video/<...>.mp4) rendered from a single camera.'
-  camera_views: Single external synthetic Blender-rendered camera view of the character-object
-    scene, best matching third_person (not an onboard robot camera).
-  has_synchronized_multiview_rig: Only one video per motion is generated/shipped;
-    no multi-camera rig is described.
-  has_camera_calibration: 'HF paper abstract (arXiv:2606.05160): pipeline starts from
-    ''fully specified 3D configurations in which ... camera parameters, metric scale,
-    environment depth ... are known before video generation and reused during reconstruction''
-    -- camera parameters are known/calibrated by construction.'
-  depth_coverage: Environment depth and a MoGe depth prior are used internally during
-    4D reconstruction, but no depth-map modality is listed among the released per-motion
-    files (video mp4, recon pkl, robot pkl, objects pkl, meta pkl, object_usd) --
-    so no depth data is shipped in the release.
-  has_language_instruction: HF README dataset layout lists only video/recon/robot/objects/meta/object_usd
-    per motion; no natural-language instruction field is described (HOI category names
-    like pickup_table are folder-level task labels, not per-episode instructions).
-  num_task_types: 'HF README ''Dataset Statistics per HOI Category'' table lists 6
-    category rows: pickup_table, pickup_ground, sitting, slope, curb, stair (stair_p1+stair_p2
-    merged).'
-  urdf_available: No robot URDF file is listed in the HF repo's dataset layout or
-    file listing (only per-motion .pkl/.mp4/.usd files and model checkpoints); object_usd
-    assets are scene objects, not the robot model.
-  urdf_source: No URDF found in the dataset repository file listing.
-  expected_num_episodes: 'Computed by summing the ''# motions'' column of the HF README
-    Dataset Statistics table: 2991+1613+1748+1880+1769+12188 = 22189; consistent with
-    the arXiv abstract''s ''GRAIL produces over 20,000 sequences''.'
-  expected_duration_hours: Computed from the HF README Dataset Statistics table 'Total
-    frames' column (747750+611625+218500+470000+442250+3047000 = 5,537,125 frames)
-    divided by the documented released trajectory rate of 25 Hz -> 5,537,125 / 25
-    / 3600 ≈ 61.52 hours.
-  num_objects: 'Computed by summing the ''# objects'' column of the HF README Dataset
-    Statistics table: 685+631+189+200+200+4952 = 6857 (note: for slope/curb/stair
-    categories this column counts distinct procedural terrain assets rather than manipulable
-    objects).'
-suggested_new_enum_values: {}

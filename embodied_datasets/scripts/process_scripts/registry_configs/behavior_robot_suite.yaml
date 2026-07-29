@@ -1,13 +1,7 @@
 id: behavior_robot_suite
 name: BEHAVIOR Robot Suite
 source_url: https://behavior-robot-suite.github.io/
-paper_url: https://arxiv.org/abs/2503.05652
 license: MIT
-raw_format: HDF5
-release_type: fixed_episode_dataset
-collection_method: teleop
-secondary_collection_methods: []
-is_multi_embodiment: false
 embodiment_class: mobile_manipulator
 robot_platform: galaxea_r1
 num_arms: 2
@@ -32,92 +26,5 @@ has_camera_calibration: true
 depth_coverage: full
 additional_modalities: []
 has_language_instruction: false
-num_task_types: 5
 urdf_available: true
-urdf_source: dataset_repo
-expected_size_gb: 232.68
-expected_num_episodes: 561
-expected_duration_hours: 20.82
 review_status: pending_human_review
-field_sources:
-  paper_url: 'arXiv 2503.05652 (BEHAVIOR Robot Suite: Streamlining Real-World Whole-Body
-    Manipulation for Everyday Household Activities, CoRL 2025) - confirmed via arxiv.org/abs/2503.05652
-    page title'
-  license: HuggingFace dataset card behavior-robot-suite/data API cardData.license=mit;
-    also brs-ctrl and brs-algo GitHub repos both MIT-licensed
-  raw_format: HuggingFace datasets API siblings list shows all files as .h5 (HDF5)
-    under per-task folders, e.g. clean_house_after_a_wild_party/collected_data-*.h5
-  release_type: Fixed set of 561 recorded human teleop trajectories released as static
-    HDF5 files on HF, not a generation framework or sim platform
-  collection_method: 'Paper Sec 3.1 / project page: JoyLo whole-body teleoperation
-    interface used to collect all released demonstrations (bilateral kinematic-twin
-    teleop)'
-  is_multi_embodiment: All data collected on a single Galaxea R1 robot platform throughout
-    the paper; no other embodiments used
-  embodiment_class: 'Paper Fig.3 / Appendix A.2: ''the R1 robot features two 6-DoF
-    arms mounted on a 4-DoF torso'' on an omnidirectional wheeled base -- bimanual
-    arms + wheeled mobile base = mobile_manipulator, not humanoid/legged'
-  num_arms: 'Paper Appendix A.2.1: ''The Galaxea R1 robot has two 6-DoF arms, each
-    equipped with a parallel jaw gripper'''
-  dof_per_arm: 'Paper Appendix A.2.1 and Fig. A.1: ''Each arm has six DoFs and a parallel
-    jaw gripper'''
-  gripper_type: 'Paper Appendix A.2.1: parallel jaw gripper, stroke range 0-100mm,
-    rated force 100N'
-  hand_pose_representation: Parallel jaw grippers only (single stroke value per gripper),
-    no dexterous multi-finger hand present
-  has_mobile_base: 'Paper abstract: ''bimanual, wheeled robot''; Appendix A.2.3 describes
-    omnidirectional wheeled base with 3-DoF velocity control'
-  action_space: 'Paper Appendix A.3 pseudocode: ''the torso and arms commands are
-    target joint positions'' (joint_position) while mobile base is commanded via velocity
-    controller with 3-DoF inputs -- heterogeneous action space across sub-systems
-    = mixed'
-  action_frame: 'Paper Appendix A.3: arm/torso commands are explicitly ''target joint
-    positions'' (absolute values), not deltas'
-  rotation_representation: Actions are joint-space (target joint positions), not cartesian
-    end-effector poses, so no rotation representation is used
-  state_dim: 'Paper Sec 4.2 (WB-VIMA): ''observations include the mobile base velocity
-    v_mobile_base in R^3, torso joint positions q_torso in R^4, arms joint positions
-    q_arms in R^12, and gripper widths q_grippers in R^2'' -> 3+4+12+2=21'
-  action_dim: Paper explicitly states baselines 'directly predict flattened 21-DoF
-    actions' and WB-VIMA 'predicts a flattened 21-DoF whole-body action trajectory'
-    (2 arms x6=12 + 2 grippers + 4 torso + 3 base = 21)
-  fps: 'Paper Sec 3 / docs Data Collection page: ''Data is collected at 10 Hz with
-    the robot controller running at 100 Hz''; brs-ctrl docs start_data_collection.py
-    --record_freq default is 10Hz'
-  fps_variable: Fixed 10Hz recording frequency stated in paper and docs, no mention
-    of variable rate
-  num_camera_views: 'Paper Appendix A.2.4 / docs Robot Setup page: 2x ZED Mini wrist
-    cameras + 1 head-mounted ZED camera (camera_sn_1=head, camera_sn_2=left wrist,
-    camera_sn_3=right wrist) = 3 RGB-D views'
-  camera_views: 'brs-ctrl docs Robot Setup / ROS launch args: camera_sn_1 = head camera,
-    camera_sn_2 = left wrist camera, camera_sn_3 = right wrist camera'
-  has_synchronized_multiview_rig: 'Paper Appendix A.2.4: the 3 RGB-D streams are fused
-    into a single egocentric point cloud via a ROS-based pcd fusion publisher, implying
-    temporal synchronization across cameras'
-  has_camera_calibration: 'Paper Appendix A.2.4: camera poses relative to the robot
-    base are updated at 500Hz via forward kinematics and used to fuse multi-camera
-    point clouds, implying known extrinsic calibration'
-  depth_coverage: 'Paper Appendix A.2.4: ''All RGB-D cameras operate at 60Hz, streaming
-    rectified RGB and depth images'' -- all 3 views provide depth'
-  has_language_instruction: No mention of per-episode natural-language instruction
-    annotation in paper, docs, or HDF5 post-processing scripts (post_process.py /
-    merge_data_files.py); WB-VIMA training is per-task (task=<TASK_NAME> arg), not
-    language-conditioned
-  num_task_types: 'Paper: 5 household activities -- clean house after a wild party,
-    clean the toilet, take trash outside, put items onto shelves, lay clothes out'
-  urdf_available: brs-ctrl GitHub repo contains assets/robot/r1_pro/r1_pro.urdf plus
-    meshes/ directory
-  urdf_source: URDF (r1_pro.urdf) is bundled directly inside the behavior-robot-suite/brs-ctrl
-    code repository associated with this dataset
-  expected_size_gb: HuggingFace datasets API (huggingface.co/api/datasets/behavior-robot-suite/data)
-    usedStorage=249841105448 bytes = ~232.68 GB
-  expected_num_episodes: 'Paper Appendix D.1: 138 + 103 + 122 + 100 + 98 = 561 demonstrations
-    collected across the 5 tasks (also matches project page trajectory counts)'
-  expected_duration_hours: 'Computed from paper Appendix D.1 per-task counts x average
-    human completion times: 138x210s + 103x120s + 122x130s + 100x60s + 98x120s = 74960s
-    = 20.82 hours'
-suggested_new_enum_values:
-  robot_platform: galaxea_r1 -- the dataset's robot is the Galaxea R1 (bimanual wheeled
-    mobile manipulator with 4-DoF torso), which is a different product from the existing
-    GALAXEA_R1_LITE enum value; no exact enum match exists so robot_platform was left
-    blank

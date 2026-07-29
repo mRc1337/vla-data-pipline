@@ -1,13 +1,7 @@
 id: alfred
 name: ALFRED
 source_url: https://askforalfred.com
-paper_url: https://arxiv.org/abs/1912.01734
 license: MIT
-raw_format: Custom
-release_type: fixed_episode_dataset
-collection_method: simulation
-secondary_collection_methods: []
-is_multi_embodiment: false
 embodiment_class: mobile_manipulator
 robot_platform: virtual_agent
 gripper_type: none
@@ -23,97 +17,5 @@ has_synchronized_multiview_rig: false
 depth_coverage: none
 additional_modalities: []
 has_language_instruction: true
-num_task_types: 7
 urdf_available: false
-urdf_source: not_found
-expected_size_gb: 109.0
-expected_num_episodes: 8055
-expected_duration_hours: 23.8
-num_scenes: 120
-num_objects: 84
 review_status: pending_human_review
-field_sources:
-  license: GitHub LICENSE file (MIT), https://github.com/askforalfred/alfred/blob/master/LICENSE
-  paper_url: 'arXiv:1912.01734, ALFRED: A Benchmark for Interpreting Grounded Instructions
-    for Everyday Tasks (CVPR 2020)'
-  raw_format: Dataset shipped as trajectory JSON + PNG/JPEG images + video.mp4 + PDDL
-    problem files + ResNet feature tensors (feat_conv.pt); no single standard format
-    applies. https://github.com/askforalfred/alfred/blob/master/data/README.md
-  release_type: Fixed benchmark of 8,055 pre-generated expert demonstrations with
-    official train/val-seen/val-unseen/test splits used for the ALFRED leaderboard.
-    https://askforalfred.com
-  collection_method: Expert demonstrations produced by a PDDL symbolic planner executed
-    inside the AI2-THOR simulator (not human teleoperation). arXiv:1912.01734 Sec
-    3 ('Planner-based expert demonstrations')
-  is_multi_embodiment: All demonstrations use the single default AI2-THOR embodied
-    agent. arXiv:1912.01734
-  embodiment_class: AI2-THOR agent has a mobile base (navigation) and interacts with/picks
-    up/places objects; closest existing enum fit is mobile_manipulator, though ALFRED
-    has no explicit simulated arm -- interaction is an abstract inventory operation
-    guided by a predicted pixel mask, not arm kinematics. See suggested_new_enum_values.
-    arXiv:1912.01734 Sec 3
-  gripper_type: No physical gripper is simulated; Pickup/Put are abstract inventory
-    operations targeted by a predicted interaction mask, closest existing fit is 'none'.
-    arXiv:1912.01734 Sec 3
-  hand_pose_representation: No hand/finger pose is modeled or published for this benchmark.
-    arXiv:1912.01734
-  has_mobile_base: Agent navigates the scene via 5 navigation actions (MoveAhead,
-    RotateRight, RotateLeft, LookUp, LookDown). arXiv:1912.01734 Sec 3
-  rotation_representation: Agent orientation changes are fixed discrete increments
-    (RotateLeft/Right, LookUp/Down); there is no continuous wrist/eef rotation representation
-    since no end-effector is modeled. arXiv:1912.01734 Sec 3
-  num_camera_views: Single egocentric RGB camera at the agent's viewpoint ('egocentric
-    vision'). arXiv:1912.01734 Abstract, Sec 3
-  camera_views: Egocentric first-person camera mounted at the agent's own viewpoint;
-    closest enum fit is 'head'. arXiv:1912.01734 Abstract
-  has_synchronized_multiview_rig: Only one camera view is used throughout. arXiv:1912.01734
-    Sec 3
-  depth_coverage: '''Currently, the dataset only provides 300x300 RGB images'' --
-    depth/instance-segmentation frames are only obtainable if a user separately re-runs
-    the augment_trajectories.py augmentation script; not part of the released dataset
-    itself. https://github.com/askforalfred/alfred/blob/master/gen/README.md'
-  has_language_instruction: '''ALFRED includes 25,743 English language directives
-    describing 8,055 expert demonstrations'' (high-level goal + step-by-step instructions).
-    arXiv:1912.01734 Abstract'
-  num_task_types: '''We introduce 7 different task types parameterized by 84 object
-    classes in 120 scenes.'' arXiv:1912.01734 Sec 3'
-  urdf_available: No physical robot; AI2-THOR virtual agent has no published URDF.
-  urdf_source: Not applicable -- no URDF exists for the AI2-THOR virtual agent used
-    in ALFRED.
-  expected_size_gb: 'GitHub data/README.md: ''Full Dataset (~109GB): Trajectory JSONs,
-    Raw Images, PDDL States, Videos, Full Resnet Features'' (smaller ''Modeling Quickstart''
-    ~17GB and ''Lite'' 35MB download options also exist). https://github.com/askforalfred/alfred/blob/master/data/README.md'
-  expected_num_episodes: '''25,743 English language directives describing 8,055 expert
-    demonstrations averaging 50 steps each, resulting in 428,322 image-action pairs.''
-    arXiv:1912.01734 Abstract'
-  num_scenes: '''120 indoor scenes in AI2-THOR 2.0'' (arXiv:1912.01734 Sec 3); confirmed
-    by gen/constants.py: 24 kitchens + 24 living rooms + 24 bedrooms + 24 bathrooms
-    (train) + 6 each (test) = 120. https://github.com/askforalfred/alfred/blob/master/gen/constants.py'
-  num_objects: '''ALFRED contains expert demonstrations of these seven tasks executed
-    using combinations of 58 unique object classes and 26 receptacle object classes''
-    (58+26=84, matching the abstract''s ''84 object classes''). arXiv:1912.01734 Sec
-    3'
-  fps: gen/constants.py defines VIDEO_FRAME_RATE = 5, the frame rate VideoSaver (gen/utils/video_util.py)
-    uses to encode each trajectory's video.mp4 (ffmpeg -r 5), which is the only documented
-    frame rate for the released video/image sequence. https://github.com/askforalfred/alfred/blob/master/gen/constants.py
-  expected_duration_hours: 'Derived: arXiv:1912.01734 Abstract states the dataset
-    totals 428,322 image-action pairs (frames); dividing by the documented VIDEO_FRAME_RATE=5
-    fps (gen/constants.py) gives 428322 / 5 / 3600 = 23.796 -> ~23.8 hours of released
-    video/replay time. https://github.com/askforalfred/alfred/blob/master/gen/constants.py'
-suggested_new_enum_values:
-  action_space: 'ALFRED''s action space is 13 discrete symbolic actions (5 navigation:
-    MoveAhead, RotateRight, RotateLeft, LookUp, LookDown; 7 interaction: Pickup, Put,
-    Open, Close, ToggleOn, ToggleOff, Slice -- interaction actions targeted via a
-    predicted pixel mask, plus a Stop action), not a continuous joint/eef control
-    space. None of joint_position/joint_velocity/joint_torque/eef_pose/mixed fit;
-    recommend adding a ''discrete_symbolic'' ActionSpace value for AI2-THOR-style
-    simulation benchmarks (ALFRED, RoboTHOR, ProcTHOR, etc).arXiv:1912.01734 Sec 3'
-  robot_platform: No RobotPlatform enum value represents a purely virtual/simulated
-    agent with no physical hardware counterpart (e.g. the default AI2-THOR agent used
-    in ALFRED). Recommend adding a value such as 'ai2thor_virtual_agent' or a generic
-    'simulated_virtual_agent'.
-  embodiment_class: mobile_manipulator is the closest existing fit, but ALFRED's AI2-THOR
-    agent has no explicit simulated arm/gripper kinematics -- interaction is an abstract
-    inventory operation guided by a 2D pixel mask, not arm motion. A dedicated 'virtual_embodied_agent'
-    (or similar) EmbodimentClass value would better distinguish AI2-THOR/ALFRED-style
-    benchmarks from real mobile-manipulator robots.

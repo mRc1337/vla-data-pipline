@@ -2,12 +2,6 @@ id: agibot_world
 name: AgiBot-World
 source_url: https://huggingface.co/datasets/agibot-world/AgiBotWorld2026
 license: CC-BY-NC-SA-4.0
-raw_format: LeRobot
-release_type: fixed_episode_dataset
-collection_method: teleop
-secondary_collection_methods:
-- simulation
-is_multi_embodiment: false
 embodiment_class: dual_arm
 robot_platform: agibot_g2
 num_arms: 2
@@ -23,105 +17,4 @@ has_camera_calibration: true
 depth_coverage: partial
 additional_modalities: []
 has_language_instruction: true
-num_task_types: 29
-expected_size_gb: 9362.16
 review_status: pending_human_review
-field_sources:
-  source_url: Re-verified reachable (HTTP 200 via HF datasets API); card id/pretty_name 'AgiBot World
-    2026' matches the stub's recorded name/id -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026
-  paper_url: Searched arXiv (export.arxiv.org query all:"AgiBot World"), the official OpenDriveLab/AgiBot-World
-    GitHub README, and the HF README's own citation block. No paper describing this specific G2-based/29-task/2026
-    release was found -- the HF README's BibTeX only self-cites the dataset page (no journal/arXiv entry).
-    The original project paper, arXiv:2503.06669 ('AgiBot World Colosseo'), describes the earlier AGIBOT
-    G1-based Alpha/Beta release (217 tasks, 1M+ trajectories) and does not describe this dataset, so it
-    was deliberately NOT attached here to avoid misattribution -- left blank -- https://arxiv.org/abs/2503.06669
-    (checked and rejected), https://github.com/OpenDriveLab/AgiBot-World (checked, does not list AgiBotWorld2026)
-  license: 'Re-derived from HF cardData (''license: cc-by-nc-sa-4.0'') and README ''License and Citation''
-    section (''CC BY-NC-SA 4.0''). CORRECTED from the prior pass: the schema''s LicenseEnum now includes
-    CC_BY_NC_SA_4_0 = "CC-BY-NC-SA-4.0" (this enum value did not exist, or was believed not to exist,
-    at the time of the earlier onboarding pass, which left license blank and filed it under suggested_new_enum_values
-    instead) -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md'
-  raw_format: 'Re-confirmed via HF README.md ''Dataset Structure'' section: ''LeRobot version reference:
-    v2.1'' -- data stored as meta/ (jsonl+json), data/ (Apache Parquet per episode), videos/ (MP4 per
-    camera per episode) -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md'
-  release_type: Re-confirmed fixed_episode_dataset -- the repo is a static collection of pre-recorded
-    episode archives (tar.gz per task, real-world + simulation) with no code/tooling in-repo to generate
-    new episodes on demand; not a generation_framework, scene_platform, or rl_benchmark_env -- https://huggingface.co/api/datasets/agibot-world/AgiBotWorld2026/tree/main?recursive=true
-  collection_method: 'Re-confirmed via HF README.md Overview: ''Collected on the AGIBOT G2 robot platform
-    through a free-form collection mode''; Annotation Layers section documents ''take_over'' and ''Intervention
-    Frame'' fields indicating supervised/corrected teleoperation -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md'
-  secondary_collection_methods: Newly filled. The HF tree API (recursive) shows a top-level `simulation/`
-    directory (6 task types x g2_swift_picker/lite + lite_depth_patch variants) sitting alongside the
-    real-world `ImitationLearning/` and `RichInteraction/` directories within the same dataset repo, and
-    the README states simulation data (via digital-twin 1:1 scenario reconstruction) is included alongside
-    the real-world data -- https://huggingface.co/api/datasets/agibot-world/AgiBotWorld2026/tree/main?recursive=true
-  is_multi_embodiment: Newly filled (false). README Overview states data was 'Collected on the AGIBOT
-    G2 robot platform' (singular), and every simulation task subfolder is namespaced under a single embodiment
-    id (`g2_swift_picker`); no second robot platform is referenced anywhere in the card or README -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md
-  embodiment_class: Re-confirmed. HF dataset card tags include 'dual-arm' -- https://huggingface.co/api/datasets/agibot-world/AgiBotWorld2026
-    (cardData.tags)
-  num_arms: Re-confirmed. Same 'dual-arm' tag, plus README schema example keys state/left_effector/position
-    and state/right_effector/position confirming two arms -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md
-  has_mobile_base: 'Newly filled (true), with lower confidence than the directly-cited fields above --
-    inferred from two indirect sources: (1) this dataset''s own README Instruction-Segments example lists
-    ''Bend waist forward'' as a primitive skill, implying a torso/waist joint typical of mobile humanoid-style
-    bases; (2) the official OpenDriveLab/AgiBot-World GitHub README''s Key Features section describes
-    the AGIBOT platform family generically as ''mobile dual-arm robots''. Neither source is a direct,
-    dataset-specific confirmation for the G2 platform, so this is flagged as an inference, not a hard
-    fact -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md (waist skill
-    example), https://github.com/OpenDriveLab/AgiBot-World (Key Features section)'
-  action_space: 'Re-confirmed. README.md ''State and Action Vectors'' example keys: action/joint/position
-    and action/robot/velocity -- i.e. joint-position control for arms plus a separate velocity command
-    channel (likely base/whole-body), which does not map to a single pure action_space value -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md'
-  num_camera_views: 'Re-confirmed. README.md ''Camera Feature Keys'' section lists 9 observation.images.*
-    keys: top_head, hand_left, hand_right, head_depth, head_left_fisheye, head_right_fisheye, head_back_fisheye_color,
-    head_stereo_left_color, head_stereo_right_color -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md'
-  camera_views: 'Re-confirmed. Same camera key list mapped to semantic categories: top_head/head_depth/head_*fisheye*/head_stereo_*
-    -> head; hand_left -> left_wrist; hand_right -> right_wrist -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md'
-  has_synchronized_multiview_rig: Newly filled (true). The 9 camera keys include a calibrated stereo pair
-    (head_stereo_left_color / head_stereo_right_color) plus multiple simultaneous head cameras (top_head,
-    dual fisheye, back fisheye, depth) recorded per-episode in lockstep with the same frame/timestamp
-    indices -- a multi-camera head rig captured in sync by construction of the LeRobot episode format
-    -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md
-  has_camera_calibration: Re-confirmed. README.md notes info.json includes an optional 'camera_parameters'
-    field, and camera key list includes stereo pairs (head_stereo_left_color/head_stereo_right_color)
-    which require calibration -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md
-  depth_coverage: Re-confirmed. Only 1 of the 9 documented camera keys (observation.images.head_depth)
-    is a depth stream; the rest are RGB/fisheye/stereo-color -- partial depth coverage -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md
-  additional_modalities: Checked, left empty. No mention of force/torque, tactile, audio, or eye-gaze
-    sensing anywhere in the AgiBotWorld2026 README's feature/annotation sections (unlike AgiBot World
-    Beta, whose card separately advertises visuo-tactile sensors, this specific dataset's documented feature
-    keys are camera + joint/effector state/action only) -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md
-  has_language_instruction: 'Re-confirmed. README.md Annotation Layers: Task Frame entries carry a natural-language
-    ''frame_detail.comment'' (subtask instruction) and Instruction Segments carry a step-level ''instruction''
-    field -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md'
-  num_task_types: 'Re-confirmed via a fresh recursive tree listing: ImitationLearning/CommercialSpaces
-    (12 task_XXXX dirs) + ImitationLearning/Home (1) + RichInteraction/CommercialSpaces (6) + RichInteraction/Home
-    (4) = 23 real-world tasks, plus simulation/ contains 6 distinct simulated task types (scoop_popcorn_to_bucket,
-    take_bagged_food_to_cart, take_cup_to_cart, take_drink_to_cart, take_laundry_detergent_to_cart, tidy_up_food_in_freezer)
-    = 29 total -- https://huggingface.co/api/datasets/agibot-world/AgiBotWorld2026/tree/main?recursive=true'
-  expected_size_gb: Recomputed by summing the 'size' field of every file entry returned by a fresh HF
-    tree API call (recursive) for the whole repo (real-world tar.gz task archives + simulation lite/lite_depth_patch
-    video archives) -- total 9,362,161,628,659 bytes = 9362.16 GB (corrected from the prior pass's rounded
-    9362.0 to the more precise figure) -- https://huggingface.co/api/datasets/agibot-world/AgiBotWorld2026/tree/main?recursive=true
-  dof_per_hand: Checked, left blank. No hand/gripper DOF figures appear anywhere in the AgiBotWorld2026
-    README (state/action schema only names left_effector/right_effector position, with no per-finger or
-    per-hand dimension breakdown) -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md
-  hand_pose_representation: Checked, left blank. No MANO/keypoint/joint-angle hand-shape encoding is documented
-    for this dataset's action/state schema -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md
-  expected_duration_hours: Re-checked, left blank (unchanged from prior pass). No aggregate duration/hours
-    figure appears on https://huggingface.co/datasets/agibot-world/AgiBotWorld2026 or its README; the
-    README documents that per-episode total_frames/fps live inside each task's tar.gz archive's LeRobot
-    meta/info.json, but a full recursive tree listing of the HF repo (https://huggingface.co/api/datasets/agibot-world/AgiBotWorld2026/tree/main?recursive=true)
-    shows only per-task tar.gz/video archives with no top-level aggregated info.json or frame-count manifest,
-    so total duration cannot be found or derived without downloading the full ~9.3TB dataset.
-  num_subjects: Checked, left blank. No operator/subject count is stated anywhere on the card or README
-    -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026
-  num_scenes: 'Checked, left blank. No explicit scene count is stated for this dataset (only qualitative
-    language: ''massive real-world scenes'' spanning ''commercial spaces, home, and other general-purpose
-    scenarios'') -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md'
-  num_objects: Checked, left blank. No object count is stated anywhere on the card or README -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026
-suggested_new_enum_values:
-  robot_platform: agibot_g2 -- README Overview explicitly states the dataset was 'Collected on the AGIBOT
-    G2 robot platform'. The enum has agibot_g1 (the prior generation, used by the original 2024/2025 AgiBot
-    World Alpha/Beta release) but no entry for the newer G2 platform used by this 2026 release -- https://huggingface.co/datasets/agibot-world/AgiBotWorld2026/raw/main/README.md

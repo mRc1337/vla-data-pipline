@@ -1,13 +1,7 @@
 id: taco
 name: TACO
 source_url: https://taco2024.github.io/
-paper_url: https://arxiv.org/abs/2401.08399
 license: Unknown
-raw_format: Custom
-release_type: fixed_episode_dataset
-collection_method: egocentric_human
-secondary_collection_methods: []
-is_multi_embodiment: false
 embodiment_class: human_hand
 num_arms: 2
 dof_per_hand: 48
@@ -26,89 +20,5 @@ has_camera_calibration: true
 depth_coverage: partial
 additional_modalities: []
 has_language_instruction: false
-num_task_types: 15
 urdf_available: false
-urdf_source: not_found
-expected_num_episodes: 2317
-expected_duration_hours: 48.1
-num_subjects: 14
-num_scenes: 1
-num_objects: 196
 review_status: pending_human_review
-field_sources:
-  paper_url: arXiv:2401.08399 (CVPR 2024), https://arxiv.org/abs/2401.08399
-  license: No explicit dataset license found on project page (taco2024.github.io),
-    paper PDF, or GitHub repo github.com/leolyliu/TACO-Instructions (no LICENSE file
-    present, 404 on master branch). Website footer notes CC-BY-SA 4.0 for the page
-    template only, not the dataset.
-  raw_format: 'GitHub README (leolyliu/TACO-Instructions) data organization: .mp4/.avi
-    videos, .pkl hand pose files, .npy object pose files, .obj meshes -- custom layout,
-    no RLDS/HDF5/LeRobot/rosbag wrapper.'
-  release_type: Fixed, versioned set of captured motion sequences distributed as static
-    downloads (Dropbox/OneDrive/BaiduNetDisk); not a generation framework, scene platform,
-    or RL benchmark env.
-  collection_method: 'Paper Sec.3.1 (p.3): real human hands recorded via 12 synchronized
-    industrial FLIR cameras + NOKOV optical mocap system (6 infrared Mars4H cameras)
-    + 1 helmet-mounted egocentric RealSense L515 camera. No enum exactly matches a
-    studio mocap+multiview capture of bare human hands; ''egocentric_human'' used
-    as closest available human-data bucket -- see suggested_new_enum_values.'
-  is_multi_embodiment: Dataset covers only human hands and manipulated objects, no
-    robot embodiments (paper abstract, Sec.1).
-  embodiment_class: 'Paper abstract/title: ''bimanual hand-object-interaction dataset''
-    -- human hands, not a robot.'
-  num_arms: 'Paper title/abstract/Sec.3: ''bimanual'' -- both hands used throughout.'
-  dof_per_hand: 'Paper Sec.3.2 Eq.1 (p.4): MANO hand pose parameter theta in R^48
-    per hand.'
-  gripper_type: Human-hand dataset; no gripper (consistent with embodiment_class=human_hand).
-  hand_pose_representation: 'Paper Sec.3.2 (p.4): ''We adopt MANO ... to formulate
-    a 3D hand mesh.'''
-  has_mobile_base: Stationary tabletop/mocap-studio capture (Fig.2, Sec.3.1); no mobile
-    base involved.
-  rotation_representation: MANO pose parameters (theta) are axis-angle/Rodrigues joint
-    rotations per the Sec.3.2 formulation and standard MANO model definition.
-  fps: 'Paper Sec.3.1 (p.3): ''The frequency of our cameras and mocap system is 30
-    Hz.'''
-  fps_variable: Single fixed 30 Hz rate stated for all cameras and mocap (Sec.3.1);
-    no variable-rate capture mentioned.
-  num_camera_views: 'Paper Fig.1 caption and conclusion (p.8): ''captured from 12
-    third-person views and one egocentric view'' = 13 total.'
-  camera_views: 12 allocentric/third-person industrial FLIR cameras + 1 helmet-mounted
-    (head-worn) egocentric RealSense L515 (Sec.3.1, p.3).
-  has_synchronized_multiview_rig: 'Sec.3.1 (p.3): ''12 synchronized industrial FLIR
-    cameras.'''
-  has_camera_calibration: 'GitHub README (leolyliu/TACO-Instructions): dataset includes
-    camera-parameter JSON files (imgSize, K intrinsics, R/T extrinsics) for the allocentric
-    views.'
-  depth_coverage: Only the egocentric stream is RGB-D (Realsense L515, Sec.3.1); the
-    12 third-person FLIR cameras are RGB-only; GitHub README lists a separate 'Egocentric_Depth_Videos'
-    folder with no allocentric-depth equivalent -- partial coverage.
-  has_language_instruction: Paper provides categorical action labels (15 verbs, e.g.
-    'stir', 'dust', 'brush') for action recognition, not free-form natural-language
-    instructions (Sec.3.3 p.4; Fig.5).
-  num_task_types: 'Paper Sec.3.3 (p.4): ''...covering 20 object categories, 196 fine-grained
-    object 3D models, 14 participants, and 15 actions.'''
-  urdf_available: No robot/articulated URDF; dataset provides raw scanned object meshes
-    (.obj) and MANO hand parameters only -- no kinematic robot description found in
-    paper or GitHub repo.
-  urdf_source: No URDF found in paper or GitHub repo (leolyliu/TACO-Instructions).
-  expected_num_episodes: 'GitHub README (leolyliu/TACO-Instructions), ''Whole Dataset
-    (Version 1)'': ''contains 2317 motion sequences spanning 151 <tool, action, object>
-    triplets.'' Consistent with the paper''s rounded ''2.5K motion sequences'' (abstract,
-    conclusion p.8).'
-  expected_duration_hours: 'Derived, not directly stated: paper conclusion (p.8) states
-    5.2M total video frames; Sec.3.1 states 30 Hz capture rate. 5,200,000 / 30 / 3600
-    ~= 48.1 hours.'
-  num_subjects: 'Paper Sec.3.3 (p.4): ''14 participants.'''
-  num_scenes: 'Paper Sec.6 Limitations (p.8): ''it lacks scene diversities'' -- all
-    data captured in a single mocap-studio setup (Fig.2); no explicit scene count
-    is reported, inferred as 1 capture environment.'
-  num_objects: 'Paper Sec.3.3 (p.4): ''196 fine-grained object 3D models'' (also ''196
-    object instances'' stated in Sec.1, p.2).'
-suggested_new_enum_values:
-  collection_method: 'Consider adding a value such as ''mocap_multiview_human'' for
-    studio-based bimanual human hand-object capture using synchronized multi-view
-    RGB cameras plus marker-based optical motion capture, where any egocentric camera
-    is only an auxiliary secondary stream (e.g., TACO: 12 third-person FLIR cameras
-    + optical mocap as primary, 1 helmet-mounted RGBD camera as secondary). The existing
-    ''egocentric_human'' value implies egocentric video is the primary capture modality,
-    which does not fit this pattern.'

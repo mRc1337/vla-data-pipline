@@ -33,33 +33,6 @@ class LicenseEnum(str, Enum):
     UNKNOWN = "Unknown"
 
 
-class RawFormat(str, Enum):
-    RLDS = "RLDS"
-    HDF5 = "HDF5"
-    LEROBOT = "LeRobot"
-    ROS_BAG = "ROS_bag"
-    MCAP = "MCAP"
-    TFRECORD = "TFRecord"
-    VRS = "VRS"
-    CUSTOM = "Custom"
-
-
-class CollectionMethod(str, Enum):
-    TELEOP = "teleop"
-    KINESTHETIC = "kinesthetic"
-    AUTONOMOUS_POLICY = "autonomous_policy"
-    SCRIPTED = "scripted"
-    UMI = "umi"
-    EGOCENTRIC_HUMAN = "egocentric_human"
-    EGO_EXO_HUMAN = "ego_exo_human"
-    MOCAP_MULTIVIEW_HUMAN = "mocap_multiview_human"
-    SIMULATION = "simulation"
-    HUMAN_TO_ROBOT_SYNTHESIS = "human_to_robot_synthesis"
-    SYNTHETIC_MULTIMODAL_AUGMENTATION = "synthetic_multimodal_augmentation"
-    AR_HAPTIC_GUIDED = "ar_haptic_guided_synthesis"
-    SCENE_ASSET_CURATION = "scene_asset_curation"
-
-
 class EmbodimentClass(str, Enum):
     SINGLE_ARM = "single_arm"
     DUAL_ARM = "dual_arm"
@@ -175,23 +148,9 @@ class DepthCoverage(str, Enum):
     FULL = "full"
 
 
-class UrdfSource(str, Enum):
-    DATASET_REPO = "dataset_repo"
-    MANUFACTURER_OFFICIAL = "manufacturer_official"
-    COMMUNITY_REPO = "community_repo"
-    NOT_FOUND = "not_found"
-
-
 class ReviewStatus(str, Enum):
     PENDING_HUMAN_REVIEW = "pending_human_review"
     CONFIRMED = "confirmed"
-
-
-class ReleaseType(str, Enum):
-    FIXED_EPISODE_DATASET = "fixed_episode_dataset"
-    GENERATION_FRAMEWORK = "generation_framework"
-    SCENE_PLATFORM = "scene_platform"
-    RL_BENCHMARK_ENV = "rl_benchmark_env"
 
 
 class HandPoseRepresentation(str, Enum):
@@ -217,13 +176,7 @@ class DatasetConfig(BaseModel):
     id: str
     name: str
     source_url: Optional[str] = None
-    paper_url: Optional[str] = None
     license: Optional[LicenseEnum] = None
-    raw_format: Optional[RawFormat] = None
-    release_type: Optional[ReleaseType] = None
-    collection_method: Optional[CollectionMethod] = None
-    secondary_collection_methods: List[CollectionMethod] = Field(default_factory=list)
-    is_multi_embodiment: Optional[bool] = None
     embodiment_class: Optional[EmbodimentClass] = None
     robot_platform: Optional[RobotPlatform] = None
     num_arms: Optional[int] = Field(default=None, ge=0, le=2)
@@ -261,18 +214,8 @@ class DatasetConfig(BaseModel):
     depth_coverage: Optional[DepthCoverage] = None
     additional_modalities: List[SensorModality] = Field(default_factory=list)
     has_language_instruction: Optional[bool] = None
-    num_task_types: Optional[int] = None
     urdf_available: Optional[bool] = None
-    urdf_source: Optional[UrdfSource] = None
-    expected_size_gb: Optional[float] = None
-    expected_num_episodes: Optional[int] = None
-    expected_duration_hours: Optional[float] = None
-    num_subjects: Optional[int] = None
-    num_scenes: Optional[int] = None
-    num_objects: Optional[int] = None
     review_status: ReviewStatus = ReviewStatus.PENDING_HUMAN_REVIEW
-    field_sources: Dict[str, str] = Field(default_factory=dict)
-    suggested_new_enum_values: Dict[str, str] = Field(default_factory=dict)
 
 
 class ProcessConfig(BaseModel):

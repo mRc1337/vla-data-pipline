@@ -1,14 +1,7 @@
 id: teach
 name: TEACh
 source_url: https://github.com/alexa/teach
-paper_url: https://arxiv.org/abs/2110.00534
 license: CDLA-Sharing-1.0
-raw_format: Custom
-release_type: fixed_episode_dataset
-collection_method: teleop
-secondary_collection_methods:
-- simulation
-is_multi_embodiment: false
 embodiment_class: mobile_manipulator
 robot_platform: virtual_agent
 gripper_type: none
@@ -25,84 +18,5 @@ has_synchronized_multiview_rig: false
 has_camera_calibration: false
 additional_modalities: []
 has_language_instruction: true
-num_task_types: 12
 urdf_available: false
-urdf_source: not_found
-expected_num_episodes: 3047
-num_scenes: 109
 review_status: pending_human_review
-field_sources:
-  source_url: Pre-filled stub value; confirmed as canonical repo at github.com/alexa/teach
-  paper_url: 'arXiv:2110.00534 - TEACh: Task-driven Embodied Agents that Chat (AAAI 2022)'
-  raw_format: 'github.com/alexa/teach README: dataset ships as .game.json session files plus PNG frame
-    images and state JSONs produced by teach_replay (experiment_games.tar.gz, all_games.tar.gz, images_and_states.tar.gz,
-    edh_instances.tar.gz, tfd_instances.tar.gz); no RLDS/HDF5/LeRobot/ROS_bag/MCAP/TFRecord/VRS container
-    is used'
-  release_type: 'arXiv:2110.00534 Sec 3.2: fixed released set of 3,047 human-human gameplay sessions plus
-    derived EDH/TfD benchmark instances -- not a generation framework, scene platform, or RL benchmark
-    env'
-  collection_method: 'arXiv:2110.00534 Sec 3.2: two vetted crowdworkers are live-paired per session as
-    Commander/Follower; the Follower''s navigation and object-interaction actions are chosen by the human
-    annotator in real time, i.e. teleoperation of the simulated embodiment'
-  secondary_collection_methods: 'arXiv:2110.00534 Sec 3.2: sessions are collected entirely inside the
-    AI2-THOR simulator (Kolve et al. 2017)'
-  is_multi_embodiment: 'arXiv:2110.00534 Sec 3.2: only the Follower embodiment executes environment actions;
-    the Commander is described as a disembodied camera with no navigation/manipulation actions of its
-    own'
-  embodiment_class: 'arXiv:2110.00534 Sec 3.1: Follower performs navigation actions (Forward/Backward/Turn/Look)
-    and object manipulation (Pickup/Place/Open/Close/Slice/Pour/ToggleOn/Off) in AI2-THOR households'
-  robot_platform: Simulated AI2-THOR agent (Kolve et al. 2017 AI2-THOR paper cited in TEACh); not a named
-    commercial robot platform, so classified as 'other'
-  gripper_type: 'arXiv:2110.00534 Sec 3.1: object interaction is abstracted to an action id plus a relative
-    image coordinate (e.g. Pickup, Place); no explicit gripper/end-effector geometry is modeled'
-  hand_pose_representation: No hand/finger pose is modeled anywhere in TEACh; interaction is abstracted
-    via discrete action + 2D image coordinate (arXiv:2110.00534 Sec 3.1)
-  has_mobile_base: 'arXiv:2110.00534 Sec 3.1: Follower navigation actions (Forward, Backward, Turn Left/Right,
-    Look Up/Down, Pan Left/Right, Strafe) move the agent through the AI2-THOR scene'
-  rotation_representation: Follower orientation changes only via discrete turn/look actions, not a continuous
-    rotation encoding (arXiv:2110.00534 Sec 3.1)
-  fps_variable: Simulation advances one discrete step per issued action (event-driven action stepping
-    via AI2-THOR, not sampling at a fixed control rate); github.com/alexa/teach teach_replay writes one
-    frame per action step, not per fixed time interval
-  num_camera_views: 'github.com/alexa/teach README ''Replaying episodes'': teach_replay ''save[s] egocentric
-    observations of the Commander and Driver [Follower]'' at each timestep -> 2 first-person view streams'
-  camera_views: 'github.com/alexa/teach README + arXiv:2110.00534 Fig.1/Fig.2: Follower view is a first-person,
-    head-height egocentric view (head); Commander view is a free-floating/disembodied search camera not
-    attached to any body (other)'
-  has_synchronized_multiview_rig: Simulated environment (AI2-THOR); the two view streams are separate
-    simulated camera feeds, not a physical synchronized multi-camera rig
-  has_camera_calibration: No camera calibration files are distributed in github.com/alexa/teach; AI2-THOR
-    camera intrinsics are implicit/fixed by the simulator (web_window_size=900 per src/teach/simulators/simulator_THOR.py)
-    and not published as calibration artifacts
-  has_language_instruction: 'arXiv:2110.00534 abstract/Sec 3.2: tasks are completed entirely via free-form
-    natural-language dialogue between Commander and Follower'
-  num_task_types: 'arXiv:2110.00534 Table 2: 12 parameterized household task types (Water Plant, Make
-    Coffee, Clean All X, Put All X On Y, Boil Potato, Make Plate Of Toast, N Slices Of X In Y, Put All
-    X In One Y, N Cooked X Slices In Y, Prepare Sandwich, Prepare Salad, Prepare Breakfast)'
-  urdf_available: Simulated agent in AI2-THOR; no URDF file is distributed in github.com/alexa/teach
-  urdf_source: No URDF found anywhere in github.com/alexa/teach
-  expected_num_episodes: 'arXiv:2110.00534 Sec 3.2: ''TEACh is comprised of 3,047 successful gameplay
-    sessions, each of which can be replayed using the AI2-THOR simulator'' (consistent with Table 3 split
-    totals of 1482+181+612+181+589=3045)'
-  num_scenes: 'arXiv:2110.00534 Table 2, ''TEACh Overall'' row: Unique Scenes = 109 distinct AI2-THOR
-    floor plans (kitchens, living rooms, bedrooms, bathrooms) used across the released sessions'
-  expected_duration_hours: Checked, left blank. arXiv:2110.00534 Sec 3.2/Table 2 reports session counts
-    (3,047) and task-type/scene stats but no wall-clock duration, average session length, or frame/image
-    count per session; github.com/alexa/teach README documents the replay tooling but gives no duration
-    statistics either. TEACh sessions advance via discrete, event-driven action steps in AI2-THOR rather
-    than fixed-rate real-time recording (consistent with this config's fps_variable=true note), so no
-    reliable wall-clock total could be found or derived.
-suggested_new_enum_values:
-  license: CDLA-Sharing-1.0 -- per github.com/alexa/teach license files (DATALICENSE), all non-image data
-    files (game sessions, EDH/TfD instances, annotations) are released under Community Data License Agreement
-    - Sharing v1.0; images are separately licensed Apache-2.0 (IMAGESLICENSE) and code under MIT (SOFTWARELICENSE).
-    No existing LicenseEnum value covers the primary (data) license, so 'license' was left blank rather
-    than mis-tagging it.
-  action_space: discrete_action_id -- Follower/Commander actions are drawn from a fixed discrete action
-    vocabulary (e.g. Forward, Turn Left, Look Up, Pickup, Place, Open, Close, Slice, Pour, ToggleOn/Off,
-    SearchObject) plus a 2D pixel/relative-coordinate target for interaction actions (arXiv:2110.00534
-    Sec 3.1), rather than continuous joint/eef control captured by JOINT_POSITION/JOINT_VELOCITY/JOINT_TORQUE/EEF_POSE/MIXED.
-    Left 'action_space' blank rather than force-fitting.
-  action_frame: not_applicable_discrete -- 'action_frame' (delta/absolute/relative-trajectory pose framing)
-    presupposes a continuous end-effector/joint trajectory, which does not exist for TEACh's discrete
-    high-level action-id space. Left 'action_frame' blank rather than force-fitting.
