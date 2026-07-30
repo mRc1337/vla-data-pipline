@@ -280,6 +280,32 @@ def test_apply_action_eef_pose_absolute_frame_subtracts_current_state_eef():
     assert np.allclose(canonical[:, 3:6], [0.0, 0.0, 0.0])
 
 
+def test_apply_action_eef_pose_absolute_frame_rotation_delta_with_nonidentity_quats():
+    # state (current) rotation = 90 deg about z; target rotation = 90 deg about x.
+    # Chosen specifically so the delta discriminates a correct
+    # target * current^-1 composition from a swapped-order or missing-.inv()
+    # bug -- all three produce different results for this pair (independently
+    # verified with scipy.spatial.transform.Rotation in this repo's venv):
+    #   correct (target * current^-1):     [ 1.2092,  1.2092, -1.2092]
+    #   swapped (current * target^-1):     [-1.2092, -1.2092,  1.2092]
+    #   missing .inv() (target * current): [ 1.2092, -1.2092,  1.2092]
+    num_frames = 2
+    state = np.zeros((num_frames, 14))
+    state[:, 6:9] = [1.0, 2.0, 3.0]
+    state[:, 9:13] = [0.0, 0.0, np.sin(np.pi / 4), np.cos(np.pi / 4)]  # 90 deg about z
+    action = np.zeros((num_frames, 8))
+    action[:, 0:3] = [1.0, 2.0, 3.0]  # same position as state -> position delta is zero, isolates the rotation check
+    action[:, 3:7] = [np.sin(np.pi / 4), 0.0, 0.0, np.cos(np.pi / 4)]  # 90 deg about x
+    action[:, 7] = 0.5
+    episode = Episode(episode_index=0, timestamps=np.arange(num_frames, dtype=np.float64), state=state, action=action)
+    config = ProcessConfig(id="x", action_space="eef_pose", action_frame="absolute", num_arms=1, dof_per_arm=6, gripper_type="parallel_jaw")
+    result = apply_action(episode, config)
+    assert result.skip_reason is None
+    canonical = result.stats["action_canonical"]
+    assert np.allclose(canonical[:, 0:3], [0.0, 0.0, 0.0], atol=1e-9)
+    assert np.allclose(canonical[:, 3:6], [1.2091995761561456, 1.2091995761561456, -1.2091995761561456])
+
+
 def test_apply_action_joint_position_uses_fk_when_urdf_available():
     # simple_arm.urdf: 2 revolute joints, tool0 at (1.5,0,0) when both joints
     # are 0 (same fixture stage4_fk_consistency.py's tests use). action
@@ -295,6 +321,20 @@ def test_apply_action_joint_position_uses_fk_when_urdf_available():
     canonical = result.stats["action_canonical"]
     assert np.allclose(canonical[:, 0:3], [1.5, 0.0, 0.0])
     assert np.allclose(canonical[:, 6], 0.6)
+
+
+def test_apply_action_joint_position_fk_rotation_output_is_correct():
+    action = [np.pi / 2, 0.0, 0.6]  # joint1=pi/2, joint2=0, gripper=0.6
+    episode = _single_arm_episode_with_action(action)
+    config = ProcessConfig(
+        id="x", action_space="joint_position", action_frame="delta",
+        urdf_available=True, urdf_path=URDF_PATH, dof_per_arm=2, num_arms=1, gripper_type="parallel_jaw",
+    )
+    result = apply_action(episode, config)
+    assert result.skip_reason is None
+    canonical = result.stats["action_canonical"]
+    assert np.allclose(canonical[:, 0:3], [0.0, 1.5, 0.0], atol=1e-9)
+    assert np.allclose(canonical[:, 3:6], [0.0, 0.0, np.pi / 2])
 
 
 def test_apply_action_joint_position_skips_on_dof_mismatch():
