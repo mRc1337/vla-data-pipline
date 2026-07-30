@@ -45,6 +45,34 @@ def test_lag_beyond_tolerance_is_skipped():
     config = ProcessConfig(id="x", max_lag_frames=3, da_threshold=0.5)
     result = apply(episode, config)
     assert result.skip_reason == "trend_misaligned"
+    assert result.rejected is True
+
+
+def test_insufficient_frames_and_no_common_dims_do_not_reject():
+    """Only the real quality-gate failure (trend_misaligned) should set
+    rejected=True -- "couldn't run the check at all" skip_reasons must
+    leave rejected=False so run_pipeline.py (gated on `rejected`, matching
+    stage1's convention) passes the episode through unchanged instead of
+    silently dropping it."""
+    single_frame_episode = Episode(
+        episode_index=0,
+        timestamps=np.array([0.0]),
+        state=np.zeros((1, 2)),
+        action=np.zeros((1, 2)),
+    )
+    result = apply(single_frame_episode, ProcessConfig(id="x"))
+    assert result.skip_reason == "insufficient_frames_for_trend_alignment"
+    assert result.rejected is False
+
+    zero_dim_episode = Episode(
+        episode_index=0,
+        timestamps=np.arange(10, dtype=np.float64),
+        state=np.zeros((10, 0)),
+        action=np.zeros((10, 0)),
+    )
+    result = apply(zero_dim_episode, ProcessConfig(id="x"))
+    assert result.skip_reason == "no_common_state_action_dims"
+    assert result.rejected is False
 
 
 def test_single_frame_episode_is_skipped_gracefully():

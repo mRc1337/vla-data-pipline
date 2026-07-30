@@ -45,7 +45,12 @@ def run_dataset(input_path: Path, output_path: Path, process_config_path: Path) 
 
         result = stage2_trend_alignment.apply(episode, config)
         log.append(("stage2_trend_alignment", episode.episode_index, result.skip_reason, result.rejected))
-        if result.skip_reason:
+        # Gate on `rejected`, not `skip_reason` -- stage2 also returns a
+        # skip_reason for "couldn't run the check at all" cases
+        # (insufficient_frames_for_trend_alignment, no_common_state_action_dims),
+        # which must pass the episode through unchanged (mirroring stage1's
+        # convention just above) rather than being silently dropped.
+        if result.rejected:
             continue
         survivors.append(result.episode)
 

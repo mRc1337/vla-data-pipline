@@ -1,5 +1,10 @@
 """Stage2: state-action trend alignment via per-dimension cross-correlation
-lag estimation + directional agreement. See design doc section 7 row 2.
+lag estimation + directional agreement. Only the real quality-gate failure
+(trend_misaligned) sets rejected=True; "couldn't run the check at all"
+skip_reasons (insufficient_frames_for_trend_alignment,
+no_common_state_action_dims) leave rejected=False so run_pipeline.py passes
+the episode through unchanged, matching stage1's skip-vs-reject convention.
+See design doc section 7 row 2.
 """
 from __future__ import annotations
 
@@ -58,6 +63,7 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
     if abs(lag) > config.max_lag_frames or directional_agreement < config.da_threshold:
         return StageResult(
             episode=episode,
+            rejected=True,
             skip_reason="trend_misaligned",
             stats={"lag": lag, "directional_agreement": directional_agreement},
         )

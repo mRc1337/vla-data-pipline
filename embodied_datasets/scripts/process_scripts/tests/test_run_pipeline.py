@@ -181,6 +181,40 @@ def test_run_dataset_filters_episodes_with_all_frames_dropped(tmp_path):
     assert any(reason == "all_frames_dropped" for _stage, _idx, reason, _rejected in stats["log"])
 
 
+def test_run_dataset_passes_through_episodes_stage2_could_not_check(tmp_path):
+    """Regression: stage2 used to be gated on `skip_reason` in run_dataset,
+    so its "couldn't run the check at all" skip_reasons
+    (insufficient_frames_for_trend_alignment) were treated identically to a
+    real rejection and silently dropped the episode. A 1-frame episode
+    (too short for stage2's cross-correlation, but otherwise perfectly
+    valid) must survive to the output instead of vanishing.
+    """
+    from tests.fixtures import make_synthetic_dataset
+    from run_pipeline import run_dataset
+    from common.io import save_process_config
+    from common.schema import ProcessConfig
+
+    staging_path = tmp_path / "staging"
+    make_synthetic_dataset(staging_path, repo_id="test/too_short_for_stage2", num_episodes=2, num_frames=1, state_dim=4, action_dim=4, fps=10.0)
+
+    config_path = tmp_path / "config.yaml"
+    # quantile_low/high=0/1 disables stage3's extreme-value filtering, which
+    # otherwise computes far-too-tight bounds from just 2 total data points
+    # (the default 0.01/0.99 quantiles) and would drop the single frame this
+    # test is specifically trying to keep alive -- same loosening convention
+    # used by the other synthetic-data tests in this file.
+    save_process_config(ProcessConfig(id="too_short_for_stage2_test", quantile_low=0.0, quantile_high=1.0), config_path)
+
+    output_path = tmp_path / "output"
+    stats = run_dataset(staging_path, output_path, config_path)
+
+    assert stats["output_episodes"] == 2
+    assert any(
+        stage == "stage2_trend_alignment" and reason == "insufficient_frames_for_trend_alignment" and not rejected
+        for stage, _idx, reason, rejected in stats["log"]
+    )
+
+
 def test_run_dataset_replaces_state_with_canonical_128dim_for_robot_embodiment(tmp_path):
     """Task 15's unify_representation.apply computes a canonical 128-dim
     projection of episode.state into result.stats, but does not itself
