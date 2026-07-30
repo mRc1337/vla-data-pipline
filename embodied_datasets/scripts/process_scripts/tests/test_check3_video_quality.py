@@ -2,6 +2,8 @@ import pytest
 
 lerobot = pytest.importorskip("lerobot")
 
+from dataclasses import replace
+
 import numpy as np
 
 from episode import Episode
@@ -69,6 +71,33 @@ def test_still_run_includes_anchor_frame():
     config = ProcessConfig(id="x", black_threshold=1.0, blur_threshold=1.0, still_threshold=0.5, still_min_consecutive_frames=20)
     result = apply(episode, config)
     assert set(result.dropped_frame_indices) == set(range(10, 35))
+
+
+def test_still_run_frames_with_gripper_activity_are_protected():
+    """A visually-static run that actually contains a gripper-closure
+    transition (holding a grasped object still while the fingers close is
+    exactly this case) must not be dropped around that transition -- this
+    mirrors Qwen-RobotManip's Check3, which explicitly preserves
+    task-critical key frames like gripper-closure events even when they
+    look visually subtle/static."""
+    rng = np.random.RandomState(0)
+    frames = rng.randint(50, 200, size=(40, 8, 8, 3)).astype(np.uint8)
+    frames[10:35] = frames[10]  # visually still run, 10..34
+    episode = _episode_with_frames(frames)
+    action = np.zeros((40, 1))
+    action[20:, 0] = 1.0  # gripper closes at frame 20, video stays static
+    episode = replace(episode, action=action)
+    config = ProcessConfig(
+        id="x", black_threshold=1.0, blur_threshold=1.0, still_threshold=0.5,
+        still_min_consecutive_frames=20, gripper_dims_action=[0],
+    )
+    result = apply(episode, config)
+    # frames adjacent to the real gripper transition must survive
+    assert 19 not in result.dropped_frame_indices
+    assert 20 not in result.dropped_frame_indices
+    # frames far from the transition, still genuinely static, stay dropped
+    assert 12 in result.dropped_frame_indices
+    assert 33 in result.dropped_frame_indices
 
 
 def test_single_frame_episode_does_not_crash():

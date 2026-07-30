@@ -1,6 +1,9 @@
 """Check3: video quality filtering (black / blurry / still-run frames) via
-plain OpenCV -- no external service dependency, always runs. See design
-doc section 7 row 8.
+plain OpenCV -- no external service dependency, always runs. Frames next to
+a real gripper-open/close transition (per config.gripper_dims_action) are
+exempt from the "still" classification, since a visually static video can
+still capture a task-critical gripper closure. See design doc section 7
+row 8.
 """
 from __future__ import annotations
 
@@ -29,11 +32,32 @@ def _consecutive_run_flags(flags: np.ndarray, min_run: int) -> np.ndarray:
     return result
 
 
+def _gripper_transition_frames(action: np.ndarray, gripper_dims: list) -> np.ndarray:
+    """Frames adjacent to a real gripper-open/close transition must survive
+    the "still" filter even when the video looks visually static -- holding
+    a grasped object motionless while the fingers close is exactly this
+    case, and dropping it would remove the task-critical moment a grasp
+    happens (see Qwen-RobotManip's Check3, which explicitly preserves
+    gripper-closure key frames for the same reason). Returns all-False when
+    `gripper_dims` is empty (dataset hasn't declared which action columns
+    are the gripper, so no protection can be applied)."""
+    num_frames = action.shape[0]
+    protected = np.zeros(num_frames, dtype=bool)
+    valid_dims = [d for d in gripper_dims if 0 <= d < action.shape[1]]
+    if not valid_dims or num_frames < 2:
+        return protected
+    moved = np.any(np.abs(np.diff(action[:, valid_dims], axis=0)) > 1e-6, axis=1)
+    protected[:-1] |= moved
+    protected[1:] |= moved
+    return protected
+
+
 def apply(episode: Episode, config: ProcessConfig) -> StageResult:
     if not episode.frames:
         return StageResult(episode=episode, skip_reason="no_video_frames")
 
     num_frames = episode.state.shape[0]
+    gripper_protected = _gripper_transition_frames(episode.action, config.gripper_dims_action)
     flagged = np.zeros(num_frames, dtype=bool)
     stats = {}
 
@@ -68,6 +92,10 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
         still_diff_run = _consecutive_run_flags(still, still_run_threshold)
         still_run = still_diff_run.copy()
         still_run[:-1] |= still_diff_run[1:]
+        # Gripper protection only exempts the "still" classification -- a
+        # genuinely black/blurry frame during a gripper-closure event is
+        # still bad data and must still be dropped.
+        still_run = still_run & ~gripper_protected
 
         view_flagged = black | blurry | still_run
         flagged |= view_flagged
