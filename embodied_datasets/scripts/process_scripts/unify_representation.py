@@ -187,6 +187,8 @@ def apply_action(episode: Episode, config: ProcessConfig) -> StageResult:
     reads episode.state's original per-dataset eef/joint values (via
     _state_arm_slice) to compute action_frame="absolute" deltas.
     """
+    if config.embodiment_class not in ROBOT_EMBODIMENT_CLASSES:
+        return StageResult(episode=episode, skip_reason="embodiment_not_robot_collected")
     if config.action_space not in SUPPORTED_ACTION_SPACES:
         return StageResult(episode=episode, skip_reason="action_space_not_supported")
     if config.action_frame not in SUPPORTED_ACTION_FRAMES:
@@ -216,7 +218,15 @@ def apply_action(episode: Episode, config: ProcessConfig) -> StageResult:
     num_frames = episode.action.shape[0]
     action_canonical = np.zeros((num_frames, ACTION_CANONICAL_DIM), dtype=np.float64)
     mask = np.zeros(ACTION_CANONICAL_DIM, dtype=bool)
-    action_cols_per_arm = episode.action.shape[1] // num_arms
+    # Mirrors _state_arm_slice's mobile-base carve-out: when present, the
+    # mobile-base velocity columns are appended after all arm columns and
+    # must be excluded before dividing the remainder among arms -- otherwise
+    # they shift action_cols_per_arm and corrupt every arm's packing (worst
+    # case: base velocity silently landing in a dexterous hand's gripper
+    # slot with mask=True, no error raised).
+    action_mobile_base_width = 3 if config.has_mobile_base else 0
+    action_arm_cols_total = max(episode.action.shape[1] - action_mobile_base_width, 0)
+    action_cols_per_arm = action_arm_cols_total // num_arms
 
     stats = {
         "action_canonical": action_canonical,

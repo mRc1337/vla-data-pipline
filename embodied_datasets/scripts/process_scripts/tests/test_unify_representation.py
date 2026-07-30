@@ -227,16 +227,23 @@ def _action_episode(action, state=None, num_frames=None):
     return Episode(episode_index=0, timestamps=np.arange(num_frames, dtype=np.float64), state=state, action=action)
 
 
+def test_apply_action_skips_non_robot_embodiment():
+    episode = _action_episode(np.zeros(8))
+    config = ProcessConfig(id="x", embodiment_class="human_hand", action_space="eef_pose", action_frame="delta")
+    result = apply_action(episode, config)
+    assert result.skip_reason == "embodiment_not_robot_collected"
+
+
 def test_apply_action_skips_unsupported_action_space():
     episode = _action_episode(np.zeros(8))
-    config = ProcessConfig(id="x", action_space="joint_velocity", action_frame="delta")
+    config = ProcessConfig(id="x", embodiment_class="single_arm", action_space="joint_velocity", action_frame="delta")
     result = apply_action(episode, config)
     assert result.skip_reason == "action_space_not_supported"
 
 
 def test_apply_action_skips_unsupported_action_frame():
     episode = _action_episode(np.zeros(8))
-    config = ProcessConfig(id="x", action_space="eef_pose", action_frame="both")
+    config = ProcessConfig(id="x", embodiment_class="single_arm", action_space="eef_pose", action_frame="both")
     result = apply_action(episode, config)
     assert result.skip_reason == "action_frame_not_supported"
 
@@ -245,7 +252,7 @@ def test_apply_action_eef_pose_delta_populates_eef_not_joint():
     # action columns: [eef_pos(3), eef_quat(4), gripper(1)] = 8, single arm.
     action = [0.1, 0.2, 0.3, 0.0, 0.0, 0.0, 1.0, 0.7]
     episode = _action_episode(action)
-    config = ProcessConfig(id="x", action_space="eef_pose", action_frame="delta", num_arms=1, gripper_type="parallel_jaw")
+    config = ProcessConfig(id="x", embodiment_class="single_arm", action_space="eef_pose", action_frame="delta", num_arms=1, gripper_type="parallel_jaw")
     result = apply_action(episode, config)
     assert result.skip_reason is None
     assert "eef_slot_skip_reason" not in result.stats
@@ -268,7 +275,7 @@ def test_apply_action_eef_pose_absolute_frame_subtracts_current_state_eef():
     state[:, 6:9] = [1.0, 2.0, 3.0]
     state[:, 9:13] = [0.0, 0.0, 0.0, 1.0]
     episode = _action_episode(action, state=state)
-    config = ProcessConfig(id="x", action_space="eef_pose", action_frame="absolute", num_arms=1, dof_per_arm=6, gripper_type="parallel_jaw")
+    config = ProcessConfig(id="x", embodiment_class="single_arm", action_space="eef_pose", action_frame="absolute", num_arms=1, dof_per_arm=6, gripper_type="parallel_jaw")
     result = apply_action(episode, config)
     assert result.skip_reason is None
     canonical = result.stats["action_canonical"]
@@ -292,7 +299,7 @@ def test_apply_action_eef_pose_absolute_frame_rotation_delta_with_nonidentity_qu
     action[:, 3:7] = [np.sin(np.pi / 4), 0.0, 0.0, np.cos(np.pi / 4)]  # 90 deg about x
     action[:, 7] = 0.5
     episode = _action_episode(action, state=state)
-    config = ProcessConfig(id="x", action_space="eef_pose", action_frame="absolute", num_arms=1, dof_per_arm=6, gripper_type="parallel_jaw")
+    config = ProcessConfig(id="x", embodiment_class="single_arm", action_space="eef_pose", action_frame="absolute", num_arms=1, dof_per_arm=6, gripper_type="parallel_jaw")
     result = apply_action(episode, config)
     assert result.skip_reason is None
     canonical = result.stats["action_canonical"]
@@ -308,7 +315,7 @@ def test_apply_action_joint_position_fk_available_populates_both_joint_and_eef()
     action = [np.pi / 2, 0.0, 0.6]
     episode = _action_episode(action)
     config = ProcessConfig(
-        id="x", action_space="joint_position", action_frame="delta",
+        id="x", embodiment_class="single_arm", action_space="joint_position", action_frame="delta",
         urdf_available=True, urdf_path=URDF_PATH, dof_per_arm=2, num_arms=1, gripper_type="parallel_jaw",
     )
     result = apply_action(episode, config)
@@ -335,7 +342,7 @@ def test_apply_action_joint_position_absolute_frame_subtracts_current_joint_stat
     action = [0.5, 0.35, 0.6]
     episode = _action_episode(action, state=state)
     config = ProcessConfig(
-        id="x", action_space="joint_position", action_frame="absolute",
+        id="x", embodiment_class="single_arm", action_space="joint_position", action_frame="absolute",
         urdf_available=False, dof_per_arm=2, num_arms=1, gripper_type="parallel_jaw",
     )
     result = apply_action(episode, config)
@@ -348,7 +355,7 @@ def test_apply_action_joint_position_fk_unavailable_populates_joint_only():
     action = [0.3, 0.4, 0.6]
     episode = _action_episode(action)
     config = ProcessConfig(
-        id="x", action_space="joint_position", action_frame="delta",
+        id="x", embodiment_class="single_arm", action_space="joint_position", action_frame="delta",
         urdf_available=False, dof_per_arm=2, num_arms=1, gripper_type="parallel_jaw",
     )
     result = apply_action(episode, config)
@@ -370,7 +377,7 @@ def test_apply_action_joint_position_skips_eef_slot_on_dof_mismatch():
     action = [0.0, 0.0, 0.0, 0.0, 0.0, 0.6]
     episode = _action_episode(action)
     config = ProcessConfig(
-        id="x", action_space="joint_position", action_frame="delta",
+        id="x", embodiment_class="single_arm", action_space="joint_position", action_frame="delta",
         urdf_available=True, urdf_path=URDF_PATH, dof_per_arm=5, num_arms=1, gripper_type="parallel_jaw",
     )
     result = apply_action(episode, config)
@@ -393,7 +400,7 @@ def test_apply_action_dual_arm_packs_into_correct_blocks():
     action[:, 11:15] = [0.0, 0.0, 0.0, 1.0]
     action[:, 15] = 0.9
     episode = _action_episode(action)
-    config = ProcessConfig(id="x", action_space="eef_pose", action_frame="delta", num_arms=2, gripper_type="parallel_jaw")
+    config = ProcessConfig(id="x", embodiment_class="dual_arm", action_space="eef_pose", action_frame="delta", num_arms=2, gripper_type="parallel_jaw")
     result = apply_action(episode, config)
     assert result.skip_reason is None
     canonical = result.stats["action_canonical"]
@@ -410,11 +417,42 @@ def test_apply_action_dual_arm_packs_into_correct_blocks():
     assert not np.any(mask[70:128])  # reserve untouched
 
 
+def test_apply_action_mobile_base_columns_excluded_before_arm_division():
+    # 2 arms x 8 action cols each (eef_pos3+eef_quat4+gripper1) + 3 trailing
+    # mobile-base velocity cols = 19. Mirrors
+    # test_mobile_base_columns_excluded_from_arm_packing_but_not_captured for
+    # apply() -- regression for apply_action() not carving out the mobile-base
+    # columns before dividing by num_arms, which shifts action_cols_per_arm
+    # and corrupts every arm's packing (arm2's slice picks up leftover
+    # mobile-base columns as its own gripper data).
+    num_frames = 2
+    action = np.zeros((num_frames, 19))
+    action[:, 0:3] = [1.0, 2.0, 3.0]
+    action[:, 3:7] = [0.0, 0.0, 0.0, 1.0]
+    action[:, 7] = 0.5
+    action[:, 8:11] = [4.0, 5.0, 6.0]
+    action[:, 11:15] = [0.0, 0.0, 0.0, 1.0]
+    action[:, 15] = 0.9
+    action[:, 16:19] = [9.0, 9.0, 9.0]  # mobile-base velocity, must be ignored
+    episode = _action_episode(action)
+    config = ProcessConfig(
+        id="x", embodiment_class="mobile_manipulator", action_space="eef_pose", action_frame="delta",
+        num_arms=2, gripper_type="parallel_jaw", has_mobile_base=True,
+    )
+    result = apply_action(episode, config)
+    assert result.skip_reason is None
+    canonical = result.stats["action_canonical"]
+    assert np.allclose(canonical[:, 7:10], [1.0, 2.0, 3.0])
+    assert np.allclose(canonical[:, 14], 0.5)
+    assert np.allclose(canonical[:, 42:45], [4.0, 5.0, 6.0])
+    assert np.allclose(canonical[:, 49], 0.9)
+
+
 def test_apply_action_zero_frames_episode_does_not_crash():
     state = np.zeros((0, 14))
     action = np.zeros((0, 8))
     episode = Episode(episode_index=0, timestamps=np.arange(0, dtype=np.float64), state=state, action=action)
-    config = ProcessConfig(id="x", action_space="eef_pose", action_frame="delta", num_arms=1, gripper_type="parallel_jaw")
+    config = ProcessConfig(id="x", embodiment_class="single_arm", action_space="eef_pose", action_frame="delta", num_arms=1, gripper_type="parallel_jaw")
     result = apply_action(episode, config)
     assert result.skip_reason is None
     assert result.stats["action_canonical"].shape == (0, 128)
