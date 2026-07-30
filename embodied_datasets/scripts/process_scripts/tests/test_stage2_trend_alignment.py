@@ -133,6 +133,36 @@ def test_frames_are_left_alone_on_zero_lag():
     np.testing.assert_array_equal(result.episode.frames["cam0"], original_frames["cam0"])
 
 
+def test_absolute_action_frame_diffs_action_before_correlating():
+    """action_frame="absolute" means the raw `action` array holds target
+    positions, not per-frame deltas -- comparing it directly against
+    state_delta (a rate-of-change quantity) is a unit mismatch that produces
+    a wrong lag (independently verified: wrong sign, -3 instead of +3, with
+    a much weaker directional-agreement score). Diffing the absolute action
+    before correlating (the mirror of Qwen-RobotManip's "integrate delta
+    actions to recover absolute values before comparison" -- differencing
+    instead of integrating avoids the unbounded numerical drift a long
+    episode's cumulative sum would accumulate) fixes this.
+    """
+    rng = np.random.RandomState(0)
+    num_frames = 100
+    true_lag = 3
+    vel = rng.uniform(-1, 1, size=(num_frames, 2))
+    shifted_vel = np.roll(vel, true_lag, axis=0)
+    state = np.cumsum(shifted_vel, axis=0)
+    action_absolute = np.cumsum(vel, axis=0)  # target position, not a delta
+    episode = Episode(
+        episode_index=0,
+        timestamps=np.arange(num_frames, dtype=np.float64),
+        state=state,
+        action=action_absolute,
+    )
+    config = ProcessConfig(id="x", action_frame="absolute", max_lag_frames=5, da_threshold=0.9)
+    result = apply(episode, config)
+    assert result.skip_reason is None
+    assert result.stats["lag"] == true_lag
+
+
 def test_minimal_two_frame_episode_does_not_crash():
     episode = Episode(
         episode_index=0,

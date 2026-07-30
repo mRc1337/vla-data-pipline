@@ -20,14 +20,29 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
         return StageResult(episode=episode, skip_reason="insufficient_frames_for_trend_alignment")
 
     state_delta = np.diff(state, axis=0, prepend=state[:1])
-    num_dims = min(state_delta.shape[1], action.shape[1])
+    # action_frame="absolute" means `action` holds target positions, not
+    # already a per-frame change -- comparing it directly against
+    # state_delta (a rate-of-change quantity) is a unit mismatch that
+    # produces a wrong lag (independently verified: wrong sign). Diffing the
+    # absolute action mirrors Qwen-RobotManip's own handling of this case
+    # ("integrate delta actions to recover absolute values before
+    # comparison") in the opposite direction -- differencing the absolute
+    # signal instead of integrating the delta one avoids the unbounded
+    # numerical drift a long episode's cumulative sum would accumulate.
+    # Any other action_frame value (including unset) falls back to treating
+    # `action` as-is, matching this stage's original delta-action behavior.
+    if config.action_frame == "absolute":
+        action_for_correlation = np.diff(action, axis=0, prepend=action[:1])
+    else:
+        action_for_correlation = action
+    num_dims = min(state_delta.shape[1], action_for_correlation.shape[1])
     if num_dims == 0:
         return StageResult(episode=episode, skip_reason="no_common_state_action_dims")
 
     lags = []
     directional_agreements = []
     for dim in range(num_dims):
-        a = action[:, dim]
+        a = action_for_correlation[:, dim]
         s = state_delta[:, dim]
         a_centered = a - a.mean()
         s_centered = s - s.mean()
