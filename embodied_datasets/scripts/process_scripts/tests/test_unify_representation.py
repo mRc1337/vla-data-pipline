@@ -6,11 +6,9 @@ import numpy as np
 
 from episode import Episode
 from common.schema import ProcessConfig
-from unify_representation import apply
+from unify_representation import apply, apply_action
 
 from pathlib import Path
-
-from unify_representation import apply_action
 
 URDF_PATH = str(Path(__file__).parent / "fixtures" / "simple_arm.urdf")
 
@@ -219,139 +217,173 @@ def test_zero_or_negative_num_arms_clamped_to_one():
         assert np.allclose(canonical[:, :6], np.arange(6))
 
 
-def _single_arm_episode_with_action(action, num_frames=3):
-    state = np.zeros((num_frames, 14))  # [6 joint | 3 eef_pos + 4 eef_quat | 1 gripper]
-    state[:, 6:9] = [1.0, 2.0, 3.0]
-    state[:, 9:13] = [0.0, 0.0, 0.0, 1.0]  # identity quaternion
-    action_arr = np.tile(action, (num_frames, 1)).astype(float)
-    return Episode(episode_index=0, timestamps=np.arange(num_frames, dtype=np.float64), state=state, action=action_arr)
+def _action_episode(action, state=None, num_frames=None):
+    action = np.asarray(action, dtype=float)
+    if action.ndim == 1:
+        action = np.tile(action, (num_frames or 3, 1))
+    num_frames = action.shape[0]
+    if state is None:
+        state = np.zeros((num_frames, 14))
+    return Episode(episode_index=0, timestamps=np.arange(num_frames, dtype=np.float64), state=state, action=action)
 
 
 def test_apply_action_skips_unsupported_action_space():
-    episode = _single_arm_episode_with_action(np.zeros(8))
+    episode = _action_episode(np.zeros(8))
     config = ProcessConfig(id="x", action_space="joint_velocity", action_frame="delta")
     result = apply_action(episode, config)
     assert result.skip_reason == "action_space_not_supported"
 
 
-def test_apply_action_skips_joint_position_without_urdf_available():
-    episode = _single_arm_episode_with_action(np.zeros(8))
-    config = ProcessConfig(id="x", action_space="joint_position", action_frame="delta", urdf_available=False)
-    result = apply_action(episode, config)
-    assert result.skip_reason == "fk_not_available_for_joint_action"
-
-
 def test_apply_action_skips_unsupported_action_frame():
-    episode = _single_arm_episode_with_action(np.zeros(8))
+    episode = _action_episode(np.zeros(8))
     config = ProcessConfig(id="x", action_space="eef_pose", action_frame="both")
     result = apply_action(episode, config)
     assert result.skip_reason == "action_frame_not_supported"
 
 
-def test_apply_action_eef_pose_delta_frame_passes_through_position_and_axis_angle():
+def test_apply_action_eef_pose_delta_populates_eef_not_joint():
     # action columns: [eef_pos(3), eef_quat(4), gripper(1)] = 8, single arm.
-    # Identity quaternion -> zero rotation delta (axis-angle of identity is [0,0,0]).
     action = [0.1, 0.2, 0.3, 0.0, 0.0, 0.0, 1.0, 0.7]
-    episode = _single_arm_episode_with_action(action)
+    episode = _action_episode(action)
     config = ProcessConfig(id="x", action_space="eef_pose", action_frame="delta", num_arms=1, gripper_type="parallel_jaw")
     result = apply_action(episode, config)
     assert result.skip_reason is None
+    assert "eef_slot_skip_reason" not in result.stats
     canonical = result.stats["action_canonical"]
     mask = result.stats["action_canonical_mask"]
-    assert canonical.shape == (3, 54)
-    assert np.allclose(canonical[:, 0:3], [0.1, 0.2, 0.3])
-    assert np.allclose(canonical[:, 3:6], [0.0, 0.0, 0.0])
-    assert np.allclose(canonical[:, 6], 0.7)
-    assert np.all(mask[0:7])
-    assert not np.any(mask[27:54])  # single arm: arm2 block untouched
+    assert canonical.shape == (3, 128)
+    assert not np.any(mask[0:7])  # no joint data available for eef_pose
+    assert np.allclose(canonical[:, 7:10], [0.1, 0.2, 0.3])
+    assert np.allclose(canonical[:, 10:13], [0.0, 0.0, 0.0])
+    assert not mask[13]  # pad dim never populated
+    assert np.allclose(canonical[:, 14], 0.7)
+    assert np.all(mask[7:13])
+    assert mask[14]
+    assert not np.any(mask[35:128])  # single arm: arm2 block + reserve untouched
 
 
 def test_apply_action_eef_pose_absolute_frame_subtracts_current_state_eef():
-    # episode.state's eef_pos is (1,2,3) with identity quat (set by the
-    # _single_arm_episode_with_action helper). action targets eef_pos (4,5,6)
-    # with identity quat -> delta position = (3,3,3), delta rotation = 0.
     action = [4.0, 5.0, 6.0, 0.0, 0.0, 0.0, 1.0, 0.5]
-    episode = _single_arm_episode_with_action(action)
+    state = np.zeros((3, 14))
+    state[:, 6:9] = [1.0, 2.0, 3.0]
+    state[:, 9:13] = [0.0, 0.0, 0.0, 1.0]
+    episode = _action_episode(action, state=state)
     config = ProcessConfig(id="x", action_space="eef_pose", action_frame="absolute", num_arms=1, dof_per_arm=6, gripper_type="parallel_jaw")
     result = apply_action(episode, config)
     assert result.skip_reason is None
     canonical = result.stats["action_canonical"]
-    assert np.allclose(canonical[:, 0:3], [3.0, 3.0, 3.0])
-    assert np.allclose(canonical[:, 3:6], [0.0, 0.0, 0.0])
+    assert np.allclose(canonical[:, 7:10], [3.0, 3.0, 3.0])
+    assert np.allclose(canonical[:, 10:13], [0.0, 0.0, 0.0])
 
 
 def test_apply_action_eef_pose_absolute_frame_rotation_delta_with_nonidentity_quats():
     # state (current) rotation = 90 deg about z; target rotation = 90 deg about x.
-    # Chosen specifically so the delta discriminates a correct
-    # target * current^-1 composition from a swapped-order or missing-.inv()
-    # bug -- all three produce different results for this pair (independently
-    # verified with scipy.spatial.transform.Rotation in this repo's venv):
+    # Chosen so the delta discriminates a correct target*current^-1 composition
+    # from a swapped-order or missing-.inv() bug (independently verified with
+    # scipy.spatial.transform.Rotation in this repo's venv):
     #   correct (target * current^-1):     [ 1.2092,  1.2092, -1.2092]
     #   swapped (current * target^-1):     [-1.2092, -1.2092,  1.2092]
     #   missing .inv() (target * current): [ 1.2092, -1.2092,  1.2092]
-    num_frames = 2
-    state = np.zeros((num_frames, 14))
+    state = np.zeros((2, 14))
     state[:, 6:9] = [1.0, 2.0, 3.0]
     state[:, 9:13] = [0.0, 0.0, np.sin(np.pi / 4), np.cos(np.pi / 4)]  # 90 deg about z
-    action = np.zeros((num_frames, 8))
-    action[:, 0:3] = [1.0, 2.0, 3.0]  # same position as state -> position delta is zero, isolates the rotation check
+    action = np.zeros((2, 8))
+    action[:, 0:3] = [1.0, 2.0, 3.0]  # same position as state -> position delta is zero
     action[:, 3:7] = [np.sin(np.pi / 4), 0.0, 0.0, np.cos(np.pi / 4)]  # 90 deg about x
     action[:, 7] = 0.5
-    episode = Episode(episode_index=0, timestamps=np.arange(num_frames, dtype=np.float64), state=state, action=action)
+    episode = _action_episode(action, state=state)
     config = ProcessConfig(id="x", action_space="eef_pose", action_frame="absolute", num_arms=1, dof_per_arm=6, gripper_type="parallel_jaw")
     result = apply_action(episode, config)
     assert result.skip_reason is None
     canonical = result.stats["action_canonical"]
-    assert np.allclose(canonical[:, 0:3], [0.0, 0.0, 0.0], atol=1e-9)
-    assert np.allclose(canonical[:, 3:6], [1.2091995761561456, 1.2091995761561456, -1.2091995761561456])
+    assert np.allclose(canonical[:, 7:10], [0.0, 0.0, 0.0], atol=1e-9)
+    assert np.allclose(canonical[:, 10:13], [1.2091995761561456, 1.2091995761561456, -1.2091995761561456])
 
 
-def test_apply_action_joint_position_uses_fk_when_urdf_available():
-    # simple_arm.urdf: 2 revolute joints, tool0 at (1.5,0,0) when both joints
-    # are 0 (same fixture stage4_fk_consistency.py's tests use). action
-    # columns: [joint(2), gripper(1)] = 3, single arm.
-    action = [0.0, 0.0, 0.6]
-    episode = _single_arm_episode_with_action(action)
+def test_apply_action_joint_position_fk_available_populates_both_joint_and_eef():
+    # simple_arm.urdf: 2 revolute joints, tool0 at (1.5,0,0) with rotation
+    # [0,0,pi/2] when joint1=pi/2, joint2=0 (independently verified via the
+    # real FkChain against this fixture in this repo's venv). action columns:
+    # [joint(2), gripper(1)] = 3, single arm, action_frame=delta.
+    action = [np.pi / 2, 0.0, 0.6]
+    episode = _action_episode(action)
     config = ProcessConfig(
         id="x", action_space="joint_position", action_frame="delta",
         urdf_available=True, urdf_path=URDF_PATH, dof_per_arm=2, num_arms=1, gripper_type="parallel_jaw",
     )
     result = apply_action(episode, config)
     assert result.skip_reason is None
+    assert "eef_slot_skip_reason" not in result.stats
     canonical = result.stats["action_canonical"]
-    assert np.allclose(canonical[:, 0:3], [1.5, 0.0, 0.0])
-    assert np.allclose(canonical[:, 6], 0.6)
+    mask = result.stats["action_canonical_mask"]
+    assert np.allclose(canonical[:, 0:2], [np.pi / 2, 0.0])
+    assert np.all(mask[0:2])
+    assert not np.any(mask[2:7])  # dof_per_arm=2 < ACTION_JOINT_SLOT=7: rest unpopulated
+    assert np.allclose(canonical[:, 7:10], [0.0, 1.5, 0.0], atol=1e-9)
+    assert np.allclose(canonical[:, 10:13], [0.0, 0.0, np.pi / 2])
+    assert np.allclose(canonical[:, 14], 0.6)
 
 
-def test_apply_action_joint_position_fk_rotation_output_is_correct():
-    action = [np.pi / 2, 0.0, 0.6]  # joint1=pi/2, joint2=0, gripper=0.6
-    episode = _single_arm_episode_with_action(action)
+def test_apply_action_joint_position_absolute_frame_subtracts_current_joint_state():
+    # dof_per_arm=2; state's current joint values are [0.1, 0.05]; action's
+    # absolute joint target is [0.5, 0.35] -> expected joint delta [0.4, 0.3].
+    # FK deliberately unavailable here (urdf_available=False) to isolate the
+    # joint-slot arithmetic from the eef/FK branch (that's covered by the
+    # fk_available=True test above and the fk-unavailable test below).
+    state = np.zeros((3, 10))  # [joint(2) | eef_pos(3)+eef_quat(4) | gripper(1)]
+    state[:, 0:2] = [0.1, 0.05]
+    action = [0.5, 0.35, 0.6]
+    episode = _action_episode(action, state=state)
     config = ProcessConfig(
-        id="x", action_space="joint_position", action_frame="delta",
-        urdf_available=True, urdf_path=URDF_PATH, dof_per_arm=2, num_arms=1, gripper_type="parallel_jaw",
+        id="x", action_space="joint_position", action_frame="absolute",
+        urdf_available=False, dof_per_arm=2, num_arms=1, gripper_type="parallel_jaw",
     )
     result = apply_action(episode, config)
     assert result.skip_reason is None
     canonical = result.stats["action_canonical"]
-    assert np.allclose(canonical[:, 0:3], [0.0, 1.5, 0.0], atol=1e-9)
-    assert np.allclose(canonical[:, 3:6], [0.0, 0.0, np.pi / 2])
+    assert np.allclose(canonical[:, 0:2], [0.4, 0.3])
 
 
-def test_apply_action_joint_position_skips_on_dof_mismatch():
-    # simple_arm.urdf has exactly 2 active joints; dof_per_arm=5 mismatches it,
-    # mirroring stage4_fk_consistency.py's identical guard.
+def test_apply_action_joint_position_fk_unavailable_populates_joint_only():
+    action = [0.3, 0.4, 0.6]
+    episode = _action_episode(action)
+    config = ProcessConfig(
+        id="x", action_space="joint_position", action_frame="delta",
+        urdf_available=False, dof_per_arm=2, num_arms=1, gripper_type="parallel_jaw",
+    )
+    result = apply_action(episode, config)
+    assert result.skip_reason is None
+    assert result.stats["eef_slot_skip_reason"] == "fk_not_available_for_joint_action"
+    canonical = result.stats["action_canonical"]
+    mask = result.stats["action_canonical_mask"]
+    assert np.allclose(canonical[:, 0:2], [0.3, 0.4])
+    assert np.all(mask[0:2])
+    assert not np.any(mask[7:13])  # eef slot stays unpopulated
+    assert np.allclose(canonical[:, 14], 0.6)  # gripper populates regardless of FK
+    assert mask[14]
+
+
+def test_apply_action_joint_position_skips_eef_slot_on_dof_mismatch():
+    # simple_arm.urdf has exactly 2 active joints; dof_per_arm=5 mismatches
+    # it, mirroring stage4_fk_consistency.py's identical guard -- this is
+    # also routed through the "FK unavailable" path, not a full skip.
     action = [0.0, 0.0, 0.0, 0.0, 0.0, 0.6]
-    episode = _single_arm_episode_with_action(action)
+    episode = _action_episode(action)
     config = ProcessConfig(
         id="x", action_space="joint_position", action_frame="delta",
         urdf_available=True, urdf_path=URDF_PATH, dof_per_arm=5, num_arms=1, gripper_type="parallel_jaw",
     )
     result = apply_action(episode, config)
-    assert result.skip_reason == "fk_not_available_for_joint_action"
+    assert result.skip_reason is None
+    assert result.stats["eef_slot_skip_reason"] == "fk_not_available_for_joint_action"
+    canonical = result.stats["action_canonical"]
+    mask = result.stats["action_canonical_mask"]
+    assert np.allclose(canonical[:, 0:5], [0.0, 0.0, 0.0, 0.0, 0.0])
+    assert np.all(mask[0:5])
+    assert not np.any(mask[7:13])
 
 
 def test_apply_action_dual_arm_packs_into_correct_blocks():
-    # 2 arms x 8 action cols each (eef_pos(3)+eef_quat(4)+gripper(1)) = 16.
     num_frames = 2
     action = np.zeros((num_frames, 16))
     action[:, 0:3] = [1.0, 2.0, 3.0]
@@ -360,20 +392,22 @@ def test_apply_action_dual_arm_packs_into_correct_blocks():
     action[:, 8:11] = [4.0, 5.0, 6.0]
     action[:, 11:15] = [0.0, 0.0, 0.0, 1.0]
     action[:, 15] = 0.9
-    state = np.zeros((num_frames, 28))  # 2 arms x 14 state cols each, unused by delta frame
-    episode = Episode(episode_index=0, timestamps=np.arange(num_frames, dtype=np.float64), state=state, action=action)
+    episode = _action_episode(action)
     config = ProcessConfig(id="x", action_space="eef_pose", action_frame="delta", num_arms=2, gripper_type="parallel_jaw")
     result = apply_action(episode, config)
     assert result.skip_reason is None
     canonical = result.stats["action_canonical"]
     mask = result.stats["action_canonical_mask"]
-    assert canonical.shape == (num_frames, 54)
-    assert np.allclose(canonical[:, 0:3], [1.0, 2.0, 3.0])
-    assert np.allclose(canonical[:, 6], 0.5)
-    assert np.allclose(canonical[:, 27:30], [4.0, 5.0, 6.0])
-    assert np.allclose(canonical[:, 33], 0.9)
-    assert np.all(mask[0:7])
-    assert np.all(mask[27:34])
+    assert canonical.shape == (num_frames, 128)
+    assert np.allclose(canonical[:, 7:10], [1.0, 2.0, 3.0])
+    assert np.allclose(canonical[:, 14], 0.5)
+    assert np.allclose(canonical[:, 42:45], [4.0, 5.0, 6.0])
+    assert np.allclose(canonical[:, 49], 0.9)
+    assert np.all(mask[7:13])
+    assert mask[14]
+    assert np.all(mask[42:48])
+    assert mask[49]
+    assert not np.any(mask[70:128])  # reserve untouched
 
 
 def test_apply_action_zero_frames_episode_does_not_crash():
@@ -383,4 +417,4 @@ def test_apply_action_zero_frames_episode_does_not_crash():
     config = ProcessConfig(id="x", action_space="eef_pose", action_frame="delta", num_arms=1, gripper_type="parallel_jaw")
     result = apply_action(episode, config)
     assert result.skip_reason is None
-    assert result.stats["action_canonical"].shape == (0, 54)
+    assert result.stats["action_canonical"].shape == (0, 128)

@@ -58,10 +58,11 @@ ROBOT_EMBODIMENT_CLASSES: Set[str] = {
 }
 SIMPLE_GRIPPER_TYPES: Set[str] = {"parallel_jaw", "three_jaw", "cage_pinch", "suction"}
 
+ACTION_JOINT_SLOT = 7
 ACTION_EEF_POS_SLOT = 3
 ACTION_EEF_ROT_SLOT = 3
-ACTION_ARM_BLOCK_DIM = ACTION_EEF_POS_SLOT + ACTION_EEF_ROT_SLOT + GRIPPER_SLOT  # 27
-ACTION_CANONICAL_DIM = 2 * ACTION_ARM_BLOCK_DIM  # 54
+ACTION_ARM_BLOCK_DIM = ACTION_JOINT_SLOT + ACTION_EEF_POS_SLOT + ACTION_EEF_ROT_SLOT + 1 + GRIPPER_SLOT  # 35
+ACTION_CANONICAL_DIM = 128
 
 SUPPORTED_ACTION_SPACES: Set[str] = {"eef_pose", "joint_position"}
 SUPPORTED_ACTION_FRAMES: Set[str] = {"delta", "absolute"}
@@ -166,101 +167,129 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
 
 
 def apply_action(episode: Episode, config: ProcessConfig) -> StageResult:
-    """Cross-embodiment canonical 54-dim action projection (design doc
-    docs/superpowers/specs/2026-07-27-action-canonicalization-design.md).
-    Independent numbering from apply()'s 128-dim state layout -- see that
-    design doc section 3 for why offsets are not shared. Assumes action/
-    state rotation columns are already quaternion (same upstream-staging
-    contract apply()'s module docstring already documents for state).
+    """Cross-embodiment canonical 128-dim action projection (design doc
+    docs/superpowers/specs/2026-07-30-action-canonicalization-128dim-design.md).
+    Independent numbering from apply()'s 128-dim state layout -- offsets are
+    not shared, only some constant widths coincide numerically (both layers
+    are joint(7)+eef(7)+gripper(21)=35 per arm). Assumes action/state
+    rotation columns are already quaternion (same upstream-staging contract
+    apply()'s module docstring documents for state).
+
+    Unlike the state layer, the joint slot and eef slot populate somewhat
+    independently: the joint slot never needs forward kinematics (it's a
+    direct or state-subtracted copy of the raw joint action), so an
+    unavailable/mismatched URDF only leaves the eef slot at zero/mask=False
+    (recorded via stats["eef_slot_skip_reason"]) rather than skipping the
+    whole episode's action canonicalization.
 
     Must be called with the SAME episode apply() was just called with,
     before episode.state is replaced with canonical_state -- this function
-    reads episode.state's original per-dataset eef pose (via
+    reads episode.state's original per-dataset eef/joint values (via
     _state_arm_slice) to compute action_frame="absolute" deltas.
     """
     if config.action_space not in SUPPORTED_ACTION_SPACES:
         return StageResult(episode=episode, skip_reason="action_space_not_supported")
+    if config.action_frame not in SUPPORTED_ACTION_FRAMES:
+        return StageResult(episode=episode, skip_reason="action_frame_not_supported")
 
     dof_per_arm = max(config.dof_per_arm or 0, 0)
     num_arms = max(1, min(config.num_arms, 2))
 
-    # Gate order matches the design doc's pseudocode precedence exactly
-    # (action_space -> joint_position/FK feasibility -> action_frame), so
-    # when multiple gates fail at once the reported skip_reason is the same
-    # one the design doc's pseudocode would report first.
     chain = None
+    fk_available = True
     if config.action_space == "joint_position":
         if not config.urdf_available or not config.urdf_path:
-            return StageResult(episode=episode, skip_reason="fk_not_available_for_joint_action")
-        try:
-            chain = FkChain(config.urdf_path)
-        except ValueError:
-            # See stage4_fk_consistency.py's identical except-clause: a URDF
-            # whose structure doesn't match ikpy's assumptions is a property
-            # of the dataset's URDF, not a bug in this pipeline.
-            return StageResult(episode=episode, skip_reason="fk_not_available_for_joint_action")
-        if dof_per_arm != len(chain._active_link_indices):
-            return StageResult(episode=episode, skip_reason="fk_not_available_for_joint_action")
-
-    if config.action_frame not in SUPPORTED_ACTION_FRAMES:
-        return StageResult(episode=episode, skip_reason="action_frame_not_supported")
+            fk_available = False
+        else:
+            try:
+                chain = FkChain(config.urdf_path)
+            except ValueError:
+                # See stage4_fk_consistency.py's identical except-clause: a
+                # URDF whose structure doesn't match ikpy's assumptions is a
+                # property of the dataset's URDF, not a bug in this pipeline.
+                fk_available = False
+            else:
+                if dof_per_arm != len(chain._active_link_indices):
+                    fk_available = False
+                    chain = None
 
     num_frames = episode.action.shape[0]
     action_canonical = np.zeros((num_frames, ACTION_CANONICAL_DIM), dtype=np.float64)
     mask = np.zeros(ACTION_CANONICAL_DIM, dtype=bool)
     action_cols_per_arm = episode.action.shape[1] // num_arms
 
+    stats = {
+        "action_canonical": action_canonical,
+        "action_canonical_mask": mask,
+        "action_canonical_dim": ACTION_CANONICAL_DIM,
+    }
+
     for arm_idx in range(num_arms):
         start = arm_idx * action_cols_per_arm
         arm_action_cols = episode.action[:, start:start + action_cols_per_arm]
+        offset = arm_idx * ACTION_ARM_BLOCK_DIM
 
         if config.action_space == "joint_position":
             joint_action_cols = arm_action_cols[:, :dof_per_arm]
             gripper_action_cols = arm_action_cols[:, dof_per_arm:]
-            target_pos = np.zeros((num_frames, 3))
-            target_quat = np.zeros((num_frames, 4))
-            target_quat[:, 3] = 1.0
-            for t in range(num_frames):
-                pos, quat = chain.forward(joint_action_cols[t])
-                target_pos[t] = pos
-                target_quat[t] = quat
         else:  # eef_pose
-            target_pos = arm_action_cols[:, :3]
-            target_quat = arm_action_cols[:, 3:7]
+            joint_action_cols = None
             gripper_action_cols = arm_action_cols[:, 7:]
 
-        target_rotvec = Rotation.from_quat(target_quat).as_rotvec()
+        # --- joint slot: no FK needed, populates whenever raw joint columns exist ---
+        if joint_action_cols is not None:
+            joint_width = min(joint_action_cols.shape[1], ACTION_JOINT_SLOT)
+            if joint_width > 0:
+                if config.action_frame == "delta":
+                    joint_values = joint_action_cols[:, :joint_width]
+                else:  # absolute
+                    state_arm_cols = _state_arm_slice(episode, config, arm_idx, num_arms)
+                    joint_values = joint_action_cols[:, :joint_width] - state_arm_cols[:, :joint_width]
+                action_canonical[:, offset:offset + joint_width] = joint_values
+                mask[offset:offset + joint_width] = True
 
-        if config.action_frame == "delta":
-            pos_delta = target_pos
-            rot_delta = target_rotvec
-        else:  # absolute
-            state_arm_cols = _state_arm_slice(episode, config, arm_idx, num_arms)
-            state_eef_pos = state_arm_cols[:, dof_per_arm:dof_per_arm + 3]
-            state_eef_quat = state_arm_cols[:, dof_per_arm + 3:dof_per_arm + 7]
-            pos_delta = target_pos - state_eef_pos
-            rot_delta = (Rotation.from_quat(target_quat) * Rotation.from_quat(state_eef_quat).inv()).as_rotvec()
+        # --- eef slot: needs FK when action_space is joint_position ---
+        eef_offset = offset + ACTION_JOINT_SLOT
+        if config.action_space == "joint_position" and not fk_available:
+            stats["eef_slot_skip_reason"] = "fk_not_available_for_joint_action"
+        else:
+            if config.action_space == "joint_position":
+                target_pos = np.zeros((num_frames, 3))
+                target_quat = np.zeros((num_frames, 4))
+                target_quat[:, 3] = 1.0
+                for t in range(num_frames):
+                    pos, quat = chain.forward(joint_action_cols[t])
+                    target_pos[t] = pos
+                    target_quat[t] = quat
+            else:  # eef_pose
+                target_pos = arm_action_cols[:, :3]
+                target_quat = arm_action_cols[:, 3:7]
 
-        offset = arm_idx * ACTION_ARM_BLOCK_DIM
-        pos_width = min(pos_delta.shape[1], ACTION_EEF_POS_SLOT)
-        if pos_width > 0:
-            action_canonical[:, offset:offset + pos_width] = pos_delta[:, :pos_width]
-            mask[offset:offset + pos_width] = True
+            target_rotvec = Rotation.from_quat(target_quat).as_rotvec()
 
-        rot_offset = offset + ACTION_EEF_POS_SLOT
-        rot_width = min(rot_delta.shape[1], ACTION_EEF_ROT_SLOT)
-        if rot_width > 0:
-            action_canonical[:, rot_offset:rot_offset + rot_width] = rot_delta[:, :rot_width]
-            mask[rot_offset:rot_offset + rot_width] = True
+            if config.action_frame == "delta":
+                pos_delta = target_pos
+                rot_delta = target_rotvec
+            else:  # absolute
+                state_arm_cols = _state_arm_slice(episode, config, arm_idx, num_arms)
+                state_eef_pos = state_arm_cols[:, dof_per_arm:dof_per_arm + 3]
+                state_eef_quat = state_arm_cols[:, dof_per_arm + 3:dof_per_arm + 7]
+                pos_delta = target_pos - state_eef_pos
+                rot_delta = (Rotation.from_quat(target_quat) * Rotation.from_quat(state_eef_quat).inv()).as_rotvec()
 
-        gripper_offset = offset + ACTION_EEF_POS_SLOT + ACTION_EEF_ROT_SLOT
+            pos_width = min(pos_delta.shape[1], ACTION_EEF_POS_SLOT)
+            if pos_width > 0:
+                action_canonical[:, eef_offset:eef_offset + pos_width] = pos_delta[:, :pos_width]
+                mask[eef_offset:eef_offset + pos_width] = True
+
+            rot_offset = eef_offset + ACTION_EEF_POS_SLOT
+            rot_width = min(rot_delta.shape[1], ACTION_EEF_ROT_SLOT)
+            if rot_width > 0:
+                action_canonical[:, rot_offset:rot_offset + rot_width] = rot_delta[:, :rot_width]
+                mask[rot_offset:rot_offset + rot_width] = True
+
+        # --- gripper slot: never depends on FK ---
+        gripper_offset = eef_offset + ACTION_EEF_POS_SLOT + ACTION_EEF_ROT_SLOT + 1
         _pack_gripper(action_canonical, mask, gripper_offset, gripper_action_cols, config.gripper_type)
 
-    return StageResult(
-        episode=episode,
-        stats={
-            "action_canonical": action_canonical,
-            "action_canonical_mask": mask,
-            "action_canonical_dim": ACTION_CANONICAL_DIM,
-        },
-    )
+    return StageResult(episode=episode, stats=stats)
