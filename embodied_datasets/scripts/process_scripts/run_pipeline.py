@@ -58,6 +58,7 @@ def run_dataset(input_path: Path, output_path: Path, process_config_path: Path) 
     # so it's captured once from whichever episode's result first produces
     # it (non-skipped) rather than threaded through every Episode object.
     canonical_mask: Optional[np.ndarray] = None
+    action_canonical_mask: Optional[np.ndarray] = None
     for episode in survivors:
         result = stage3_extreme_value.apply(episode, config)
         log.append(("stage3_extreme_value", episode.episode_index, result.skip_reason, result.rejected))
@@ -93,6 +94,15 @@ def run_dataset(input_path: Path, output_path: Path, process_config_path: Path) 
         log.append(("unify_representation", episode.episode_index, result.skip_reason, result.rejected))
         episode = result.episode
 
+        # apply_action() must run BEFORE episode.state is replaced with
+        # canonical_state below -- it reads episode.state's *original*
+        # per-dataset eef pose (for action_frame="absolute" deltas), which
+        # only exists prior to that replacement. apply() itself never
+        # mutates episode.state (see its own docstring/contract), so
+        # episode.state here is still the untouched original.
+        action_result = unify_representation.apply_action(episode, config)
+        log.append(("unify_representation_action", episode.episode_index, action_result.skip_reason, action_result.rejected))
+
         # For robot-collected embodiment classes (result.skip_reason is None),
         # unify_representation computes a cross-embodiment canonical 128-dim
         # projection of episode.state but does NOT itself replace
@@ -102,17 +112,24 @@ def run_dataset(input_path: Path, output_path: Path, process_config_path: Path) 
         # than in unify_representation.apply, keeps that module's contract
         # (compute, don't mutate) and makes this the single place that
         # decides what actually gets written to the output dataset.
-        # episode.action is explicitly left untouched -- Task 15 only
-        # canonicalizes state, by design.
         if result.skip_reason is None:
             episode = replace(episode, state=result.stats["canonical_state"])
             if canonical_mask is None:
                 canonical_mask = result.stats["canonical_mask"]
 
+        # Same compute-don't-mutate contract as the state branch above.
+        if action_result.skip_reason is None:
+            episode = replace(episode, action=action_result.stats["action_canonical"])
+            if action_canonical_mask is None:
+                action_canonical_mask = action_result.stats["action_canonical_mask"]
+
         final_episodes.append(episode)
 
     if final_episodes:
-        write_lerobot_episodes(final_episodes, output_path, fps=fps, robot_type=config.id, canonical_mask=canonical_mask)
+        write_lerobot_episodes(
+            final_episodes, output_path, fps=fps, robot_type=config.id,
+            canonical_mask=canonical_mask, action_canonical_mask=action_canonical_mask,
+        )
 
     total_frames = sum(ep.state.shape[0] for ep in final_episodes)
     return {

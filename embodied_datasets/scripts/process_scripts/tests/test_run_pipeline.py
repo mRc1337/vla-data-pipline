@@ -286,6 +286,60 @@ def test_run_dataset_leaves_state_unchanged_for_non_robot_embodiment(tmp_path):
     assert "observation.state_canonical_mask" not in row0
 
 
+def test_run_dataset_replaces_action_with_canonical_54dim_when_configured(tmp_path):
+    """apply_action's canonical action (when not skipped) must replace
+    episode.action before writing, and its mask must be written as an
+    independent action_canonical_mask feature -- mirroring how
+    test_run_dataset_replaces_state_with_canonical_128dim_for_robot_embodiment
+    already covers the state side."""
+    import numpy as np
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    from tests.fixtures import make_synthetic_dataset
+    from run_pipeline import run_dataset
+    from common.io import save_process_config
+    from common.schema import ProcessConfig
+
+    staging_path = tmp_path / "staging"
+    # action_dim=8 matches single-arm eef_pose layout: 3 eef_pos + 4 eef_quat + 1 gripper.
+    make_synthetic_dataset(staging_path, repo_id="test/canon_action", num_episodes=2, num_frames=10, state_dim=14, action_dim=8, fps=10.0)
+
+    config_path = tmp_path / "config.yaml"
+    save_process_config(
+        ProcessConfig(
+            id="canon_action_test",
+            episode_reject_threshold=0.9,
+            residual_threshold=5.0,
+            accel_threshold=5.0,
+            jerk_threshold=5.0,
+            da_threshold=0.0,
+            max_lag_frames=10,
+            quantile_low=0.0,
+            quantile_high=1.0,
+            embodiment_class="single_arm",
+            num_arms=1,
+            dof_per_arm=6,
+            gripper_type="parallel_jaw",
+            action_space="eef_pose",
+            action_frame="delta",
+        ),
+        config_path,
+    )
+
+    output_path = tmp_path / "output"
+    stats = run_dataset(staging_path, output_path, config_path)
+
+    assert stats["output_episodes"] == 2
+
+    reloaded = LeRobotDataset(repo_id=output_path.name, root=output_path)
+    row0 = reloaded[0]
+    assert tuple(row0["action"].shape) == (54,)
+    assert "action_canonical_mask" in row0
+    mask = row0["action_canonical_mask"].numpy().astype(bool)
+    assert np.all(mask[0:7])
+    assert not np.any(mask[27:54])
+
+
 def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_path):
     """Reproduces the original crash: main() used to unconditionally write
     `output_path / "README.md"` even though run_dataset() never created
