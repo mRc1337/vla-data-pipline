@@ -98,43 +98,24 @@ observation.state_canonical_mask   # bool, shape (128,)，每帧写入，整数�
 
 ### action：128维canonical向量
 
-`unify_representation.apply_action()` 只统一 `action_space ∈ {eef_pose,
-joint_position}`且 `action_frame ∈ {delta, absolute}` 的情况——两个条件任一
-不满足，整条episode的 `action` 保持原始per-dataset维度，不进入canonical层。
-`action_space=joint_position` 时用 `fk_backend.FkChain` 把关节动作正向运动学
-换算成绝对eef目标位姿；`action_frame=absolute` 时用目标值减去同帧
-`episode.state` 里的原始（未canonical化）当前值算出delta。旋转统一换算成
-axis-angle。
-
-128维固定总维度，按下表切片：
+128 维 canonical 向量固定总维度 128，按下表切片：
 
 | 子区间 | 维度 | 内容 | 常量名 |
 |---|---|---|---|
-| `[0:7]` | 7 | joint delta/绝对值（跟着`action_frame`走），只在`action_space=joint_position`时populate | `ACTION_JOINT_SLOT` |
+| `[0:7]` | 7 | joint delta/绝对值 | `ACTION_JOINT_SLOT` |
 | `[7:10]` | 3 | 末端位置delta | `ACTION_EEF_POS_SLOT` |
 | `[10:13]` | 3 | 末端旋转delta（axis-angle） | `ACTION_EEF_ROT_SLOT` |
-| `[13:14]` | 1 | 恒为0，不使用（凑齐eef子块宽度） | 无命名 |
-| `[14:35]` | 21 | 夹爪/灵巧手action目标值 | `GRIPPER_SLOT`（跟state层同名常量共用宽度值） |
+| `[13:14]` | 1 | 恒为0，不使用 | 无命名 |
+| `[14:35]` | 21 | 夹爪/灵巧手 | `GRIPPER_SLOT` |
 | `[35:70]`（仅双臂数据集） | 35 | ARM2，结构与 `[0:35]` 相同 | `ACTION_ARM_BLOCK_DIM` |
 | `[70:128]` | 58 | 预留，当前恒为0 | 无命名 |
 
-同样有一个128维 bool mask，作为独立 lerobot feature 写入：
+`unify_representation.apply_action()` 除计算128维向量外，还计算一个128维 bool
+mask。该mask 作为独立的 lerobot feature 写入最终数据集：
 
 ```
 action_canonical_mask   # bool, shape (128,)，每帧写入，整数据集内容相同
 ```
 
-`joint_velocity`/`joint_torque`/`discrete_symbolic`/`mixed`/`unknown` 的
-`action_space`，以及 `both`/`relative_trajectory`/`mixed_delta_absolute`/`unknown`
-的 `action_frame`，永远跳过这一层，不猜语义。
-
-补充说明：
-
-- `urdf_available` 与 `fk_check_feasible` 是两个独立字段：`apply_action()` 的
-  joint_position 分支只看 `config.urdf_available`，而更早的 `stage4_fk_consistency.py`
-  的FK一致性检查只看 `config.fk_check_feasible`——两者都读同一个 `config.urdf_path`，
-  但需要分别显式设置；只设置其中一个会导致stage4的FK检查和action层canonicalization
-  行为不一致（一个跑一个跳过），且不会报错。
-- `action_space`/`action_frame` 不设置（默认值 `None`）同样会跳过这一层：`None` 不在
-  上述支持的取值集合里，效果等同于显式设成不支持的值——如果config author忘记设置这两个
-  字段，`action` 会一直停留在原始per-dataset维度，不会有任何报错提示。
+`mask[i]=False` 表示第 i 维是该本体不具备对应自由度的零填充，而非测量值为0。训练时
+应使用该 mask 过滤loss/attention。
