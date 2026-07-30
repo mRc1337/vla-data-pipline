@@ -75,3 +75,5 @@ class ProcessConfig(BaseModel):
     dof_per_arm: Optional[int] = None
     gripper_type: str = "unknown"
     has_mobile_base: bool = False
+    action_space: Optional[str] = None
+    action_frame: Optional[str] = None

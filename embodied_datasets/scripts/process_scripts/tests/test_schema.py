@@ -46,6 +46,8 @@ def test_process_config_requires_id():
     assert config.dof_per_arm is None
     assert config.gripper_type == "unknown"
     assert config.has_mobile_base is False
+    assert config.action_space is None
+    assert config.action_frame is None
 
 
 def test_process_config_accepts_fps():
@@ -102,3 +104,9 @@ def test_process_config_sam3_text_prompt_defaults_to_robot_gripper():
     assert config.sam3_text_prompt == "robot gripper"
     assert config.sam3_model_id is None
     assert config.sam3_hf_token_env is None
+
+
+def test_process_config_accepts_action_fields():
+    config = ProcessConfig(id="x", action_space="eef_pose", action_frame="delta")
+    assert config.action_space == "eef_pose"
+    assert config.action_frame == "delta"
