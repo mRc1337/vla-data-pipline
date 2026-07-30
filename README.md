@@ -124,3 +124,18 @@ action_canonical_mask   # bool, shape (54,)，每帧写入，整数据集内容�
 `joint_velocity`/`joint_torque`/`discrete_symbolic`/`mixed`/`unknown` 的
 `action_space`，以及 `both`/`relative_trajectory`/`mixed_delta_absolute`/`unknown`
 的 `action_frame`，永远跳过这一层，不猜语义。
+
+补充说明：
+
+- `urdf_available` 与 `fk_check_feasible` 是两个独立字段：`apply_action()` 的
+  joint_position 分支只看 `config.urdf_available`，而更早的 `stage4_fk_consistency.py`
+  的FK一致性检查只看 `config.fk_check_feasible`——两者都读同一个 `config.urdf_path`，
+  但需要分别显式设置；只设置其中一个会导致stage4的FK检查和action层canonicalization
+  行为不一致（一个跑一个跳过），且不会报错。
+- `action_space`/`action_frame` 不设置（默认值 `None`）同样会跳过这一层：`None` 不在
+  上述支持的取值集合里，效果等同于显式设成不支持的值——如果config author忘记设置这两个
+  字段，`action` 会一直停留在原始per-dataset维度，不会有任何报错提示。
+- `action_frame=absolute` 分支依赖 `config.dof_per_arm` 的准确性：它通过
+  `_state_arm_slice` 按 `dof_per_arm` 推算的offset去读 `episode.state` 里的当前eef位姿，
+  `dof_per_arm` 未设置（默认0）或设错都会导致读到错误的列、静默算出无意义的delta且不报错
+  ——这与state层 `apply()` 模块docstring里已经记录的 `dof_per_arm` 已知局限是同一类风险。
