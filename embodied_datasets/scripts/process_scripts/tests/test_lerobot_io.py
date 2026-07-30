@@ -298,3 +298,59 @@ def test_load_lerobot_episodes_raises_on_inconsistent_per_frame_intrinsics(tmp_p
 
     with pytest.raises(ValueError, match="inconsistent per-frame"):
         load_lerobot_episodes(dataset_root)
+
+
+def test_write_lerobot_episodes_with_action_canonical_mask_adds_mask_feature(tmp_path: Path):
+    from episode import Episode
+    from lerobot_io import write_lerobot_episodes
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    mask = np.zeros(54, dtype=bool)
+    mask[:7] = True
+    episodes = [
+        Episode(
+            episode_index=0,
+            timestamps=np.arange(4, dtype=np.float64) / 10.0,
+            state=np.zeros((4, 14), dtype=np.float32),
+            action=np.zeros((4, 8), dtype=np.float32),
+        ),
+    ]
+    output_path = tmp_path / "written_action_mask_ds"
+    write_lerobot_episodes(episodes, output_path, fps=10.0, robot_type="test_robot", action_canonical_mask=mask)
+
+    reloaded = LeRobotDataset(repo_id=output_path.name, root=output_path)
+    row = reloaded[0]
+    assert "action_canonical_mask" in row
+    written_mask = row["action_canonical_mask"].numpy().astype(bool)
+    assert written_mask.shape == (54,)
+    assert np.array_equal(written_mask, mask)
+    assert "observation.state_canonical_mask" not in row
+
+
+def test_write_lerobot_episodes_supports_both_masks_independently(tmp_path: Path):
+    from episode import Episode
+    from lerobot_io import write_lerobot_episodes
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    state_mask = np.zeros(128, dtype=bool)
+    state_mask[:14] = True
+    action_mask = np.zeros(54, dtype=bool)
+    action_mask[:7] = True
+    episodes = [
+        Episode(
+            episode_index=0,
+            timestamps=np.arange(3, dtype=np.float64) / 10.0,
+            state=np.zeros((3, 128), dtype=np.float32),
+            action=np.zeros((3, 54), dtype=np.float32),
+        ),
+    ]
+    output_path = tmp_path / "written_both_masks_ds"
+    write_lerobot_episodes(
+        episodes, output_path, fps=10.0, robot_type="test_robot",
+        canonical_mask=state_mask, action_canonical_mask=action_mask,
+    )
+
+    reloaded = LeRobotDataset(repo_id=output_path.name, root=output_path)
+    row = reloaded[0]
+    assert np.array_equal(row["observation.state_canonical_mask"].numpy().astype(bool), state_mask)
+    assert np.array_equal(row["action_canonical_mask"].numpy().astype(bool), action_mask)

@@ -164,6 +164,7 @@ def write_lerobot_episodes(
     fps: float,
     robot_type: str,
     canonical_mask: Optional[np.ndarray] = None,
+    action_canonical_mask: Optional[np.ndarray] = None,
 ) -> None:
     """Write `episodes` out as a new lerobot dataset rooted at `output_path`.
 
@@ -175,6 +176,13 @@ def write_lerobot_episodes(
     constant value in instead. When `canonical_mask` is None (the default),
     no such feature is added, preserving the pre-existing single-feature
     schema for every caller that doesn't pass it.
+
+    `action_canonical_mask` is the analogous dataset-constant 1-D bool array
+    for the action layer (see unify_representation.py's
+    `StageResult.stats["action_canonical_mask"]` from `apply_action()`),
+    written as its own extra per-frame feature ("action_canonical_mask").
+    Independent of `canonical_mask` -- either, both, or neither may be
+    passed.
     """
     if not episodes:
         return
@@ -189,6 +197,13 @@ def write_lerobot_episodes(
         features["observation.state_canonical_mask"] = {
             "dtype": "bool",
             "shape": (canonical_mask.shape[0],),
+            "names": None,
+        }
+    if action_canonical_mask is not None:
+        action_canonical_mask = np.asarray(action_canonical_mask, dtype=bool)
+        features["action_canonical_mask"] = {
+            "dtype": "bool",
+            "shape": (action_canonical_mask.shape[0],),
             "names": None,
         }
     dataset = LeRobotDataset.create(
@@ -208,6 +223,8 @@ def write_lerobot_episodes(
             }
             if canonical_mask is not None:
                 frame["observation.state_canonical_mask"] = canonical_mask
+            if action_canonical_mask is not None:
+                frame["action_canonical_mask"] = action_canonical_mask
             dataset.add_frame(frame)
         dataset.save_episode()
     dataset.finalize()
