@@ -57,6 +57,21 @@ ROBOT_EMBODIMENT_CLASSES: Set[str] = {
 SIMPLE_GRIPPER_TYPES: Set[str] = {"parallel_jaw", "three_jaw", "cage_pinch", "suction"}
 
 
+def _pack_gripper(canonical: np.ndarray, mask: np.ndarray, offset: int, gripper_cols: np.ndarray, gripper_type: str) -> None:
+    """Packs up to GRIPPER_SLOT columns of gripper/hand data at
+    canonical[:, offset:offset+width]. Shared by the state layer's
+    _pack_arm and the action layer's apply_action()."""
+    if gripper_type in SIMPLE_GRIPPER_TYPES:
+        width = min(gripper_cols.shape[1], 1)
+    elif gripper_type == "dexterous_hand":
+        width = min(gripper_cols.shape[1], GRIPPER_SLOT)
+    else:
+        width = 0
+    if width > 0:
+        canonical[:, offset:offset + width] = gripper_cols[:, :width]
+        mask[offset:offset + width] = True
+
+
 def _pack_arm(canonical: np.ndarray, mask: np.ndarray, offset: int, arm_cols: np.ndarray, dof_per_arm: int, gripper_type: str) -> None:
     # Slice first, then derive width from the *actual* slice (not from
     # dof_per_arm/JOINT_SLOT/EEF_SLOT directly): if arm_cols has fewer
@@ -86,15 +101,29 @@ def _pack_arm(canonical: np.ndarray, mask: np.ndarray, offset: int, arm_cols: np
     gripper_start = eef_start + EEF_SLOT
     gripper_cols = arm_cols[:, gripper_start:]
     gripper_offset = eef_offset + EEF_SLOT
-    if gripper_type in SIMPLE_GRIPPER_TYPES:
-        width = min(gripper_cols.shape[1], 1)
-    elif gripper_type == "dexterous_hand":
-        width = min(gripper_cols.shape[1], GRIPPER_SLOT)
-    else:
-        width = 0
-    if width > 0:
-        canonical[:, gripper_offset:gripper_offset + width] = gripper_cols[:, :width]
-        mask[gripper_offset:gripper_offset + width] = True
+    _pack_gripper(canonical, mask, gripper_offset, gripper_cols, gripper_type)
+
+
+def _state_arm_slice(episode: Episode, config: ProcessConfig, arm_idx: int, num_arms: int) -> np.ndarray:
+    """Returns arm `arm_idx`'s raw per-dataset state columns, using the same
+    mobile-base carve-out + equal-division convention apply() uses. Shared
+    by apply() and apply_action() -- the latter needs each arm's *original*
+    reported eef pose from episode.state to compute action_frame="absolute"
+    deltas, which must use this exact same column-slicing convention.
+
+    The mobile-base vx/vy/yaw columns (when present) are appended AFTER all
+    arm columns in episode.state, and must be carved out of the total width
+    BEFORE dividing the remainder among arms -- otherwise they'd shift
+    cols_per_arm and corrupt the arm/gripper packing. Mobile-base velocity
+    itself has no slot in the canonical layout (folded into the [70:128]
+    reserve, not yet implemented), so the carved-out values are discarded
+    rather than written anywhere.
+    """
+    mobile_base_width = 3 if config.has_mobile_base else 0
+    arm_cols_total = max(episode.state.shape[1] - mobile_base_width, 0)
+    cols_per_arm = arm_cols_total // num_arms
+    start = arm_idx * cols_per_arm
+    return episode.state[:, start:start + cols_per_arm]
 
 
 def apply(episode: Episode, config: ProcessConfig) -> StageResult:
@@ -115,20 +144,9 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
     # 2", not "0 columns"), producing a width mismatch crash in _pack_arm.
     dof_per_arm = max(config.dof_per_arm or 0, 0)
     num_arms = max(1, min(config.num_arms, 2))
-    # The mobile-base vx/vy/yaw columns (when present) are appended AFTER
-    # all arm columns in episode.state, and must be carved out of the total
-    # width BEFORE dividing the remainder among arms -- otherwise they'd
-    # shift cols_per_arm and corrupt the arm/gripper packing above. Mobile-
-    # base velocity itself has no slot in the canonical layout (folded into
-    # the [70:128] reserve, not yet implemented), so the carved-out values
-    # are discarded rather than written anywhere.
-    mobile_base_width = 3 if config.has_mobile_base else 0
-    arm_cols_total = max(episode.state.shape[1] - mobile_base_width, 0)
-    cols_per_arm = arm_cols_total // num_arms
 
     for arm_idx in range(num_arms):
-        start = arm_idx * cols_per_arm
-        arm_cols = episode.state[:, start:start + cols_per_arm]
+        arm_cols = _state_arm_slice(episode, config, arm_idx, num_arms)
         _pack_arm(canonical, mask, arm_idx * ARM_BLOCK_DIM, arm_cols, dof_per_arm, config.gripper_type)
 
     return StageResult(
