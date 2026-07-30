@@ -286,7 +286,7 @@ def test_run_dataset_leaves_state_unchanged_for_non_robot_embodiment(tmp_path):
     assert "observation.state_canonical_mask" not in row0
 
 
-def test_run_dataset_replaces_action_with_canonical_54dim_when_configured(tmp_path):
+def test_run_dataset_replaces_action_with_canonical_128dim_when_configured(tmp_path):
     """apply_action's canonical action (when not skipped) must replace
     episode.action before writing, and its mask must be written as an
     independent action_canonical_mask feature -- mirroring how
@@ -333,11 +333,12 @@ def test_run_dataset_replaces_action_with_canonical_54dim_when_configured(tmp_pa
 
     reloaded = LeRobotDataset(repo_id=output_path.name, root=output_path)
     row0 = reloaded[0]
-    assert tuple(row0["action"].shape) == (54,)
+    assert tuple(row0["action"].shape) == (128,)
     assert "action_canonical_mask" in row0
     mask = row0["action_canonical_mask"].numpy().astype(bool)
-    assert np.all(mask[0:7])
-    assert not np.any(mask[27:54])
+    assert not np.any(mask[0:7])  # eef_pose: no joint data
+    assert np.all(mask[7:13])
+    assert not np.any(mask[35:128])  # single arm: arm2 block + reserve untouched
 
 
 def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_path):

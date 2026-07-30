@@ -96,29 +96,40 @@ observation.state_canonical_mask   # bool, shape (128,)，每帧写入，整数�
 `mask[i]=False` 表示第 i 维是该本体不具备对应自由度的零填充，而非测量值为0。训练时
 应使用该 mask 过滤loss/attention。
 
-### action：54维canonical向量
+### action：128维canonical向量
 
 `unify_representation.apply_action()` 只统一 `action_space ∈ {eef_pose,
-joint_position}`（`joint_position` 还要求 `urdf_available=true` 且 URDF能正常解析）
-且 `action_frame ∈ {delta, absolute}` 的情况——两个条件任一不满足，整条episode的
-`action` 保持原始per-dataset维度，不进入canonical层。`action_space=joint_position`
-时用 `fk_backend.FkChain` 把关节动作正向运动学换算成绝对eef目标位姿；
-`action_frame=absolute` 时用目标位姿减去同帧 `episode.state` 里的原始（未canonical化）
-eef位姿算出delta。旋转统一换算成axis-angle。
+joint_position}`且 `action_frame ∈ {delta, absolute}` 的情况——两个条件任一
+不满足，整条episode的 `action` 保持原始per-dataset维度，不进入canonical层。
+`action_space=joint_position` 时用 `fk_backend.FkChain` 把关节动作正向运动学
+换算成绝对eef目标位姿；`action_frame=absolute` 时用目标值减去同帧
+`episode.state` 里的原始（未canonical化）当前值算出delta。旋转统一换算成
+axis-angle。
 
-54维固定总维度，是独立于state层128维的另一套编号（两者不共享offset，含义不对应）：
+跟state层不同的是，`action_space=joint_position` 但URDF不可用/解析失败/
+`dof_per_arm`跟URDF实际关节数不匹配时，**不会**让整条episode的action跳过
+canonical层——因为joint槎位本身不需要FK。这时joint槎位正常写入，eef槎位
+留空（`mask=False`），`stats["eef_slot_skip_reason"]="fk_not_available_for_joint_action"`
+记录这个降级信息，但顶层 `skip_reason` 仍是 `None`，最终写入的 `action` 仍是
+这个（joint有数据、eef为空）的128维向量。夹爪槎位不依赖FK，始终正常写入。
+
+128维固定总维度，是独立于state层128维的另一套编号（两者不共享offset，含义不
+对应，只是两层结构都是"joint+eef+gripper"导致部分常量数值巧合相同）：
 
 | 子区间 | 维度 | 内容 | 常量名 |
 |---|---|---|---|
-| `[0:3]` | 3 | 末端位置delta | `ACTION_EEF_POS_SLOT` |
-| `[3:6]` | 3 | 末端旋转delta（axis-angle） | `ACTION_EEF_ROT_SLOT` |
-| `[6:27]` | 21 | 夹爪/灵巧手action目标值 | `GRIPPER_SLOT`（跟state层同名常量共用宽度值） |
-| `[27:54]`（仅双臂数据集） | 27 | ARM2，结构与 `[0:27]` 相同 | `ACTION_ARM_BLOCK_DIM` |
+| `[0:7]` | 7 | joint delta/绝对值（跟着`action_frame`走），只在`action_space=joint_position`时populate | `ACTION_JOINT_SLOT` |
+| `[7:10]` | 3 | 末端位置delta | `ACTION_EEF_POS_SLOT` |
+| `[10:13]` | 3 | 末端旋转delta（axis-angle） | `ACTION_EEF_ROT_SLOT` |
+| `[13:14]` | 1 | 恒为0，不使用（凑齐eef子块宽度） | 无命名 |
+| `[14:35]` | 21 | 夹爪/灵巧手action目标值 | `GRIPPER_SLOT`（跟state层同名常量共用宽度值） |
+| `[35:70]`（仅双臂数据集） | 35 | ARM2，结构与 `[0:35]` 相同 | `ACTION_ARM_BLOCK_DIM` |
+| `[70:128]` | 58 | 预留，当前恒为0 | 无命名 |
 
-同样有一个54维 bool mask，作为独立 lerobot feature 写入：
+同样有一个128维 bool mask，作为独立 lerobot feature 写入：
 
 ```
-action_canonical_mask   # bool, shape (54,)，每帧写入，整数据集内容相同
+action_canonical_mask   # bool, shape (128,)，每帧写入，整数据集内容相同
 ```
 
 `joint_velocity`/`joint_torque`/`discrete_symbolic`/`mixed`/`unknown` 的
@@ -135,7 +146,8 @@ action_canonical_mask   # bool, shape (54,)，每帧写入，整数据集内容�
 - `action_space`/`action_frame` 不设置（默认值 `None`）同样会跳过这一层：`None` 不在
   上述支持的取值集合里，效果等同于显式设成不支持的值——如果config author忘记设置这两个
   字段，`action` 会一直停留在原始per-dataset维度，不会有任何报错提示。
-- `action_frame=absolute` 分支依赖 `config.dof_per_arm` 的准确性：它通过
-  `_state_arm_slice` 按 `dof_per_arm` 推算的offset去读 `episode.state` 里的当前eef位姿，
-  `dof_per_arm` 未设置（默认0）或设错都会导致读到错误的列、静默算出无意义的delta且不报错
-  ——这与state层 `apply()` 模块docstring里已经记录的 `dof_per_arm` 已知局限是同一类风险。
+- `action_frame=absolute` 分支（无论joint槎位还是eef槎位）都依赖 `config.dof_per_arm`
+  的准确性：都是通过 `_state_arm_slice` 按 `dof_per_arm` 推算的offset去读
+  `episode.state` 里的当前值，`dof_per_arm` 未设置（默认0）或设错都会导致读到错误的列、
+  静默算出无意义的delta且不报错——这与state层 `apply()` 模块docstring里已经记录的
+  `dof_per_arm` 已知局限是同一类风险。
