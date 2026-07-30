@@ -106,15 +106,7 @@ joint_position}`且 `action_frame ∈ {delta, absolute}` 的情况——两个�
 `episode.state` 里的原始（未canonical化）当前值算出delta。旋转统一换算成
 axis-angle。
 
-跟state层不同的是，`action_space=joint_position` 但URDF不可用/解析失败/
-`dof_per_arm`跟URDF实际关节数不匹配时，**不会**让整条episode的action跳过
-canonical层——因为joint槽位本身不需要FK。这时joint槽位正常写入，eef槽位
-留空（`mask=False`），`stats["eef_slot_skip_reason"]="fk_not_available_for_joint_action"`
-记录这个降级信息，但顶层 `skip_reason` 仍是 `None`，最终写入的 `action` 仍是
-这个（joint有数据、eef为空）的128维向量。夹爪槽位不依赖FK，始终正常写入。
-
-128维固定总维度，是独立于state层128维的另一套编号（两者不共享offset，含义不
-对应，只是两层结构都是"joint+eef+gripper"导致部分常量数值巧合相同）：
+128维固定总维度，按下表切片：
 
 | 子区间 | 维度 | 内容 | 常量名 |
 |---|---|---|---|
@@ -146,8 +138,3 @@ action_canonical_mask   # bool, shape (128,)，每帧写入，整数据集内容
 - `action_space`/`action_frame` 不设置（默认值 `None`）同样会跳过这一层：`None` 不在
   上述支持的取值集合里，效果等同于显式设成不支持的值——如果config author忘记设置这两个
   字段，`action` 会一直停留在原始per-dataset维度，不会有任何报错提示。
-- `action_frame=absolute` 分支（无论joint槽位还是eef槽位）都依赖 `config.dof_per_arm`
-  的准确性：都是通过 `_state_arm_slice` 按 `dof_per_arm` 推算的offset去读
-  `episode.state` 里的当前值，`dof_per_arm` 未设置（默认0）或设错都会导致读到错误的列、
-  静默算出无意义的delta且不报错——这与state层 `apply()` 模块docstring里已经记录的
-  `dof_per_arm` 已知局限是同一类风险。
