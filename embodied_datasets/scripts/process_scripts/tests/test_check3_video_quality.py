@@ -44,6 +44,7 @@ def test_black_frame_is_dropped():
     result = apply(episode, config)
     assert 2 in result.dropped_frame_indices
     assert result.episode.state.shape[0] == 4
+    assert result.stats["head"]["frame_reasons"] == {2: "black"}
 
 
 def test_still_run_is_dropped():
@@ -140,3 +141,29 @@ def test_float_frames_in_unit_range_not_falsely_flagged():
     config = ProcessConfig(id="x", black_threshold=0.1, blur_threshold=0.1, still_min_consecutive_frames=100)
     result = apply(episode, config)
     assert result.dropped_frame_indices == []
+
+
+def test_stats_include_blurry_frame_reason():
+    # A uniform (spatially flat) color per frame has zero Laplacian variance
+    # -- guaranteed blurry -- and varying the color across frames (100, 105,
+    # 110, ...) keeps brightness well above black_threshold and keeps
+    # frame-to-frame diffs well above still_threshold, isolating the blurry
+    # branch specifically.
+    num_frames = 5
+    frames = np.zeros((num_frames, 8, 8, 3), dtype=np.uint8)
+    for t in range(num_frames):
+        frames[t] = 100 + t * 5
+    episode = _episode_with_frames(frames)
+    config = ProcessConfig(id="x", black_threshold=1.0, blur_threshold=1.0, still_threshold=1.0, still_min_consecutive_frames=100)
+    result = apply(episode, config)
+    assert result.stats["head"]["frame_reasons"][2] == "blurry"
+
+
+def test_stats_include_still_frame_reason():
+    rng = np.random.RandomState(0)
+    frames = rng.randint(50, 200, size=(40, 8, 8, 3)).astype(np.uint8)
+    frames[10:35] = frames[10]  # 25 identical frames -> a still run
+    episode = _episode_with_frames(frames)
+    config = ProcessConfig(id="x", black_threshold=1.0, blur_threshold=1.0, still_threshold=0.5, still_min_consecutive_frames=20)
+    result = apply(episode, config)
+    assert result.stats["head"]["frame_reasons"][20] == "still"

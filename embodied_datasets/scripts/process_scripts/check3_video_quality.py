@@ -103,6 +103,10 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
             "num_black": int(black.sum()),
             "num_blurry": int(blurry.sum()),
             "num_still": int(still_run.sum()),
+            "frame_reasons": {
+                int(i): ("black" if black[i] else "blurry" if blurry[i] else "still")
+                for i in np.where(view_flagged)[0]
+            },
         }
 
     dropped_idx = np.where(flagged)[0].tolist()
