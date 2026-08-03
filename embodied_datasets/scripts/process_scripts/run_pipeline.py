@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 from typing import List, Optional
@@ -15,6 +16,7 @@ import numpy as np
 
 from episode import Episode  # noqa: E402
 from common.io import load_process_config  # noqa: E402
+from common.schema import ProcessConfig  # noqa: E402
 from lerobot_io import load_lerobot_episodes, write_lerobot_episodes  # noqa: E402
 
 import stage1_sudden_change  # noqa: E402
@@ -26,6 +28,76 @@ import check1_instruction_consistency  # noqa: E402
 import check2_video_state_consistency  # noqa: E402
 import check3_video_quality  # noqa: E402
 import unify_representation  # noqa: E402
+
+# skip_reason values that mean a check ran in fail-open mode -- it never
+# actually compared anything, it just passed the episode through
+# unverified. check1/check2 never set `rejected` on a bad verdict (by
+# design -- see their own docstrings), so these reasons are the ONLY signal
+# that a "clean" episode's language/video-state consistency was never
+# really checked.
+UNVERIFIED_CHECK_REASONS = {
+    "vlm_service_not_configured", "vlm_call_failed", "no_frames_available",
+    "sam3_service_not_configured", "urdf_not_available", "camera_calibration_not_available",
+    "camera_calibration_missing_for_view", "gripper_radius_not_configured",
+    "fk_check_not_feasible", "fk_projection_behind_camera",
+}
+
+
+def config_consistency_warnings(config: ProcessConfig) -> List[str]:
+    """Flags config flag/path combinations that silently disable a whole
+    check rather than erroring -- e.g. a urdf_path is set but the hand-
+    authored fk_check_feasible bool wasn't flipped to match, so stage4
+    skips every episode without anyone having decided that on purpose."""
+    warnings: List[str] = []
+    if config.urdf_path and not config.fk_check_feasible:
+        warnings.append(
+            f"urdf_path={config.urdf_path!r} is set but fk_check_feasible=False -- "
+            "stage4_fk_consistency will be skipped for every episode"
+        )
+    if config.fk_check_feasible and not config.urdf_path:
+        warnings.append("fk_check_feasible=True but urdf_path is unset -- stage4_fk_consistency will be skipped for every episode anyway")
+    if config.urdf_path and not config.urdf_available:
+        warnings.append(
+            f"urdf_path={config.urdf_path!r} is set but urdf_available=False -- "
+            "check2_video_state_consistency will be skipped for every episode"
+        )
+    if config.urdf_available and not config.urdf_path:
+        warnings.append("urdf_available=True but urdf_path is unset -- check2_video_state_consistency will be skipped for every episode anyway")
+    if config.has_language_instruction and not config.vlm_service_url:
+        warnings.append(
+            "has_language_instruction=True but vlm_service_url is unset -- "
+            "check1_instruction_consistency will run in fail-open mode (vlm_service_not_configured) "
+            "for every episode, never actually verifying anything"
+        )
+    if config.urdf_available and config.has_camera_calibration and not config.sam3_model_id:
+        warnings.append(
+            "urdf_available and has_camera_calibration are both True but sam3_model_id is unset -- "
+            "check2_video_state_consistency will run in fail-open mode (sam3_service_not_configured) "
+            "for every episode, never actually verifying anything"
+        )
+    return warnings
+
+
+def summarize_log(log: List[tuple]) -> List[str]:
+    """Renders run_dataset()'s per-stage (stage, episode_index, skip_reason,
+    rejected) log into human-readable lines -- rejection/skip counts per
+    stage, with fail-open check1/check2 outcomes (UNVERIFIED_CHECK_REASONS)
+    called out so they're never mistaken for a real passing verdict."""
+    rejected_counts: Counter = Counter()
+    reason_counts: Counter = Counter()
+    for stage, _idx, reason, rejected in log:
+        if rejected:
+            rejected_counts[stage] += 1
+        if reason is not None:
+            reason_counts[(stage, reason)] += 1
+
+    lines: List[str] = []
+    for stage in sorted(rejected_counts):
+        lines.append(f"{stage}: rejected {rejected_counts[stage]} episode(s)")
+    for (stage, reason), count in sorted(reason_counts.items()):
+        tag = " [UNVERIFIED -- check did not actually run]" if reason in UNVERIFIED_CHECK_REASONS else ""
+        lines.append(f"{stage}: {reason} x{count}{tag}")
+    return lines
 
 
 def run_dataset(input_path: Path, output_path: Path, process_config_path: Path) -> dict:
@@ -161,7 +233,13 @@ def main(argv: List[str] = None) -> int:
         print(f"error: config file not found: {process_config_path}", file=sys.stderr)
         return 1
 
+    for warning in config_consistency_warnings(load_process_config(process_config_path)):
+        print(f"warning: {warning}", file=sys.stderr)
+
     stats = run_dataset(input_path, output_path, process_config_path)
+
+    for line in summarize_log(stats["log"]):
+        print(f"diagnostic: {line}", file=sys.stderr)
 
     if stats["output_episodes"] == 0:
         # run_dataset() never called write_lerobot_episodes (it early-returns

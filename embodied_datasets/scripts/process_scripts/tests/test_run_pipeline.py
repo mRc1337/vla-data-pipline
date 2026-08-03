@@ -463,3 +463,117 @@ def test_main_returns_error_when_config_missing(tmp_path):
     )
 
     assert exit_code == 1
+
+
+def test_config_consistency_warnings_flags_urdf_path_without_fk_check_feasible():
+    from run_pipeline import config_consistency_warnings
+    from common.schema import ProcessConfig
+
+    config = ProcessConfig(id="t", urdf_path="/robot.urdf", fk_check_feasible=False)
+    warnings = config_consistency_warnings(config)
+    assert any("fk_check_feasible=False" in w for w in warnings)
+
+
+def test_config_consistency_warnings_flags_fk_check_feasible_without_urdf_path():
+    from run_pipeline import config_consistency_warnings
+    from common.schema import ProcessConfig
+
+    config = ProcessConfig(id="t", fk_check_feasible=True, urdf_path=None)
+    warnings = config_consistency_warnings(config)
+    assert any("urdf_path is unset" in w for w in warnings)
+
+
+def test_config_consistency_warnings_flags_language_instruction_without_vlm_service():
+    from run_pipeline import config_consistency_warnings
+    from common.schema import ProcessConfig
+
+    config = ProcessConfig(id="t", has_language_instruction=True, vlm_service_url=None)
+    warnings = config_consistency_warnings(config)
+    assert any("fail-open mode (vlm_service_not_configured)" in w for w in warnings)
+
+
+def test_config_consistency_warnings_flags_camera_calibration_without_sam3_model():
+    from run_pipeline import config_consistency_warnings
+    from common.schema import ProcessConfig
+
+    config = ProcessConfig(id="t", urdf_available=True, has_camera_calibration=True, sam3_model_id=None)
+    warnings = config_consistency_warnings(config)
+    assert any("fail-open mode (sam3_service_not_configured)" in w for w in warnings)
+
+
+def test_config_consistency_warnings_empty_for_consistent_config():
+    from run_pipeline import config_consistency_warnings
+    from common.schema import ProcessConfig
+
+    config = ProcessConfig(id="t")
+    assert config_consistency_warnings(config) == []
+
+
+def test_summarize_log_reports_rejection_and_skip_counts():
+    from run_pipeline import summarize_log
+
+    log = [
+        ("stage1_sudden_change", 0, None, False),
+        ("stage1_sudden_change", 1, None, True),
+        ("check1_instruction_consistency", 0, "vlm_call_failed", False),
+        ("check1_instruction_consistency", 1, "vlm_call_failed", False),
+    ]
+    lines = summarize_log(log)
+    assert "stage1_sudden_change: rejected 1 episode(s)" in lines
+    assert any("vlm_call_failed x2" in line and "UNVERIFIED" in line for line in lines)
+
+
+def test_summarize_log_does_not_tag_real_skip_reasons_as_unverified():
+    from run_pipeline import summarize_log
+
+    log = [("stage2_trend_alignment", 0, "insufficient_frames_for_trend_alignment", False)]
+    lines = summarize_log(log)
+    assert any(
+        "insufficient_frames_for_trend_alignment" in line and "UNVERIFIED" not in line for line in lines
+    )
+
+
+def test_main_prints_config_consistency_warning_to_stderr(tmp_path, capsys):
+    from tests.fixtures import make_synthetic_dataset
+    from common.io import save_process_config
+    from common.schema import ProcessConfig
+    import run_pipeline
+
+    staging_path = tmp_path / "staging"
+    make_synthetic_dataset(staging_path, repo_id="test/warn", num_episodes=1, num_frames=10, state_dim=4, action_dim=4, fps=10.0)
+
+    config_path = tmp_path / "config.yaml"
+    save_process_config(
+        ProcessConfig(
+            id="warn_test",
+            episode_reject_threshold=0.9, residual_threshold=5.0, accel_threshold=5.0,
+            jerk_threshold=5.0, da_threshold=0.0, max_lag_frames=10, quantile_low=0.0, quantile_high=1.0,
+            fk_check_feasible=True, urdf_path=None,
+        ),
+        config_path,
+    )
+
+    output_path = tmp_path / "output"
+    run_pipeline.main(["--input", str(staging_path), "--output", str(output_path), "--config", str(config_path)])
+
+    captured = capsys.readouterr()
+    assert "fk_check_feasible=True but urdf_path is unset" in captured.err
+
+
+def test_main_prints_pipeline_diagnostics_summary(tmp_path, capsys):
+    from tests.fixtures import make_synthetic_dataset
+    from common.io import save_process_config
+    from common.schema import ProcessConfig
+    import run_pipeline
+
+    staging_path = tmp_path / "staging"
+    make_synthetic_dataset(staging_path, repo_id="test/diag", num_episodes=2, num_frames=1, state_dim=4, action_dim=4, fps=10.0)
+
+    config_path = tmp_path / "config.yaml"
+    save_process_config(ProcessConfig(id="diag_test", quantile_low=0.0, quantile_high=1.0), config_path)
+
+    output_path = tmp_path / "output"
+    run_pipeline.main(["--input", str(staging_path), "--output", str(output_path), "--config", str(config_path)])
+
+    captured = capsys.readouterr()
+    assert "diagnostic: stage2_trend_alignment: insufficient_frames_for_trend_alignment x2" in captured.err
