@@ -17,8 +17,16 @@ if str(_PROCESS_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_PROCESS_SCRIPTS_DIR))
 
 import numpy as np
+import plotly.graph_objects as go
 
 import unify_representation as ur
+
+# Cycled by dimension index so a dimension's raw (dotted) and final (solid)
+# traces share a color -- that's what makes the overlay readable.
+_DIM_COLORS = [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+]
 
 
 @dataclass
@@ -87,3 +95,33 @@ def slice_band(vector: np.ndarray, mask: Optional[np.ndarray], band: Band) -> di
     band_mask = None if mask is None else mask[band.start:band.end]
     populated = True if band_mask is None else bool(np.any(band_mask))
     return {"label": band.label, "values": values, "mask": band_mask, "populated": populated}
+
+
+def band_overlay_figure(label: str, raw_slice: dict, final_slice: Optional[dict]) -> go.Figure:
+    """One figure per band with raw and final overlaid per-dimension (same
+    color, dotted vs solid) instead of two separate charts, so drift from
+    cleaning/canonicalization is visible directly instead of eyeballed
+    across two plots. Raw and final frame counts can differ (episodes lose
+    frames during cleaning) -- both are plotted against their own frame
+    index, not a shared/aligned x-axis."""
+    fig = go.Figure()
+    raw_values = raw_slice["values"]
+    for dim in range(raw_values.shape[1]):
+        color = _DIM_COLORS[dim % len(_DIM_COLORS)]
+        fig.add_trace(go.Scatter(
+            y=raw_values[:, dim], mode="lines", name=f"dim{dim} (raw)",
+            line=dict(color=color, dash="dot"),
+        ))
+    if final_slice is not None:
+        final_values = final_slice["values"]
+        for dim in range(final_values.shape[1]):
+            color = _DIM_COLORS[dim % len(_DIM_COLORS)]
+            fig.add_trace(go.Scatter(
+                y=final_values[:, dim], mode="lines", name=f"dim{dim} (final)",
+                line=dict(color=color),
+            ))
+    fig.update_layout(
+        title=label, height=300, margin=dict(l=10, r=10, t=30, b=10),
+        legend=dict(orientation="h"),
+    )
+    return fig

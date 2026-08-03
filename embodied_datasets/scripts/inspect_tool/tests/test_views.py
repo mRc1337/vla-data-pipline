@@ -1,6 +1,6 @@
 import numpy as np
 
-from views import action_bands, episode_status_label, slice_band, state_bands
+from views import action_bands, band_overlay_figure, episode_status_label, slice_band, state_bands
 
 
 def test_episode_status_label_kept():
@@ -102,3 +102,27 @@ def test_slice_band_without_mask_defaults_to_populated():
     result = slice_band(vector, None, band)
     assert result["populated"] is True
     assert result["mask"] is None
+
+
+def test_band_overlay_figure_raw_only_has_one_trace_per_dim():
+    band = state_bands(num_arms=1)[0]  # arm1_joint, dim 7
+    raw_slice = slice_band(np.zeros((5, 128)), None, band)
+    fig = band_overlay_figure(band.label, raw_slice, None)
+    assert len(fig.data) == 7
+    assert all(trace.name.endswith("(raw)") for trace in fig.data)
+
+
+def test_band_overlay_figure_with_final_doubles_trace_count_and_shares_color():
+    band = state_bands(num_arms=1)[0]  # arm1_joint, dim 7
+    raw_slice = slice_band(np.zeros((5, 128)), None, band)
+    mask = np.ones(128, dtype=bool)
+    final_slice = slice_band(np.zeros((3, 128)), mask, band)
+    fig = band_overlay_figure(band.label, raw_slice, final_slice)
+    assert len(fig.data) == 14
+    raw_traces = [t for t in fig.data if t.name.endswith("(raw)")]
+    final_traces = [t for t in fig.data if t.name.endswith("(final)")]
+    assert len(raw_traces) == len(final_traces) == 7
+    # dim0's raw and final traces should share a color for the overlay to read.
+    assert raw_traces[0].line.color == final_traces[0].line.color
+    assert raw_traces[0].line.dash == "dot"
+    assert final_traces[0].line.dash is None
