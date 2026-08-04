@@ -10,6 +10,7 @@ v3.0 格式的数据"到"清洗对齐后的 LeRobot v3.0 数据"这一步。
 ```
 vla_data_pipeline/
 ├── embodied_datasets/scripts/process_scripts/  # 全部实际代码
+├── embodied_datasets/scripts/inspect_tool/     # 清洗前后对比的 Streamlit 可视化工具
 ├── requirements.txt        # 全仓库共用的依赖清单
 └── pyproject.toml          # pytest 配置（指向 process_scripts/tests）+ 项目元数据
 ```
@@ -43,6 +44,24 @@ python3 run_pipeline.py \
 本体信息（`embodiment_class`/`num_arms`/`dof_per_arm`/`gripper_type`/
 `has_mobile_base` 等），全部直接手填在这一份文件里，只有 `id` 是必填
 字段，其余都有默认值。
+
+运行时会向 stderr 输出诊断信息：跑之前检查配置里是否有互相矛盾的开关
+（如设了 `urdf_path` 却未打开 `fk_check_feasible`），跑完后按 stage 汇总
+每类跳过/拒绝原因的出现次数，其中 check1/check2 因服务未配置或调用失败
+而未真正执行检查的会标注 `[UNVERIFIED]`，避免和真实检查通过混淆。
+
+## 可视化检查工具（inspect_tool）
+
+独立的 Streamlit 应用，对比同一份数据集清洗前后的差异（视频帧、
+state/action 各 band 曲线、per-stage 处理记录），不依赖 `run_pipeline.py`
+本身跑过：
+
+```bash
+streamlit run embodied_datasets/scripts/inspect_tool/app.py -- \
+    --input /path/to/raw_lerobot_dataset \
+    --output /path/to/output_dataset \
+    --config /path/to/process_config.yaml
+```
 
 `embodied_datasets/scripts/process_scripts/` 目录下的其他文件：
 
