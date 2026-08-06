@@ -27,7 +27,7 @@ from lerobot_io import load_lerobot_episodes  # noqa: E402
 
 from instrumented_pipeline import run_dataset_instrumented  # noqa: E402
 from metadata_io import load_metadata, metadata_exists  # noqa: E402
-from views import episode_status_label  # noqa: E402
+from views import episode_status_label, raw_to_final_episode_index_map  # noqa: E402
 
 import player_component  # noqa: E402
 from player_payload import build_payload, build_video_urls  # noqa: E402
@@ -237,6 +237,7 @@ def _render_episode_detail(
         video_server_ports.get("final") if final_episode is not None else None,
         raw_episode.episode_index,
         view_keys,
+        final_episode_index=final_episode.episode_index if final_episode is not None else None,
     )
     payload = build_payload(raw_episode, final_episode, config, masks, video_urls, fps=config.fps or 1.0)
     player_component.render(payload)
@@ -287,8 +288,9 @@ def _render_body(input_path: str, output_path: str, raw_episodes: dict, config, 
 
     record = snapshot["episode_records"].get(selected)
     if status == "done":
+        raw_to_final_index = raw_to_final_episode_index_map(snapshot["episode_records"])
         final_by_index = {ep.episode_index: ep for ep in _load_final_episodes(output_path)}
-        final_episode = final_by_index.get(selected)
+        final_episode = final_by_index.get(raw_to_final_index.get(selected))
         masks = _load_canonical_masks(output_path)
     else:
         final_episode = None

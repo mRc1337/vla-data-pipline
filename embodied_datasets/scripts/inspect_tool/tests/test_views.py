@@ -1,6 +1,6 @@
 import numpy as np
 
-from views import action_bands, band_overlay_figure, episode_status_label, slice_band, state_bands
+from views import action_bands, band_overlay_figure, episode_status_label, raw_to_final_episode_index_map, slice_band, state_bands
 
 
 def test_episode_status_label_kept():
@@ -126,3 +126,40 @@ def test_band_overlay_figure_with_final_doubles_trace_count_and_shares_color():
     assert raw_traces[0].line.color == final_traces[0].line.color
     assert raw_traces[0].line.dash == "dot"
     assert final_traces[0].line.dash is None
+
+
+def test_raw_to_final_episode_index_map_renumbers_survivors_positionally():
+    """Raw episode 0 rejected, 1 and 2 survive: the final dataset only holds
+    2 episodes, renumbered 0 and 1 in raw-index order -- so raw index 1 must
+    map to final index 0, and raw index 2 to final index 1. Raw index 0
+    (rejected) must not appear in the map at all."""
+    episode_records = {
+        0: {"survived": False},
+        1: {"survived": True},
+        2: {"survived": True},
+    }
+    mapping = raw_to_final_episode_index_map(episode_records)
+    assert mapping == {1: 0, 2: 1}
+    assert 0 not in mapping
+
+
+def test_raw_to_final_episode_index_map_identity_when_nothing_rejected():
+    episode_records = {0: {"survived": True}, 1: {"survived": True}, 2: {"survived": True}}
+    mapping = raw_to_final_episode_index_map(episode_records)
+    assert mapping == {0: 0, 1: 1, 2: 2}
+
+
+def test_raw_to_final_episode_index_map_ignores_pending_and_rejected_episodes():
+    episode_records = {
+        0: {"survived": True},
+        1: {"survived": False},
+        2: {"survived": False},
+        3: {"survived": True},
+    }
+    mapping = raw_to_final_episode_index_map(episode_records)
+    assert mapping == {0: 0, 3: 1}
+
+
+def test_raw_to_final_episode_index_map_empty_when_nothing_survived():
+    episode_records = {0: {"survived": False}, 1: {"survived": False}}
+    assert raw_to_final_episode_index_map(episode_records) == {}

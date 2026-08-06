@@ -36,6 +36,34 @@ class Band:
     end: int  # exclusive
 
 
+def raw_to_final_episode_index_map(episode_records: dict) -> dict:
+    """Maps raw episode_index -> final-dataset positional episode_index, for
+    every raw episode that survived the pipeline.
+
+    write_lerobot_episodes only writes surviving episodes, and
+    load_lerobot_episodes assigns each one a fresh positional index (0, 1,
+    2, ... in file order) -- it does not preserve the original raw
+    episode_index. run_dataset_instrumented's survivor loop (see
+    instrumented_pipeline.py) appends to final_episodes in the same order it
+    iterates raw episodes (ascending raw episode_index), which is also the
+    order write_lerobot_episodes writes them and load_lerobot_episodes reads
+    them back with fresh positional indices. So a surviving raw episode's
+    final positional index is exactly its rank (0-indexed) among all raw
+    episodes with survived == True, sorted by raw episode_index.
+
+    `episode_records` is keyed by raw episode_index, each record having a
+    "survived" bool (e.g. app.py's snapshot["episode_records"], covering
+    every raw episode processed so far -- not just one episode's record --
+    since the rank of any one episode depends on which earlier episodes
+    survived too). Rejected/still-pending episodes are absent from the
+    returned mapping.
+    """
+    survived_raw_indices = sorted(
+        idx for idx, record in episode_records.items() if record["survived"]
+    )
+    return {raw_idx: pos for pos, raw_idx in enumerate(survived_raw_indices)}
+
+
 def episode_status_label(episode_record: dict) -> str:
     """Returns e.g. "kept", or "rejected at stage2_trend_alignment" for the
     first stage whose `rejected` is True (there is at most one rejecting

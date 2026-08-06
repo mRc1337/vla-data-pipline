@@ -27,18 +27,29 @@ def build_video_urls(
     final_port: Optional[int],
     episode_index: int,
     view_keys: List[str],
+    final_episode_index: Optional[int] = None,
 ) -> Dict[str, dict]:
     """One entry per view key: {"raw": clip_or_None, "final": clip_or_None},
     where each clip is {"url", "from_timestamp", "to_timestamp",
     "element_id"}. `final_root`/`final_port` are None when the final dataset
     isn't available yet (pipeline still running) -- every view's "final"
     comes back None in that case, same as a view whose video just hasn't
-    been written for some other reason."""
+    been written for some other reason.
+
+    `episode_index` addresses the RAW dataset. `final_episode_index`, when
+    given, addresses the FINAL dataset instead -- the final dataset only
+    contains surviving episodes, renumbered positionally (0..M-1) in write
+    order, so a raw episode's final positional index can differ from its raw
+    episode_index whenever an earlier raw episode was rejected (see
+    views.raw_to_final_episode_index_map). Defaults to `episode_index` when
+    not given, so callers that never see raw/final index drift (e.g. a
+    single-episode dataset with nothing rejected) don't need to pass it."""
+    resolved_final_index = episode_index if final_episode_index is None else final_episode_index
     urls: Dict[str, dict] = {}
     for view in view_keys:
         raw_clip = _clip_or_none(raw_root, raw_port, episode_index, view, "raw")
         final_clip = (
-            _clip_or_none(final_root, final_port, episode_index, view, "final")
+            _clip_or_none(final_root, final_port, resolved_final_index, view, "final")
             if final_root is not None and final_port is not None
             else None
         )
