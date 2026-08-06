@@ -164,6 +164,7 @@ def run_dataset_instrumented(
         write_lerobot_episodes(
             final_episodes, output_path, fps=fps, robot_type=config.id,
             canonical_mask=canonical_mask, action_canonical_mask=action_canonical_mask,
+            write_videos=True,
         )
 
     metadata = {"episodes": list(episode_records.values())}

@@ -180,3 +180,42 @@ def test_run_dataset_instrumented_calls_on_episode_done_once_per_episode(tmp_pat
     records_by_index = {ep["episode_index"]: ep for ep in metadata["episodes"]}
     for episode_index, record in calls:
         assert record == records_by_index[episode_index]
+
+
+def test_run_dataset_instrumented_writes_final_video_aligned_with_output_frame_count(tmp_path):
+    from tests.fixtures import make_synthetic_dataset
+    from common.io import save_process_config
+    from common.schema import ProcessConfig
+    from lerobot_io import load_lerobot_episodes
+
+    staging_path = tmp_path / "staging"
+    make_synthetic_dataset(
+        staging_path, repo_id="test/inspect_video", num_episodes=1, num_frames=10,
+        state_dim=4, action_dim=4, fps=10.0, include_video=True,
+    )
+
+    config_path = tmp_path / "config.yaml"
+    save_process_config(
+        ProcessConfig(
+            id="inspect_video_test",
+            episode_reject_threshold=0.9,
+            residual_threshold=5.0,
+            accel_threshold=5.0,
+            jerk_threshold=5.0,
+            da_threshold=0.0,
+            max_lag_frames=10,
+            quantile_low=0.0,
+            quantile_high=1.0,
+        ),
+        config_path,
+    )
+
+    output_path = tmp_path / "output"
+    metadata = run_dataset_instrumented(staging_path, output_path, config_path)
+
+    assert metadata["episodes"][0]["survived"] is True
+    final_episodes = load_lerobot_episodes(output_path)
+    assert len(final_episodes) == 1
+    assert "observation.image" in final_episodes[0].frames
+    output_frame_count = metadata["episodes"][0]["output_frame_count"]
+    assert final_episodes[0].frames["observation.image"].shape[0] == output_frame_count
