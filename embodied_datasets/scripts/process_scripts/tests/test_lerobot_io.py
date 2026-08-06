@@ -410,3 +410,59 @@ def test_write_lerobot_episodes_default_write_videos_false_has_no_video_feature(
 
     reloaded = LeRobotDataset(repo_id=output_path.name, root=output_path)
     assert "observation.image" not in reloaded.meta.features
+
+
+def test_load_lerobot_episodes_with_load_video_frames_false_skips_decode(tmp_path: Path, monkeypatch):
+    """load_video_frames=False must avoid the expensive video decode
+    entirely (not just discard the decoded result) -- verified here by
+    monkeypatching LeRobotDataset.__getitem__ (the only code path that
+    decodes video, per lerobot==0.4.4's DatasetReader.get_item) to raise if
+    called at all. state/action/timestamps/language_instruction must still
+    be populated normally, and Episode.frames must still carry the video
+    view's KEY (an empty placeholder array, not real pixel data) so
+    downstream `.frames.keys()` callers keep working."""
+    from tests.fixtures import make_synthetic_dataset
+    from lerobot_io import load_lerobot_episodes
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    dataset_root = tmp_path / "synthetic_ds_skip_decode"
+    make_synthetic_dataset(
+        dataset_root, repo_id="test/skip_decode", num_episodes=1, num_frames=4,
+        state_dim=3, action_dim=2, task="pick up the cup", include_video=True,
+    )
+
+    def _getitem_must_not_be_called(self, idx):
+        raise AssertionError("dataset[idx] decodes video and must not be called when load_video_frames=False")
+
+    monkeypatch.setattr(LeRobotDataset, "__getitem__", _getitem_must_not_be_called)
+
+    episodes = load_lerobot_episodes(dataset_root, load_video_frames=False)
+
+    assert len(episodes) == 1
+    episode = episodes[0]
+    assert episode.state.shape == (4, 3)
+    assert episode.action.shape == (4, 2)
+    assert episode.language_instruction == "pick up the cup"
+    assert "observation.image" in episode.frames
+    assert episode.frames["observation.image"].size == 0
+
+
+def test_load_lerobot_episodes_with_load_video_frames_false_still_reads_camera_calibration(tmp_path: Path):
+    from tests.fixtures import make_synthetic_dataset
+    from lerobot_io import load_lerobot_episodes
+
+    extrinsics = np.eye(4, dtype=np.float32)
+    dataset_root = tmp_path / "synthetic_ds_skip_decode_calibration"
+    make_synthetic_dataset(
+        dataset_root,
+        repo_id="test/skip_decode_calibration",
+        num_episodes=1,
+        num_frames=3,
+        include_video=True,
+        camera_calibration={"fx": 100.0, "fy": 100.0, "cx": 16.0, "cy": 16.0, "extrinsics": extrinsics},
+    )
+
+    episodes = load_lerobot_episodes(dataset_root, load_video_frames=False)
+    calibration = episodes[0].camera_calibration["observation.image"]
+    assert calibration.fx == 100.0
+    assert np.array_equal(calibration.extrinsics, extrinsics)

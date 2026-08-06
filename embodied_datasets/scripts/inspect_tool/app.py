@@ -56,9 +56,16 @@ def _load_raw_episodes(input_path: str):
 
 @st.cache_data(show_spinner="Loading cleaned dataset...")
 def _load_final_episodes(output_path: str):
+    """Video pixels for the final dataset are never read from
+    Episode.frames -- the player compares raw vs final video through the
+    local HTTP video server (video_server.py), not decoded arrays -- only
+    the view KEY NAMES matter (see _render_episode_detail/player_payload.py).
+    Passes load_video_frames=False so load_lerobot_episodes skips decoding
+    video content, which this function would otherwise pay for on every
+    2-second polling fragment tick for no benefit."""
     if not Path(output_path).exists():
         return []
-    return load_lerobot_episodes(Path(output_path))
+    return load_lerobot_episodes(Path(output_path), load_video_frames=False)
 
 
 @st.cache_data(show_spinner="Loading canonical masks...")

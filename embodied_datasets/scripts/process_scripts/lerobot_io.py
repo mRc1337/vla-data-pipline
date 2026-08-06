@@ -89,7 +89,36 @@ def _load_camera_calibration(dataset, video_keys, rows, episode_index: int) -> D
     return calibration
 
 
-def load_lerobot_episodes(dataset_path: Path) -> List[Episode]:
+def _rows_for_episode(dataset, from_index: int, to_index: int, load_video_frames: bool) -> list:
+    """Returns the per-frame row dicts for one episode's absolute frame
+    range `[from_index, to_index)`.
+
+    `dataset[i]` (LeRobotDataset.__getitem__) unconditionally decodes every
+    declared video feature for frame `i` as part of building the row --
+    verified against lerobot==0.4.4's DatasetReader.get_item, which merges
+    decoded video frames into the row whenever `dataset.meta.video_keys` is
+    non-empty, before any feature is read out of it. So when
+    `load_video_frames` is False, this reads `dataset.get_raw_item(i)`
+    instead (the underlying HF-dataset row with no video decoding, no
+    delta-timestamp expansion, no image transforms) to actually skip that
+    decode cost rather than just discarding the result afterward.
+
+    The raw row has no `"task"` key -- `get_item` only resolves
+    `task_index` -> task string via `dataset.meta.tasks` for the decoded
+    path -- so this manually replicates that one step (the only other
+    per-row transform `get_item` does besides video decoding) so every
+    caller downstream can keep reading `row["task"]` the same way
+    regardless of `load_video_frames`.
+    """
+    if load_video_frames:
+        return [dataset[i] for i in range(from_index, to_index)]
+    rows = [dataset.get_raw_item(i) for i in range(from_index, to_index)]
+    for row in rows:
+        row["task"] = dataset.meta.tasks.iloc[row["task_index"].item()].name
+    return rows
+
+
+def load_lerobot_episodes(dataset_path: Path, load_video_frames: bool = True) -> List[Episode]:
     """Read every episode out of a lerobot dataset stored at `dataset_path`.
 
     Populates `Episode.language_instruction` from each frame's `"task"` key
@@ -113,6 +142,17 @@ def load_lerobot_episodes(dataset_path: Path) -> List[Episode]:
     `0-255` layout `check3_video_quality.py` operates on, so this function
     transposes to channel-last and rescales to `uint8` `0-255` before
     stacking into a `(T, H, W, 3)` array.
+
+    `load_video_frames`, when False, skips decoding video content entirely
+    -- `Episode.frames[<video_key>]` is still populated for every view key
+    (an empty `(0, 0, 0, 0)` placeholder array, not real pixel data), so
+    callers that only need to know WHICH view keys exist (`.frames.keys()`)
+    keep working unchanged. Every other field (state/action/timestamps/
+    language_instruction/camera_calibration) is populated exactly as when
+    True. Use this when a caller never reads `.frames` values for real
+    pixels (e.g. inspect_tool/app.py's `_load_final_episodes`, which now
+    reads video pixels from the local HTTP video server instead) to avoid
+    paying video-decode cost and memory for arrays nothing looks at.
     """
     dataset = LeRobotDataset(repo_id=dataset_path.name, root=dataset_path)
     video_keys = [key for key, feature in dataset.meta.features.items() if feature.get("dtype") == "video"]
@@ -121,7 +161,7 @@ def load_lerobot_episodes(dataset_path: Path) -> List[Episode]:
         episode_meta = dataset.meta.episodes[episode_index]
         from_index = episode_meta["dataset_from_index"]
         to_index = episode_meta["dataset_to_index"]
-        rows = [dataset[i] for i in range(from_index, to_index)]
+        rows = _rows_for_episode(dataset, from_index, to_index, load_video_frames)
         state = np.stack([row["observation.state"].numpy() for row in rows])
         action = np.stack([row["action"].numpy() for row in rows])
         timestamps = np.array([row["timestamp"].item() for row in rows], dtype=np.float64)
@@ -137,10 +177,13 @@ def load_lerobot_episodes(dataset_path: Path) -> List[Episode]:
 
         frames = {}
         for video_key in video_keys:
-            # (T, C, H, W) float32 in [0, 1] -> (T, H, W, C) uint8 in [0, 255].
-            stacked_chw = np.stack([row[video_key].numpy() for row in rows])
-            stacked_hwc = np.transpose(stacked_chw, (0, 2, 3, 1))
-            frames[video_key] = np.clip(np.round(stacked_hwc * 255.0), 0, 255).astype(np.uint8)
+            if load_video_frames:
+                # (T, C, H, W) float32 in [0, 1] -> (T, H, W, C) uint8 in [0, 255].
+                stacked_chw = np.stack([row[video_key].numpy() for row in rows])
+                stacked_hwc = np.transpose(stacked_chw, (0, 2, 3, 1))
+                frames[video_key] = np.clip(np.round(stacked_hwc * 255.0), 0, 255).astype(np.uint8)
+            else:
+                frames[video_key] = np.empty((0, 0, 0, 0), dtype=np.uint8)
 
         camera_calibration = _load_camera_calibration(dataset, video_keys, rows, episode_index)
 
