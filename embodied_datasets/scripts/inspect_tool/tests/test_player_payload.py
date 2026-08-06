@@ -89,3 +89,34 @@ def test_build_payload_reflects_final_episode_when_present():
     assert payload["final_frame_count"] == 4
     for band in payload["charts"]["state"]:
         assert "figure" in band
+
+
+def test_build_video_urls_uses_different_episode_indices_for_raw_and_final(tmp_path):
+    from tests.fixtures import make_synthetic_dataset
+    from player_payload import build_video_urls
+
+    # Create a dataset with 2 episodes. Each episode gets its own time window in
+    # the packed video file (e.g., episode 0: 0.0-0.4s, episode 1: 0.4-0.8s).
+    dataset_root = tmp_path / "ds_two_episodes"
+    make_synthetic_dataset(
+        dataset_root, repo_id="test/payload_final_index", num_episodes=2, num_frames=4, include_video=True,
+    )
+
+    # Call build_video_urls with episode_index=0 (raw) and final_episode_index=1 (final).
+    # This should fetch video info from different episodes, so the timestamps differ.
+    urls = build_video_urls(
+        raw_root=dataset_root, final_root=dataset_root, raw_port=1234, final_port=5678,
+        episode_index=0, final_episode_index=1, view_keys=["observation.image"],
+    )
+
+    raw_clip = urls["observation.image"]["raw"]
+    final_clip = urls["observation.image"]["final"]
+    assert raw_clip is not None
+    assert final_clip is not None
+
+    # Verify that raw and final clips reference different episodes by checking
+    # their timestamps are different. With 4-frame episodes at 10fps, episode 0
+    # should be at 0.0-0.4s and episode 1 at 0.4-0.8s (they're packed sequentially).
+    assert raw_clip["from_timestamp"] != final_clip["from_timestamp"], \
+        f"raw and final clips should have different timestamps when using different episode indices"
+    assert raw_clip["to_timestamp"] != final_clip["to_timestamp"]
