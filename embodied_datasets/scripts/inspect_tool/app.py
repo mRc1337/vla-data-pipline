@@ -243,14 +243,18 @@ def _render_episode_detail(episode_record: Optional[dict], raw_episode, final_ep
 
 
 @st.fragment(run_every=_POLL_INTERVAL)
-def _render_sidebar(episode_indices: list) -> None:
+def _render_sidebar(dataset_name: str, episode_indices: list) -> None:
+    st.subheader(dataset_name)
+    st.caption(f"{len(episode_indices)} episodes")
     records_snapshot = _snapshot_pipeline_state()["episode_records"]
 
     def _label(idx: int) -> str:
         record = records_snapshot.get(idx)
         return f"{idx}: pending..." if record is None else f"{idx}: {episode_status_label(record)}"
 
-    st.selectbox("Episode", episode_indices, format_func=_label, key="episode_select")
+    st.radio(
+        "Episode", episode_indices, format_func=_label, key="episode_select", label_visibility="collapsed",
+    )
 
 
 @st.fragment(run_every=_POLL_INTERVAL)
@@ -304,7 +308,7 @@ def main() -> None:
     _ensure_pipeline_started(args.input, args.output, args.config, list(raw_episodes.values()))
 
     with st.sidebar:
-        _render_sidebar(episode_indices)
+        _render_sidebar(config.id, episode_indices)
 
     _render_body(args.input, args.output, raw_episodes, config)
 
