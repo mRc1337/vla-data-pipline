@@ -22,18 +22,21 @@ class _FakeConfig:
     num_arms = 1
 
 
-def test_build_video_urls_returns_none_final_when_final_root_is_none():
+def test_build_video_urls_returns_none_final_when_final_root_is_none(tmp_path):
+    from tests.fixtures import make_synthetic_dataset
     from player_payload import build_video_urls
 
+    dataset_root = tmp_path / "ds_final_none"
+    make_synthetic_dataset(
+        dataset_root, repo_id="test/payload_final_none", num_episodes=1, num_frames=4, include_video=True,
+    )
+
     urls = build_video_urls(
-        raw_root=__import__("pathlib").Path("/does/not/matter"),
-        final_root=None,
-        raw_port=9000,
-        final_port=None,
-        episode_index=0,
-        view_keys=["observation.image"],
+        raw_root=dataset_root, final_root=None, raw_port=9000, final_port=None,
+        episode_index=0, view_keys=["observation.image"],
     )
     assert urls["observation.image"]["final"] is None
+    assert urls["observation.image"]["raw"] is not None
 
 
 def test_build_video_urls_builds_url_and_element_id_for_real_clip(tmp_path):

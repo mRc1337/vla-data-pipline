@@ -47,12 +47,7 @@ def build_video_urls(
 
 
 def _clip_or_none(root: Path, port: int, episode_index: int, view_key: str, side: str) -> Optional[dict]:
-    try:
-        info = video_clip_info(root, episode_index, view_key)
-    except Exception:
-        # video_clip_info may fail if the dataset can't be loaded (e.g., missing or
-        # inaccessible from HuggingFace). Treat this as gracefully as a None result.
-        return None
+    info = video_clip_info(root, episode_index, view_key)
     if info is None:
         return None
     return {
