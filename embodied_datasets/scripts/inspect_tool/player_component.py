@@ -198,6 +198,36 @@ const DATA = __PAYLOAD_JSON__;
 """
 
 
+def _render_video_side_html(view: str, side: str, clip: dict | None) -> str:
+    """Renders one raw/final <video> (or missing-placeholder) side of a
+    view-row. Shared by both the raw and final columns of the image module."""
+    lines = ['<div class="side">']
+    lines.append(f'<div class="side-label">{view} ({side})</div>')
+    if clip:
+        lines.append(f'<video id="{clip["element_id"]}" muted playsinline></video>')
+    else:
+        lines.append(f'<div class="video-missing">{side} not available</div>')
+    lines.append("</div>")
+    return "\n".join(lines)
+
+
+def _render_chart_module_html(bands: list, title: str) -> str:
+    """Renders a chart module (title + one chart-row per band). Shared by the
+    state and action modules, which differ only in title and payload key."""
+    if not bands:
+        return ""
+    lines = [f'<div class="module-title">{title}</div>']
+    for band in bands:
+        label_text = band["label"]
+        if not band.get("populated", False):
+            label_text += " (unpopulated)"
+        lines.append('<div class="chart-row">')
+        lines.append(f'<div class="chart-label">{label_text}</div>')
+        lines.append(f'<div id="{band["div_id"]}" style="height: 220px;"></div>')
+        lines.append("</div>")
+    return "\n".join(lines)
+
+
 def build_html(payload: dict) -> str:
     """Pure string-building step, split out from render() so it's testable
     without a live Streamlit session/ScriptRunContext. Generates the video and
@@ -216,75 +246,19 @@ def build_html(payload: dict) -> str:
             final_clip = clips.get("final")
 
             image_html_lines.append('<div class="view-row">')
-
-            # Raw side
-            image_html_lines.append('<div class="side">')
-            image_html_lines.append(f'<div class="side-label">{view} (raw)</div>')
-            if raw_clip:
-                image_html_lines.append(
-                    f'<video id="{raw_clip["element_id"]}" muted playsinline></video>'
-                )
-            else:
-                image_html_lines.append(
-                    '<div class="video-missing">raw not available</div>'
-                )
-            image_html_lines.append("</div>")
-
-            # Final side
-            image_html_lines.append('<div class="side">')
-            image_html_lines.append(f'<div class="side-label">{view} (final)</div>')
-            if final_clip:
-                image_html_lines.append(
-                    f'<video id="{final_clip["element_id"]}" muted playsinline></video>'
-                )
-            else:
-                image_html_lines.append(
-                    '<div class="video-missing">final not available</div>'
-                )
-            image_html_lines.append("</div>")
-
+            image_html_lines.append(_render_video_side_html(view, "raw", raw_clip))
+            image_html_lines.append(_render_video_side_html(view, "final", final_clip))
             image_html_lines.append("</div>")
 
     image_module_html = "\n".join(image_html_lines)
 
     # Pre-generate chart module HTML
-    state_html_lines = []
-    state_charts = payload.get("charts", {}).get("state", [])
-    if state_charts:
-        state_html_lines.append('<div class="module-title">State</div>')
-        for band in state_charts:
-            label_text = band["label"]
-            if not band.get("populated", False):
-                label_text += " (unpopulated)"
-            state_html_lines.append('<div class="chart-row">')
-            state_html_lines.append(
-                f'<div class="chart-label">{label_text}</div>'
-            )
-            state_html_lines.append(
-                f'<div id="{band["div_id"]}" style="height: 220px;"></div>'
-            )
-            state_html_lines.append("</div>")
-
-    state_module_html = "\n".join(state_html_lines)
-
-    action_html_lines = []
-    action_charts = payload.get("charts", {}).get("action", [])
-    if action_charts:
-        action_html_lines.append('<div class="module-title">Action</div>')
-        for band in action_charts:
-            label_text = band["label"]
-            if not band.get("populated", False):
-                label_text += " (unpopulated)"
-            action_html_lines.append('<div class="chart-row">')
-            action_html_lines.append(
-                f'<div class="chart-label">{label_text}</div>'
-            )
-            action_html_lines.append(
-                f'<div id="{band["div_id"]}" style="height: 220px;"></div>'
-            )
-            action_html_lines.append("</div>")
-
-    action_module_html = "\n".join(action_html_lines)
+    state_module_html = _render_chart_module_html(
+        payload.get("charts", {}).get("state", []), "State"
+    )
+    action_module_html = _render_chart_module_html(
+        payload.get("charts", {}).get("action", []), "Action"
+    )
 
     # Replace module divs with generated content
     html = html.replace('<div id="image-module"></div>', image_module_html)
