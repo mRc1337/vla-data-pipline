@@ -69,3 +69,63 @@ def test_start_video_server_returns_403_for_path_traversal(tmp_path: Path):
         assert resp.status == 403
     finally:
         conn.close()
+
+
+def test_start_video_server_handles_empty_range_header(tmp_path: Path):
+    """Range header with empty spec (bytes=) should degrade gracefully to full file."""
+    file_path = tmp_path / "clip.mp4"
+    file_path.write_bytes(b"0123456789")
+    port = start_video_server(tmp_path)
+
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/clip.mp4", headers={"Range": "bytes="}
+    )
+    with urllib.request.urlopen(request) as resp:
+        assert resp.status == 200
+        assert resp.read() == b"0123456789"
+        assert "Content-Range" not in resp.headers
+
+
+def test_start_video_server_handles_malformed_range_header(tmp_path: Path):
+    """Range header with non-numeric start (bytes=abc-5) should degrade gracefully to full file."""
+    file_path = tmp_path / "clip.mp4"
+    file_path.write_bytes(b"0123456789")
+    port = start_video_server(tmp_path)
+
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/clip.mp4", headers={"Range": "bytes=abc-5"}
+    )
+    with urllib.request.urlopen(request) as resp:
+        assert resp.status == 200
+        assert resp.read() == b"0123456789"
+        assert "Content-Range" not in resp.headers
+
+
+def test_start_video_server_handles_range_beyond_eof(tmp_path: Path):
+    """Range header with start beyond EOF (bytes=100-200) should degrade gracefully to full file."""
+    file_path = tmp_path / "clip.mp4"
+    file_path.write_bytes(b"0123456789")
+    port = start_video_server(tmp_path)
+
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/clip.mp4", headers={"Range": "bytes=100-200"}
+    )
+    with urllib.request.urlopen(request) as resp:
+        assert resp.status == 200
+        assert resp.read() == b"0123456789"
+        assert "Content-Range" not in resp.headers
+
+
+def test_start_video_server_handles_open_ended_range_beyond_eof(tmp_path: Path):
+    """Range header with open-ended start beyond EOF (bytes=15-) should degrade gracefully to full file."""
+    file_path = tmp_path / "clip.mp4"
+    file_path.write_bytes(b"0123456789")
+    port = start_video_server(tmp_path)
+
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/clip.mp4", headers={"Range": "bytes=15-"}
+    )
+    with urllib.request.urlopen(request) as resp:
+        assert resp.status == 200
+        assert resp.read() == b"0123456789"
+        assert "Content-Range" not in resp.headers
