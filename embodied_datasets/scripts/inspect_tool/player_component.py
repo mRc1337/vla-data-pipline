@@ -124,6 +124,7 @@ const DATA = __PAYLOAD_JSON__;
     if (Math.abs(media.currentTime - target) > 0.03) {
       media.currentTime = target;
     }
+    media.playbackRate = speed;
     if (playing && media.paused) {
       media.play().catch(() => {});
     } else if (!playing && !media.paused) {
@@ -161,6 +162,7 @@ const DATA = __PAYLOAD_JSON__;
     if (currentT >= masterDuration) {
       playing = false;
       playBtn.innerHTML = "&#9654;";
+      applyTime();
       return;
     }
     requestAnimationFrame(tick);
@@ -170,6 +172,7 @@ const DATA = __PAYLOAD_JSON__;
     if (playing) {
       playing = false;
       playBtn.innerHTML = "&#9654;";
+      applyTime();
       return;
     }
     if (currentT >= masterDuration) currentT = 0;
