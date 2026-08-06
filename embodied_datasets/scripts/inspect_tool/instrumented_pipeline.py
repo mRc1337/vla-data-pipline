@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import numpy as np
 
@@ -35,15 +35,37 @@ import unify_representation  # noqa: E402
 from metadata_io import save_metadata, stage_result_to_record
 
 
-def run_dataset_instrumented(input_path: Path, output_path: Path, process_config_path: Path) -> dict:
+def run_dataset_instrumented(
+    input_path: Path, output_path: Path, process_config_path: Path,
+    on_episode_done: Optional[Callable[[int, dict], None]] = None,
+    episodes: Optional[List[Episode]] = None,
+) -> dict:
     """Runs the same pipeline run_pipeline.py::run_dataset() runs, but
     additionally writes `_inspect_metadata.json` into output_path recording
     every stage's full StageResult for every episode. Returns the metadata
-    dict (identical to what gets written to disk)."""
+    dict (identical to what gets written to disk).
+
+    `on_episode_done`, when given, is called exactly once per episode --
+    `(episode_index, episode_records[episode_index])` -- at the point that
+    episode's record becomes final (rejected in stage1/2, all-frames-dropped
+    in stage3/check3, or finishing the full stage3-unify sequence). Lets a
+    caller (inspect_tool/app.py) show per-episode progress while this
+    function is still running instead of only after it returns.
+
+    `episodes`, when given, is used instead of re-reading input_path via
+    load_lerobot_episodes(). app.py already decodes the raw dataset once on
+    its main thread (to show it in the UI); without this, this function
+    would decode the same dataset a second time on its own background
+    thread -- both calls end up inside HF `datasets`' thread_map/ensure_lock,
+    which races on a class-level tqdm._lock attribute across threads and
+    intermittently raises `AttributeError: type object 'tqdm' has no
+    attribute '_lock'`. Passing the already-decoded episodes in avoids the
+    redundant decode and the race entirely."""
     config = load_process_config(process_config_path)
     fps = config.fps or 1.0
 
-    episodes = load_lerobot_episodes(input_path)
+    if episodes is None:
+        episodes = load_lerobot_episodes(input_path)
     episode_records = {
         ep.episode_index: {
             "episode_index": ep.episode_index,
@@ -58,17 +80,23 @@ def run_dataset_instrumented(input_path: Path, output_path: Path, process_config
     def record(stage_name: str, episode_index: int, result: StageResult) -> None:
         episode_records[episode_index]["stages"].append(stage_result_to_record(stage_name, result))
 
+    def emit_done(episode_index: int) -> None:
+        if on_episode_done is not None:
+            on_episode_done(episode_index, episode_records[episode_index])
+
     survivors = []
     for episode in episodes:
         result = stage1_sudden_change.apply(episode, config)
         record("stage1_sudden_change", episode.episode_index, result)
         if result.rejected:
+            emit_done(episode.episode_index)
             continue
         episode = result.episode
 
         result = stage2_trend_alignment.apply(episode, config)
         record("stage2_trend_alignment", episode.episode_index, result)
         if result.rejected:
+            emit_done(episode.episode_index)
             continue
         survivors.append(result.episode)
 
@@ -84,6 +112,7 @@ def run_dataset_instrumented(input_path: Path, output_path: Path, process_config
 
         if episode.state.shape[0] == 0:
             record("run_pipeline", episode.episode_index, StageResult(episode=episode, rejected=True, skip_reason="all_frames_dropped"))
+            emit_done(episode.episode_index)
             continue
 
         result = stage4_fk_consistency.apply(episode, config)
@@ -106,6 +135,7 @@ def run_dataset_instrumented(input_path: Path, output_path: Path, process_config
 
         if episode.state.shape[0] == 0:
             record("run_pipeline", episode.episode_index, StageResult(episode=episode, rejected=True, skip_reason="all_frames_dropped"))
+            emit_done(episode.episode_index)
             continue
 
         result = unify_representation.apply(episode, config)
@@ -128,6 +158,7 @@ def run_dataset_instrumented(input_path: Path, output_path: Path, process_config
         episode_records[episode.episode_index]["output_frame_count"] = episode.state.shape[0]
         episode_records[episode.episode_index]["survived"] = True
         final_episodes.append(episode)
+        emit_done(episode.episode_index)
 
     if final_episodes:
         write_lerobot_episodes(
