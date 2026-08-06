@@ -165,6 +165,7 @@ def write_lerobot_episodes(
     robot_type: str,
     canonical_mask: Optional[np.ndarray] = None,
     action_canonical_mask: Optional[np.ndarray] = None,
+    write_videos: bool = False,
 ) -> None:
     """Write `episodes` out as a new lerobot dataset rooted at `output_path`.
 
@@ -183,6 +184,16 @@ def write_lerobot_episodes(
     written as its own extra per-frame feature ("action_canonical_mask").
     Independent of `canonical_mask` -- either, both, or neither may be
     passed.
+
+    `write_videos`, when True, additionally declares a `dtype: "video"`
+    feature for every view key present in `episodes[0].frames` and writes
+    each frame's per-view image alongside state/action -- used only by
+    inspect_tool's instrumented_pipeline.py (run_pipeline.py never passes
+    this), so production dataset output is unaffected by this parameter's
+    existence. Relies on `episode.frames` already being frame-count-aligned
+    with `episode.state`/`episode.action` -- true for every Episode this
+    pipeline produces, since stage1/stage2/stage3/check3 all slice `frames`
+    in lockstep with their state/action drops.
     """
     if not episodes:
         return
@@ -206,13 +217,27 @@ def write_lerobot_episodes(
             "shape": (action_canonical_mask.shape[0],),
             "names": None,
         }
+    view_keys = list(episodes[0].frames.keys()) if write_videos else []
+    for view_key in view_keys:
+        height, width = episodes[0].frames[view_key].shape[1:3]
+        features[view_key] = {
+            "dtype": "video",
+            "shape": (height, width, 3),
+            "names": ["height", "width", "channel"],
+        }
+    # PyAV's add_stream(vcodec, fps, ...) needs an fps with a `.numerator`
+    # attribute -- a plain float (even a whole number) raises AttributeError
+    # ("'float' object has no attribute 'numerator'"). Only the
+    # video-encoding path is affected; the pre-existing non-video path keeps
+    # passing `fps` through as-is.
+    create_fps = int(fps) if write_videos else fps
     dataset = LeRobotDataset.create(
         repo_id=output_path.name,
-        fps=fps,
+        fps=create_fps,
         root=output_path,
         features=features,
         robot_type=robot_type,
-        use_videos=False,
+        use_videos=write_videos,
     )
     for episode in episodes:
         for t in range(episode.state.shape[0]):
@@ -225,6 +250,8 @@ def write_lerobot_episodes(
                 frame["observation.state_canonical_mask"] = canonical_mask
             if action_canonical_mask is not None:
                 frame["action_canonical_mask"] = action_canonical_mask
+            for view_key in view_keys:
+                frame[view_key] = episode.frames[view_key][t]
             dataset.add_frame(frame)
         dataset.save_episode()
     dataset.finalize()
