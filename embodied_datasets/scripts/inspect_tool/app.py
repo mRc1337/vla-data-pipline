@@ -27,7 +27,11 @@ from lerobot_io import load_lerobot_episodes  # noqa: E402
 
 from instrumented_pipeline import run_dataset_instrumented  # noqa: E402
 from metadata_io import load_metadata, metadata_exists  # noqa: E402
-from views import action_bands, band_overlay_figure, episode_status_label, slice_band, state_bands  # noqa: E402
+from views import episode_status_label  # noqa: E402
+
+import player_component  # noqa: E402
+from player_payload import build_payload, build_video_urls  # noqa: E402
+from video_server import start_video_server  # noqa: E402
 
 # How often the sidebar selector and main body fragments poll
 # st.session_state.pipeline_state for progress. Polling never stops once the
@@ -153,6 +157,21 @@ def _ensure_pipeline_started(input_path: str, output_path: str, config_path: str
     thread.start()
 
 
+def _ensure_video_servers_started(input_path: str, output_path: str) -> dict:
+    """Idempotently starts (once per Streamlit session) two local static
+    file HTTP servers -- one rooted at the raw input dataset, one at the
+    final output dataset -- and returns their ports. Safe to call on every
+    rerun. `output_path` doesn't need to exist yet: requests against it
+    just 404 until the pipeline finishes writing there (see
+    video_server.py's start_video_server docstring)."""
+    if "video_server_ports" not in st.session_state:
+        st.session_state.video_server_ports = {
+            "raw": start_video_server(Path(input_path)),
+            "final": start_video_server(Path(output_path)),
+        }
+    return st.session_state.video_server_ports
+
+
 def _snapshot_pipeline_state() -> dict:
     """Reads the live st.session_state.pipeline_state under its lock. Must
     be called fresh from inside whichever function needs current progress
@@ -192,7 +211,10 @@ def _render_overview(metadata: dict, total_count: Optional[int] = None) -> None:
         st.table({"stage": list(stage_counts.keys()), "episodes_affected": list(stage_counts.values())})
 
 
-def _render_episode_detail(episode_record: Optional[dict], raw_episode, final_episode, config, masks: dict) -> None:
+def _render_episode_detail(
+    episode_record: Optional[dict], raw_episode, final_episode, config, masks: dict,
+    input_path: str, output_path: str, video_server_ports: dict,
+) -> None:
     st.header(f"Episode {raw_episode.episode_index}")
     if episode_record is None:
         st.write("Status: **pending** (not processed yet)")
@@ -207,35 +229,17 @@ def _render_episode_detail(episode_record: Optional[dict], raw_episode, final_ep
         if check1 is not None:
             st.write(f"check1 verdict (skip_reason): {check1['skip_reason']}")
 
-    st.subheader("Video frames (raw vs cleaned)")
-    for view, raw_frames in raw_episode.frames.items():
-        st.write(f"View: {view}")
-        preview_count = min(5, raw_frames.shape[0])
-        st.image(list(raw_frames[:preview_count]), caption=[f"raw #{i}" for i in range(preview_count)])
-        if final_episode is not None and view in final_episode.frames:
-            final_frames = final_episode.frames[view]
-            preview_count = min(5, final_frames.shape[0])
-            st.image(list(final_frames[:preview_count]), caption=[f"final #{i}" for i in range(preview_count)])
-
-    st.subheader("State")
-    for band in state_bands(config.num_arms):
-        raw_slice = slice_band(raw_episode.state, None, band)
-        final_slice = None
-        if final_episode is not None:
-            final_slice = slice_band(final_episode.state, masks["state"], band)
-        label = band.label + (" (unpopulated)" if final_slice is not None and not final_slice["populated"] else "")
-        st.caption(f"{label} (raw vs final)")
-        st.plotly_chart(band_overlay_figure(band.label, raw_slice, final_slice), width="stretch", key=f"state_{band.label}")
-
-    st.subheader("Action")
-    for band in action_bands(config.num_arms):
-        raw_slice = slice_band(raw_episode.action, None, band)
-        final_slice = None
-        if final_episode is not None:
-            final_slice = slice_band(final_episode.action, masks["action"], band)
-        label = band.label + (" (unpopulated)" if final_slice is not None and not final_slice["populated"] else "")
-        st.caption(f"{label} (raw vs final)")
-        st.plotly_chart(band_overlay_figure(band.label, raw_slice, final_slice), width="stretch", key=f"action_{band.label}")
+    view_keys = sorted(raw_episode.frames.keys())
+    video_urls = build_video_urls(
+        Path(input_path),
+        Path(output_path) if final_episode is not None else None,
+        video_server_ports["raw"],
+        video_server_ports.get("final") if final_episode is not None else None,
+        raw_episode.episode_index,
+        view_keys,
+    )
+    payload = build_payload(raw_episode, final_episode, config, masks, video_urls, fps=config.fps or 1.0)
+    player_component.render(payload)
 
     if episode_record is not None:
         st.subheader("Per-stage record")
@@ -258,7 +262,7 @@ def _render_sidebar(dataset_name: str, episode_indices: list) -> None:
 
 
 @st.fragment(run_every=_POLL_INTERVAL)
-def _render_body(input_path: str, output_path: str, raw_episodes: dict, config) -> None:
+def _render_body(input_path: str, output_path: str, raw_episodes: dict, config, video_server_ports: dict) -> None:
     snapshot = _snapshot_pipeline_state()
     status = snapshot["status"]
     total_count = len(raw_episodes)
@@ -293,7 +297,10 @@ def _render_body(input_path: str, output_path: str, raw_episodes: dict, config) 
     if record is None:
         st.info(f"Episode {selected} is still being processed -- showing raw data only.")
 
-    _render_episode_detail(record, raw_episodes[selected], final_episode, config, masks)
+    _render_episode_detail(
+        record, raw_episodes[selected], final_episode, config, masks,
+        input_path, output_path, video_server_ports,
+    )
 
 
 def main() -> None:
@@ -306,11 +313,12 @@ def main() -> None:
     episode_indices = sorted(raw_episodes.keys())
 
     _ensure_pipeline_started(args.input, args.output, args.config, list(raw_episodes.values()))
+    video_server_ports = _ensure_video_servers_started(args.input, args.output)
 
     with st.sidebar:
         _render_sidebar(config.id, episode_indices)
 
-    _render_body(args.input, args.output, raw_episodes, config)
+    _render_body(args.input, args.output, raw_episodes, config, video_server_ports)
 
 
 if __name__ == "__main__":
