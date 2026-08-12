@@ -124,10 +124,9 @@ observation.state_canonical_mask   # bool, shape (128,)，每帧写入，整数�
 | `[0:7]` | 7 | joint delta/绝对值 | `ACTION_JOINT_SLOT` |
 | `[7:10]` | 3 | 末端位置delta | `ACTION_EEF_POS_SLOT` |
 | `[10:13]` | 3 | 末端旋转delta（axis-angle） | `ACTION_EEF_ROT_SLOT` |
-| `[13:14]` | 1 | 恒为0，不使用 | 无命名 |
-| `[14:35]` | 21 | 夹爪/灵巧手 | `GRIPPER_SLOT` |
-| `[35:70]`（仅双臂数据集） | 35 | ARM2，结构与 `[0:35]` 相同 | `ACTION_ARM_BLOCK_DIM` |
-| `[70:128]` | 58 | 预留，当前恒为0 | 无命名 |
+| `[13:34]` | 21 | 夹爪/灵巧手 | `GRIPPER_SLOT` |
+| `[34:68]`（仅双臂数据集） | 34 | ARM2，结构与 `[0:34]` 相同 | `ACTION_ARM_BLOCK_DIM` |
+| `[68:128]` | 60 | 预留，当前恒为0 | 无命名 |
 
 `unify_representation.apply_action()` 除计算128维向量外，还计算一个128维 bool
 mask。该mask 作为独立的 lerobot feature 写入最终数据集：
