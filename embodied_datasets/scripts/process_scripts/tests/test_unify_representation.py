@@ -262,11 +262,10 @@ def test_apply_action_eef_pose_delta_populates_eef_not_joint():
     assert not np.any(mask[0:7])  # no joint data available for eef_pose
     assert np.allclose(canonical[:, 7:10], [0.1, 0.2, 0.3])
     assert np.allclose(canonical[:, 10:13], [0.0, 0.0, 0.0])
-    assert not mask[13]  # pad dim never populated
-    assert np.allclose(canonical[:, 14], 0.7)
+    assert np.allclose(canonical[:, 13], 0.7)
     assert np.all(mask[7:13])
-    assert mask[14]
-    assert not np.any(mask[35:128])  # single arm: arm2 block + reserve untouched
+    assert mask[13]
+    assert not np.any(mask[34:128])  # single arm: arm2 block + reserve untouched
 
 
 def test_apply_action_eef_pose_absolute_frame_subtracts_current_state_eef():
@@ -328,7 +327,7 @@ def test_apply_action_joint_position_fk_available_populates_both_joint_and_eef()
     assert not np.any(mask[2:7])  # dof_per_arm=2 < ACTION_JOINT_SLOT=7: rest unpopulated
     assert np.allclose(canonical[:, 7:10], [0.0, 1.5, 0.0], atol=1e-9)
     assert np.allclose(canonical[:, 10:13], [0.0, 0.0, np.pi / 2])
-    assert np.allclose(canonical[:, 14], 0.6)
+    assert np.allclose(canonical[:, 13], 0.6)
 
 
 def test_apply_action_joint_position_absolute_frame_subtracts_current_joint_state():
@@ -366,8 +365,8 @@ def test_apply_action_joint_position_fk_unavailable_populates_joint_only():
     assert np.allclose(canonical[:, 0:2], [0.3, 0.4])
     assert np.all(mask[0:2])
     assert not np.any(mask[7:13])  # eef slot stays unpopulated
-    assert np.allclose(canonical[:, 14], 0.6)  # gripper populates regardless of FK
-    assert mask[14]
+    assert np.allclose(canonical[:, 13], 0.6)  # gripper populates regardless of FK
+    assert mask[13]
 
 
 def test_apply_action_joint_position_skips_eef_slot_on_dof_mismatch():
@@ -407,14 +406,14 @@ def test_apply_action_dual_arm_packs_into_correct_blocks():
     mask = result.stats["action_canonical_mask"]
     assert canonical.shape == (num_frames, 128)
     assert np.allclose(canonical[:, 7:10], [1.0, 2.0, 3.0])
-    assert np.allclose(canonical[:, 14], 0.5)
-    assert np.allclose(canonical[:, 42:45], [4.0, 5.0, 6.0])
-    assert np.allclose(canonical[:, 49], 0.9)
+    assert np.allclose(canonical[:, 13], 0.5)
+    assert np.allclose(canonical[:, 41:44], [4.0, 5.0, 6.0])
+    assert np.allclose(canonical[:, 47], 0.9)
     assert np.all(mask[7:13])
-    assert mask[14]
-    assert np.all(mask[42:48])
-    assert mask[49]
-    assert not np.any(mask[70:128])  # reserve untouched
+    assert mask[13]
+    assert np.all(mask[41:47])
+    assert mask[47]
+    assert not np.any(mask[68:128])  # reserve untouched
 
 
 def test_apply_action_mobile_base_columns_excluded_before_arm_division():
@@ -443,9 +442,9 @@ def test_apply_action_mobile_base_columns_excluded_before_arm_division():
     assert result.skip_reason is None
     canonical = result.stats["action_canonical"]
     assert np.allclose(canonical[:, 7:10], [1.0, 2.0, 3.0])
-    assert np.allclose(canonical[:, 14], 0.5)
-    assert np.allclose(canonical[:, 42:45], [4.0, 5.0, 6.0])
-    assert np.allclose(canonical[:, 49], 0.9)
+    assert np.allclose(canonical[:, 13], 0.5)
+    assert np.allclose(canonical[:, 41:44], [4.0, 5.0, 6.0])
+    assert np.allclose(canonical[:, 47], 0.9)
 
 
 def test_apply_action_zero_frames_episode_does_not_crash():

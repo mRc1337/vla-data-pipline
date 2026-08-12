@@ -56,8 +56,8 @@ def test_action_bands_single_arm_matches_128dim_layout():
         ("arm1_joint", 0, 7),
         ("arm1_eef_pos", 7, 10),
         ("arm1_eef_rot", 10, 13),
-        ("arm1_gripper", 14, 35),
-        ("reserve", 35, 128),
+        ("arm1_gripper", 13, 34),
+        ("reserve", 34, 128),
     ]
 
 
@@ -68,12 +68,12 @@ def test_action_bands_dual_arm_matches_128dim_layout():
         ("arm1_joint", 0, 7),
         ("arm1_eef_pos", 7, 10),
         ("arm1_eef_rot", 10, 13),
-        ("arm1_gripper", 14, 35),
-        ("arm2_joint", 35, 42),
-        ("arm2_eef_pos", 42, 45),
-        ("arm2_eef_rot", 45, 48),
-        ("arm2_gripper", 49, 70),
-        ("reserve", 70, 128),
+        ("arm1_gripper", 13, 34),
+        ("arm2_joint", 34, 41),
+        ("arm2_eef_pos", 41, 44),
+        ("arm2_eef_rot", 44, 47),
+        ("arm2_gripper", 47, 68),
+        ("reserve", 68, 128),
     ]
 
 

@@ -372,7 +372,7 @@ def test_run_dataset_replaces_action_with_canonical_128dim_when_configured(tmp_p
     mask = row0["action_canonical_mask"].numpy().astype(bool)
     assert not np.any(mask[0:7])  # eef_pose: no joint data
     assert np.all(mask[7:13])
-    assert not np.any(mask[35:128])  # single arm: arm2 block + reserve untouched
+    assert not np.any(mask[34:128])  # single arm: arm2 block + reserve untouched
 
 
 def test_main_does_not_crash_and_marks_failed_when_zero_episodes_survive(tmp_path):

@@ -61,7 +61,7 @@ SIMPLE_GRIPPER_TYPES: Set[str] = {"parallel_jaw", "three_jaw", "cage_pinch", "su
 ACTION_JOINT_SLOT = 7
 ACTION_EEF_POS_SLOT = 3
 ACTION_EEF_ROT_SLOT = 3
-ACTION_ARM_BLOCK_DIM = ACTION_JOINT_SLOT + ACTION_EEF_POS_SLOT + ACTION_EEF_ROT_SLOT + 1 + GRIPPER_SLOT  # 35
+ACTION_ARM_BLOCK_DIM = ACTION_JOINT_SLOT + ACTION_EEF_POS_SLOT + ACTION_EEF_ROT_SLOT + GRIPPER_SLOT  # 34
 ACTION_CANONICAL_DIM = 128
 
 SUPPORTED_ACTION_SPACES: Set[str] = {"eef_pose", "joint_position"}
@@ -170,10 +170,12 @@ def apply_action(episode: Episode, config: ProcessConfig) -> StageResult:
     """Cross-embodiment canonical 128-dim action projection (design doc
     docs/superpowers/specs/2026-07-30-action-canonicalization-128dim-design.md).
     Independent numbering from apply()'s 128-dim state layout -- offsets are
-    not shared, only some constant widths coincide numerically (both layers
-    are joint(7)+eef(7)+gripper(21)=35 per arm). Assumes action/state
-    rotation columns are already quaternion (same upstream-staging contract
-    apply()'s module docstring documents for state).
+    not shared, and the per-arm block widths differ too: state is
+    joint(7)+eef(7)+gripper(21)=35 per arm, action is
+    joint(7)+eef_pos(3)+eef_rot(3)+gripper(21)=34 per arm (no padding dim
+    between eef_rot and gripper). Assumes action/state rotation columns are
+    already quaternion (same upstream-staging contract apply()'s module
+    docstring documents for state).
 
     Unlike the state layer, the joint slot and eef slot populate somewhat
     independently: the joint slot never needs forward kinematics (it's a
@@ -299,7 +301,7 @@ def apply_action(episode: Episode, config: ProcessConfig) -> StageResult:
                 mask[rot_offset:rot_offset + rot_width] = True
 
         # --- gripper slot: never depends on FK ---
-        gripper_offset = eef_offset + ACTION_EEF_POS_SLOT + ACTION_EEF_ROT_SLOT + 1
+        gripper_offset = eef_offset + ACTION_EEF_POS_SLOT + ACTION_EEF_ROT_SLOT
         _pack_gripper(action_canonical, mask, gripper_offset, gripper_action_cols, config.gripper_type)
 
     return StageResult(episode=episode, stats=stats)

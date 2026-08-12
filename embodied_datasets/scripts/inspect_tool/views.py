@@ -71,7 +71,7 @@ def action_bands(num_arms: int) -> List[Band]:
     for arm_idx in range(num_arms):
         offset = arm_idx * ur.ACTION_ARM_BLOCK_DIM
         eef_offset = offset + ur.ACTION_JOINT_SLOT
-        gripper_offset = eef_offset + ur.ACTION_EEF_POS_SLOT + ur.ACTION_EEF_ROT_SLOT + 1
+        gripper_offset = eef_offset + ur.ACTION_EEF_POS_SLOT + ur.ACTION_EEF_ROT_SLOT
         bands.append(Band(f"arm{arm_idx + 1}_joint", offset, eef_offset))
         bands.append(Band(f"arm{arm_idx + 1}_eef_pos", eef_offset, eef_offset + ur.ACTION_EEF_POS_SLOT))
         bands.append(Band(
