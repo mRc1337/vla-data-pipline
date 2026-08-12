@@ -354,3 +354,115 @@ def test_write_lerobot_episodes_supports_both_masks_independently(tmp_path: Path
     row = reloaded[0]
     assert np.array_equal(row["observation.state_canonical_mask"].numpy().astype(bool), state_mask)
     assert np.array_equal(row["action_canonical_mask"].numpy().astype(bool), action_mask)
+
+
+def test_write_lerobot_episodes_with_write_videos_true_round_trips_frames(tmp_path: Path):
+    from episode import Episode
+    from lerobot_io import load_lerobot_episodes, write_lerobot_episodes
+
+    rng = np.random.RandomState(0)
+    frames = {"observation.image": rng.randint(0, 256, size=(4, 32, 32, 3), dtype=np.uint8)}
+    episodes = [
+        Episode(
+            episode_index=0,
+            timestamps=np.arange(4, dtype=np.float64) / 10.0,
+            state=np.zeros((4, 2), dtype=np.float32),
+            action=np.zeros((4, 2), dtype=np.float32),
+            frames=frames,
+        )
+    ]
+    output_path = tmp_path / "written_video_ds"
+    write_lerobot_episodes(episodes, output_path, fps=10.0, robot_type="test_robot", write_videos=True)
+
+    reloaded = load_lerobot_episodes(output_path)
+    assert len(reloaded) == 1
+    assert "observation.image" in reloaded[0].frames
+    reloaded_frames = reloaded[0].frames["observation.image"]
+    assert reloaded_frames.shape == (4, 32, 32, 3)
+    assert reloaded_frames.dtype == np.uint8
+    # Video is lossy -- same reasoning as the existing
+    # test_load_lerobot_episodes_populates_video_frames: assert real image
+    # content came back, not a tight per-pixel match.
+    assert reloaded_frames.std() > 1.0
+
+
+def test_write_lerobot_episodes_default_write_videos_false_has_no_video_feature(tmp_path: Path):
+    """Regression coverage for the write_videos=False default: every
+    pre-existing caller (run_pipeline.py included) must see the exact same
+    non-video output as before this parameter was added, even when the
+    Episode objects being written happen to carry frames."""
+    from episode import Episode
+    from lerobot_io import write_lerobot_episodes
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    frames = {"observation.image": np.zeros((3, 32, 32, 3), dtype=np.uint8)}
+    episodes = [
+        Episode(
+            episode_index=0,
+            timestamps=np.arange(3, dtype=np.float64) / 10.0,
+            state=np.zeros((3, 2), dtype=np.float32),
+            action=np.zeros((3, 2), dtype=np.float32),
+            frames=frames,
+        )
+    ]
+    output_path = tmp_path / "written_no_video_ds"
+    write_lerobot_episodes(episodes, output_path, fps=10.0, robot_type="test_robot")
+
+    reloaded = LeRobotDataset(repo_id=output_path.name, root=output_path)
+    assert "observation.image" not in reloaded.meta.features
+
+
+def test_load_lerobot_episodes_with_load_video_frames_false_skips_decode(tmp_path: Path, monkeypatch):
+    """load_video_frames=False must avoid the expensive video decode
+    entirely (not just discard the decoded result) -- verified here by
+    monkeypatching LeRobotDataset.__getitem__ (the only code path that
+    decodes video, per lerobot==0.4.4's DatasetReader.get_item) to raise if
+    called at all. state/action/timestamps/language_instruction must still
+    be populated normally, and Episode.frames must still carry the video
+    view's KEY (an empty placeholder array, not real pixel data) so
+    downstream `.frames.keys()` callers keep working."""
+    from tests.fixtures import make_synthetic_dataset
+    from lerobot_io import load_lerobot_episodes
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    dataset_root = tmp_path / "synthetic_ds_skip_decode"
+    make_synthetic_dataset(
+        dataset_root, repo_id="test/skip_decode", num_episodes=1, num_frames=4,
+        state_dim=3, action_dim=2, task="pick up the cup", include_video=True,
+    )
+
+    def _getitem_must_not_be_called(self, idx):
+        raise AssertionError("dataset[idx] decodes video and must not be called when load_video_frames=False")
+
+    monkeypatch.setattr(LeRobotDataset, "__getitem__", _getitem_must_not_be_called)
+
+    episodes = load_lerobot_episodes(dataset_root, load_video_frames=False)
+
+    assert len(episodes) == 1
+    episode = episodes[0]
+    assert episode.state.shape == (4, 3)
+    assert episode.action.shape == (4, 2)
+    assert episode.language_instruction == "pick up the cup"
+    assert "observation.image" in episode.frames
+    assert episode.frames["observation.image"].size == 0
+
+
+def test_load_lerobot_episodes_with_load_video_frames_false_still_reads_camera_calibration(tmp_path: Path):
+    from tests.fixtures import make_synthetic_dataset
+    from lerobot_io import load_lerobot_episodes
+
+    extrinsics = np.eye(4, dtype=np.float32)
+    dataset_root = tmp_path / "synthetic_ds_skip_decode_calibration"
+    make_synthetic_dataset(
+        dataset_root,
+        repo_id="test/skip_decode_calibration",
+        num_episodes=1,
+        num_frames=3,
+        include_video=True,
+        camera_calibration={"fx": 100.0, "fy": 100.0, "cx": 16.0, "cy": 16.0, "extrinsics": extrinsics},
+    )
+
+    episodes = load_lerobot_episodes(dataset_root, load_video_frames=False)
+    calibration = episodes[0].camera_calibration["observation.image"]
+    assert calibration.fx == 100.0
+    assert np.array_equal(calibration.extrinsics, extrinsics)
