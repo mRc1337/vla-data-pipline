@@ -1,0 +1,38 @@
+# Template for an RLDS/TFDS dataset (Open-X-Embodiment convention), handled
+# by readers/rlds_reader.py via convert_dataset.py. Fill in the real step
+# field paths/dims after running:
+#
+#   pip install tensorflow-cpu==2.15.0 tensorflow-datasets==4.9.9
+#   python3 dump_dataset_schema.py --dataset-root /data/public_datasets_raw/<dataset_uid>
+#
+# which reports the typed feature spec (see dump_dataset_schema.py's
+# _tfds_builder_info) -- the "features" tree it prints is exactly where the
+# slash-separated source_key paths below come from.
+#
+# UNTESTED against a real tensorflow_datasets install as of this writing --
+# see readers/rlds_reader.py's module docstring and PIPELINE_STATUS.md
+# before trusting this against a large dataset.
+
+dataset_uid: example_rlds_dataset
+format: rlds
+robot_type: example_robot
+
+# Required for rlds: no generic per-episode FPS metadata is read from RLDS
+# yet, so this is not just a fallback here -- it is the only source of FPS.
+fps: 10
+
+split: all                      # or a specific TFDS split name, e.g. "train"
+instruction_source: field
+instruction_field: language_instruction   # a step field path; first step's value is used
+
+vector_fields:
+  - feature_key: observation.state
+    source_key: observation/state
+    dim: 7
+  - feature_key: action
+    source_key: action
+    dim: 7
+
+cameras:
+  - feature_key: observation.images.primary
+    source_key: observation/image

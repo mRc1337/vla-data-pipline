@@ -1,0 +1,36 @@
+# Template for the new raw_image_json convention (folder per episode:
+# images + a metadata.json sidecar), handled by
+# readers/raw_image_json_reader.py via convert_dataset.py.
+#
+# This convention is this repo's own invention (see the module docstring of
+# readers/raw_image_json_reader.py) -- it has not been checked against a
+# real downloaded dataset yet. Inspect the actual folder layout first and
+# adjust this template (most likely metadata_filename or the "frames" key
+# name inside it) rather than reshaping the real data to fit this guess.
+
+dataset_uid: example_raw_image_json_dataset
+format: raw_image_json
+robot_type: example_robot
+
+# Fallback FPS, used only for episodes whose metadata.json has no "fps" key.
+fps: 10
+
+metadata_filename: metadata.json
+image_glob: "*.jpg"
+instruction_source: field
+instruction_field: language_instruction   # a top-level metadata.json field
+
+vector_fields:
+  - feature_key: observation.state
+    source_key: state             # dotted path into each frames[i] dict
+    dim: 7
+  - feature_key: action
+    source_key: action
+    dim: 7
+
+cameras:
+  - feature_key: observation.images.primary
+    source_key: image             # frames[i]["image"] names the image file
+    # source_key: "$glob"          # alternative: no per-frame filename in
+    #                               # metadata.json, just use image_glob-matched
+    #                               # files in natural sort order instead

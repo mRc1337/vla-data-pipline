@@ -39,6 +39,77 @@ python3 run_pipeline.py \
     --config /any/path/to/process_config.yaml
 ```
 
+## 通用数据集 schema-dump 工具
+
+已下载的原始数据集格式不止一种（HDF5、RLDS/TFDS，以后还会有更多），在给
+新格式写转换脚本之前，先用这个工具探测一遍目录结构和字段 schema——**只读
+header/sidecar 元数据，从不读取完整数组、不解码视频、不读取 `.tfrecord`
+二进制内容**，方便把探测结果整份复制回本地开发环境，而不用把原始数据本身
+传出服务器。
+
+单个数据集，直接把 JSON 打到 stdout：
+
+```bash
+python3 embodied_datasets/scripts/convert_scripts/dump_dataset_schema.py \
+    --dataset-root /data/public_datasets_raw/<dataset_uid>
+```
+
+批量探测 `--raw-root` 下每个一级子目录（每个当作一个 dataset_uid），各写
+一份 `<uid>.json`，stdout 额外打一行一个数据集的精简汇总，单个数据集探测
+出错不中断整批：
+
+```bash
+python3 embodied_datasets/scripts/convert_scripts/dump_dataset_schema.py \
+    --raw-root /data/public_datasets_raw --all \
+    --output-dir /tmp/schema_reports
+```
+
+格式默认自动探测（有 `dataset_info.json` → RLDS；否则有 `.h5`/`.hdf5` →
+HDF5；否则 `unknown`，仍会正常输出文件清单/目录树，不报错），也可以用
+`--format hdf5|rlds` 显式指定。RLDS/TFDS 的完整 feature schema 解析依赖
+`tensorflow_datasets`（本仓库不把它列为硬依赖），需要时再装：
+
+```bash
+pip install tensorflow-cpu==2.15.0 tensorflow-datasets==4.9.9
+```
+
+没装的话该工具仍会把 `dataset_info.json`/`features.json` 的原始内容收进
+报告，只是不解码成结构化的 shape/dtype，报告里的 `fidelity` 字段会写清楚
+当前处于哪种精度。
+
+## Mobile ALOHA 原始数据转换为 LeRobot v3.0
+
+转换入口只负责把原始 HDF5 搬运为 LeRobot v3.0，不执行清洗、重采样、归一化或
+canonical 128 维映射。输入目录按语言指令分组：
+
+```text
+public_datasets_raw/<dataset_uid>/<language_instruction>/episode_*.hdf5
+```
+
+先执行预检：
+
+```bash
+python3 embodied_datasets/scripts/convert_scripts/convert_mobile_aloha_to_lerobot.py \
+    --raw-root /data/public_datasets_raw \
+    --staging-root /data/public_datasets_staging \
+    --dataset-uid <dataset_uid> \
+    --inspect-only
+```
+
+确认后转换：
+
+```bash
+python3 embodied_datasets/scripts/convert_scripts/convert_mobile_aloha_to_lerobot.py \
+    --raw-root /data/public_datasets_raw \
+    --staging-root /data/public_datasets_staging \
+    --dataset-uid <dataset_uid>
+```
+
+输出位于 `public_datasets_staging/lerobot_v3_0/<dataset_uid>`。双臂动作写入
+`action`，底盘动作独立写入 `action.base`；只转换 RGB，相对父目录原样写入
+LeRobot `task`。FPS 优先读取相机时间戳或 HDF5/sidecar 元数据，缺失时才使用
+显式 `--fps`。已有输出默认不会被覆盖；批量转换可使用 `--all --skip-existing`。
+
 三个参数都是任意路径，互相之间没有目录结构约定。`--config` 指向的 yaml
 文件对应 `common/schema.py::ProcessConfig`——清洗/对齐阈值 + 该数据集的
 本体信息（`embodiment_class`/`num_arms`/`dof_per_arm`/`gripper_type`/
@@ -49,6 +120,41 @@ python3 run_pipeline.py \
 （如设了 `urdf_path` 却未打开 `fk_check_feasible`），跑完后按 stage 汇总
 每类跳过/拒绝原因的出现次数，其中 check1/check2 因服务未配置或调用失败
 而未真正执行检查的会标注 `[UNVERIFIED]`，避免和真实检查通过混淆。
+
+## 模块化多格式转换（convert_dataset.py）
+
+`convert_mobile_aloha_to_lerobot.py` 只覆盖 Mobile ALOHA 一种 HDF5 布局。其他
+数据集（普通单臂 HDF5、RLDS/TFDS、"文件夹+图片+JSON" 三种格式）统一走
+`convert_dataset.py`：按 `configs/<dataset_uid>.yaml` 里的 `format` 字段分发
+到 `readers/` 下对应的 reader，再共用同一套写入/校验/发布逻辑
+（`convert_core/lerobot_writer.py`）。新增一种格式只需要新写一个
+`readers/<format>_reader.py` 并注册进 `readers/registry.py`，不需要改这个
+CLI；新增一个数据集通常只需要新写一份 yaml，不需要新写 Python 脚本。
+
+```bash
+# 1. 先探测格式（复用上面的 dump_dataset_schema.py）
+python3 embodied_datasets/scripts/convert_scripts/dump_dataset_schema.py \
+    --dataset-root /data/public_datasets_raw/<dataset_uid>
+
+# 2. 参照 configs/example_hdf5.yaml / example_rlds.yaml / example_raw_image_json.yaml
+#    写一份 configs/<dataset_uid>.yaml，字段名/维度按第1步的报告填
+
+# 3. 先 --dry-run 校验，不写任何输出
+python3 embodied_datasets/scripts/convert_scripts/convert_dataset.py \
+    --config embodied_datasets/scripts/convert_scripts/configs/<dataset_uid>.yaml \
+    --raw-root /data/public_datasets_raw --staging-root /data/public_datasets_staging --dry-run
+
+# 4. 确认后正式转换（或用 --configs-dir <dir> --all 批量跑一个目录下的所有 yaml）
+python3 embodied_datasets/scripts/convert_scripts/convert_dataset.py \
+    --config embodied_datasets/scripts/convert_scripts/configs/<dataset_uid>.yaml \
+    --raw-root /data/public_datasets_raw --staging-root /data/public_datasets_staging
+```
+
+**部署到服务器前必读**：`embodied_datasets/scripts/convert_scripts/PIPELINE_STATUS.md`
+记录了当前哪些格式路径已经端到端真实验证过（hdf5：已验证，含真实视频编码）、
+哪些只验证了纯逻辑部分（rlds：本机没装 `tensorflow_datasets`，`tfds.builder_from_directory`
+从未真正跑过一次；raw_image_json：约定是本项目自创的，还没拿真实下载的数据集核对过），
+以及环境相关的几个坑（lerobot 实际安装版本、ffmpeg 在 conda 环境内外的可见性差异等）。
 
 ## 可视化检查工具（inspect_tool）
 
