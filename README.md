@@ -80,7 +80,8 @@ pip install tensorflow-cpu==2.15.0 tensorflow-datasets==4.9.9
 ## Mobile ALOHA 原始数据转换为 LeRobot v3.0
 
 转换入口只负责把原始 HDF5 搬运为 LeRobot v3.0，不执行清洗、重采样、归一化或
-canonical 128 维映射。输入目录按语言指令分组：
+canonical 128 维映射。它会递归发现 episode，因此同时支持移动任务的一层目录和
+静态 co-training 的两层目录：
 
 ```text
 public_datasets_raw/<dataset_uid>/<language_instruction>/episode_*.hdf5
@@ -89,26 +90,115 @@ public_datasets_raw/<dataset_uid>/<language_instruction>/episode_*.hdf5
 先执行预检：
 
 ```bash
-python3 embodied_datasets/scripts/convert_scripts/convert_mobile_aloha_to_lerobot.py \
-    --raw-root /data/public_datasets_raw \
-    --staging-root /data/public_datasets_staging \
-    --dataset-uid <dataset_uid> \
-    --inspect-only
+cd /home/pai/zxw/vla-data-pipeline
+
+env HF_HOME=/home/pai/zxw/.cache/huggingface \
+  .venv/bin/python \
+  embodied_datasets/scripts/convert_scripts/convert_mobile_aloha_to_lerobot.py \
+  --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
+  --staging-root /home/pai/zxw/mobile_aloha_staging \
+  --dataset-uid mobile_aloha \
+  --inspect-only
 ```
 
-确认后转换：
+全量预检通过后，从项目根目录启动正式转换：
 
 ```bash
-python3 embodied_datasets/scripts/convert_scripts/convert_mobile_aloha_to_lerobot.py \
-    --raw-root /data/public_datasets_raw \
-    --staging-root /data/public_datasets_staging \
-    --dataset-uid <dataset_uid>
+cd /home/pai/zxw/vla-data-pipeline
+
+mkdir -p /home/pai/zxw/mobile_aloha_logs
+mkdir -p /home/pai/zxw/.cache/huggingface
+
+nohup env \
+  HF_HOME=/home/pai/zxw/.cache/huggingface \
+  .venv/bin/python -u \
+  embodied_datasets/scripts/convert_scripts/convert_mobile_aloha_to_lerobot.py \
+  --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
+  --staging-root /home/pai/zxw/mobile_aloha_staging \
+  --dataset-uid mobile_aloha \
+  --resume \
+  --streaming-encoding --video-codec h264 --video-preset fast \
+  --eta-interval-seconds 10 \
+  > /home/pai/zxw/mobile_aloha_logs/convert.log 2>&1 &
+
+echo $! > /home/pai/zxw/mobile_aloha_logs/convert.pid
 ```
 
-输出位于 `public_datasets_staging/lerobot_v3_0/<dataset_uid>`。双臂动作写入
-`action`，底盘动作独立写入 `action.base`；只转换 RGB，相对父目录原样写入
-LeRobot `task`。FPS 优先读取相机时间戳或 HDF5/sidecar 元数据，缺失时才使用
-显式 `--fps`。已有输出默认不会被覆盖；批量转换可使用 `--all --skip-existing`。
+实时观察 ETA 和检查后台进程：
+
+```bash
+tail -f /home/pai/zxw/mobile_aloha_logs/convert.log
+ps -fp "$(cat /home/pai/zxw/mobile_aloha_logs/convert.pid)"
+```
+
+ETA 日志包含全局已转换帧数、百分比、吞吐率、已用时间、剩余时间以及当前
+partition/episode；默认每 10 秒刷新，并在每个 episode 保存后强制输出。最终输出位于
+`/home/pai/zxw/mobile_aloha_staging/lerobot_v3_0/mobile_aloha`。只有进程返回 0，且日志末尾
+出现以下两行，才能视为本地结构转换完成：
+
+```text
+wrote 3 partitions / 1103 episodes / 971850 frames
+completed: converted=1, skipped=0
+```
+
+不要把正式转换的 `--staging-root` 直接指向 `/mnt/data`：该 OSSFS/FUSE 挂载不支持 MP4
+muxer 关闭文件时所需的 seek-back/ftruncate。应先写服务器本地目录，完成验证后再同步到 OSS。
+
+### 流式编码与 NVENC 小样本验证
+
+`--streaming-encoding` 会直接把解码后的 RGB 帧送入视频编码器，跳过同步写临时 PNG 再读回的
+中转。离线转换会自动把每相机队列设为“最长 episode 帧数 + 1”；手工指定更小的
+`--encoder-queue-maxsize` 会被拒绝，因此不会触发 LeRobot 的队列满丢帧分支。转换完成后还会
+逐相机核验 MP4 的总帧数、codec 和 FPS。
+
+`--resume` 会在正式输出旁保留确定性 checkpoint，并只从下一个尚未完成的 episode 继续。
+收到 `Ctrl-C` 或 `SIGTERM` 时，当前未完成 episode 会被丢弃，parquet/metadata 会关闭，重新执行
+完全相同的命令即可续传。恢复前会核对源 HDF5 的路径、大小、mtime、schema 和全部视频编码参数；
+任一项变化都会拒绝误续。`--resume` 与 `--overwrite`/`--skip-existing` 互斥。`kill -9` 或机器掉电
+无法运行关闭逻辑，不保证最后一个仍打开的 parquet 文件可恢复。
+
+先用一个真实 episode 做 CPU 同构基线：
+
+```bash
+env HF_HOME=/home/pai/zxw/.cache/huggingface \
+  .venv/bin/python \
+  embodied_datasets/scripts/convert_scripts/convert_mobile_aloha_to_lerobot.py \
+  --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
+  --staging-root /home/pai/zxw/mobile_aloha_streaming_test/cpu_h264 \
+  --dataset-uid mobile_aloha --episode-limit 1 \
+  --streaming-encoding --video-codec h264 --video-preset fast
+```
+
+在带 NVENC 引擎且容器已映射 GPU/video capability 的机器上，把编码器改为：
+
+```bash
+--streaming-encoding --video-codec h264_nvenc --video-preset p4
+```
+
+NVENC 路径启动前会真实打开与相机数相同的并发编码会话并编码一帧；不会把“FFmpeg 编译时包含
+`h264_nvenc`”误当成硬件可用。A100/A800 没有 NVENC 编码引擎，需使用 L4、A10、RTX 等支持
+NVENC 的 GPU。不要用 `--no-video-preflight` 绕过生产转换的探针。
+
+转换后执行源数据对比评估：
+
+```bash
+env HF_HOME=/home/pai/zxw/.cache/huggingface \
+  .venv/bin/python \
+  embodied_datasets/scripts/convert_scripts/evaluate_mobile_aloha_conversion.py \
+  --partition-root /path/to/mobile_aloha/part-000-mobile-velocity-effort-3cams-50fps \
+  --samples 20 --min-psnr-db 30 --output /path/to/evaluation.json
+```
+
+报告包含结构/逐路帧数、数值字段最大绝对误差、抽样 PSNR、codec、FPS、文件体积和转换吞吐；
+任一结构、数值、帧数或画质门禁失败时命令返回非零。
+
+由于 LeRobot 的单个 dataset 必须使用固定 feature schema，CLI 会自动把真实源数据分成
+移动、静态有 effort、
+静态无 effort 三个可独立加载的 LeRobot v3.0 子数据集，并写出
+`collection_manifest.json`。它不会为静态数据伪造底盘动作，也不会丢弃静态数据独有的
+`cam_low`。双臂动作写入 `action`，仅移动分区写入 `action.base`；只转换 RGB，相对父目录
+按官方任务映射写入自然语言 LeRobot `task`。FPS 优先读取相机时间戳或 HDF5/sidecar 元数据，
+缺失时默认使用该公开数据集的 50 FPS（可用 `--fps` 覆盖）。已有输出默认不会被覆盖。
 
 三个参数都是任意路径，互相之间没有目录结构约定。`--config` 指向的 yaml
 文件对应 `common/schema.py::ProcessConfig`——清洗/对齐阈值 + 该数据集的
