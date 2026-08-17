@@ -225,10 +225,38 @@ first/middle/last frames. Hugging Face may present fixed-size float64 arrays as
 float32 tensors; the reader cast is checked separately from the bit-exact stored
 Parquet comparison.
 
-Conversion writes a sibling `.incomplete-<uuid>` directory. It is removed on
-failure and renamed only after validation. `--overwrite` uses a rollback-capable
-publication helper; existing output otherwise fails, while `--skip-existing`
-returns before scanning the source.
+Without `--resume`, conversion writes a sibling `.incomplete-<uuid>` directory.
+It is removed on failure and renamed only after validation. `--overwrite` uses
+a rollback-capable publication helper; existing output otherwise fails, while
+`--skip-existing` returns before scanning the source.
+
+For long runs, `--resume` enables part-level checkpoints. It uses three stable
+sibling paths next to the final dataset:
+
+```text
+.<dataset-uid>.resume/             # converted part data
+.<dataset-uid>.resume-state/       # state.json and atomic per-part markers
+.<dataset-uid>.resume.lock         # process lock; retained as an empty lock anchor
+```
+
+A part marker is written only after the complete part has passed normal output
+validation. On restart, every marked part is reopened and validated again. A
+missing, corrupt, mismatched, unmarked, or partially written part is removed and
+rebuilt; a verified part is reused. The checkpoint fingerprint covers pinned
+source revisions, resolved raw/output paths, converter configuration, selected
+parts and episodes, source metadata/features/tasks, HDF5 schemas, episode
+lengths/instructions/indices, and source file paths. Changing task filters,
+episode limits, output UID, configuration, or source structure rejects the old
+checkpoint with an error instead of mixing conversions. Worker count, ETA
+interval, and video-header sampling can safely change between attempts.
+
+The resume state is outside the publishable tree, so no checkpoint metadata is
+included in the final collection. After all parts validate, the data directory
+is atomically renamed to the final output and the state directory is removed.
+Failed or interrupted runs retain both data and state for the next identical
+command. The stable nonblocking lock rejects concurrent resume processes for
+the same output; its empty file intentionally remains after the lock is
+released and is harmless.
 
 ## Verified real-data runs
 
@@ -247,6 +275,14 @@ and “can” instructions at:
 ```text
 /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/gr00t_teleop_sim_smoke_2ep
 ```
+
+Resume behavior was also fault-injected against four real episodes from two
+source parts (`PnPBottleToCabinetClose` and `PnPCanToDrawerClose`). The first
+part completed and validated, the second was interrupted after partial output
+was created, and no final collection was published. An identical restart
+revalidated and reused the first part, deleted the partial second part,
+converted only that part, reopened both outputs, and atomically published a
+checkpoint-free collection.
 
 ## Performance investigation
 
@@ -323,7 +359,7 @@ nohup .venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_gr00t_teleop_sim_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
   --staging-root /home/pai/zxw/gr00t_teleop_sim_staging \
-  --sample-video-headers --workers 8 --eta-interval-seconds 10 \
+  --sample-video-headers --workers 8 --resume --eta-interval-seconds 10 \
   > /home/pai/zxw/gr00t_teleop_sim_logs/convert.log 2>&1 &
 echo $! > /home/pai/zxw/gr00t_teleop_sim_logs/convert.pid
 ```
@@ -334,6 +370,26 @@ elapsed time, and ETA. Inspect the process and follow the log with:
 ```bash
 ps -fp "$(cat /home/pai/zxw/gr00t_teleop_sim_logs/convert.pid)"
 tail -f /home/pai/zxw/gr00t_teleop_sim_logs/convert.log
+```
+
+Resume messages report how many completed parts were independently verified
+and reused. Inspect the retained checkpoint after an interruption with:
+
+```bash
+find /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume-state \
+  -maxdepth 2 -type f -print
+du -sh /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume
+```
+
+If the fingerprint mismatch is intentional, move both checkpoint directories
+aside for investigation before starting a new run; do not combine old state
+with new arguments:
+
+```bash
+mv /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume \
+  /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume.previous
+mv /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume-state \
+  /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume-state.previous
 ```
 
 The completed full target will be:

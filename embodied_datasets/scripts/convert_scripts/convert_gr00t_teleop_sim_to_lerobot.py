@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import Future, ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 import filecmp
+import hashlib
 import json
 import math
 import multiprocessing
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -51,6 +53,9 @@ ROBOCASA_GR1_COMMIT = "4840e671596f93ca03651524b9f72ffb1aadfeff"
 ROBOSUITE_REPO = "https://github.com/ARISE-Initiative/robosuite"
 ROBOSUITE_COMMIT = "a071383d53568ab798eb315c0e95357911be922d"
 LEROBOT_V033_COMMIT = "b883328e6c95681ca90a18b102e4ae5e1f91e2bf"
+RESUME_SCHEMA_VERSION = 1
+RESUME_STATE_FILE = "state.json"
+RESUME_PARTS_DIR = "parts"
 DEFAULT_CONFIG = Path(__file__).with_name("configs") / "gr00t_teleop_sim.yaml"
 VIDEO_KEY = "observation.images.ego_view"
 REQUIRED_COLUMNS = (
@@ -1277,15 +1282,243 @@ def _collection_manifest(collection: Collection, temporary_path: Path) -> None:
     )
 
 
+def _resume_fingerprint_payload(collection: Collection) -> dict[str, Any]:
+    """Return the semantic inputs that must match before reusing converted parts."""
+
+    return {
+        "resume_schema_version": RESUME_SCHEMA_VERSION,
+        "source_repo": SOURCE_REPO,
+        "source_commit": SOURCE_COMMIT,
+        "raw_dataset_root": str(collection.raw_dataset_root.resolve()),
+        "output_path": str(collection.output_path.resolve()),
+        "config": asdict(collection.config),
+        "parts": [
+            {
+                "source_name": part.source_name,
+                "source_task": part.source_task,
+                "source_root": str(part.source_root.resolve()),
+                "source_hdf5": str(part.hdf5_path.resolve()),
+                "output_name": part.output_name,
+                "source_info": part.source_info,
+                "features": part.features,
+                "tasks": part.tasks,
+                "hdf5_schemas": [
+                    [[path, list(shape), dtype] for path, shape, dtype in schema]
+                    for schema in sorted(part.hdf5_schemas)
+                ],
+                "episodes": [
+                    {
+                        "episode_index": episode.episode_index,
+                        "source_parquet": str(episode.source_parquet.resolve()),
+                        "source_video": str(episode.source_video.resolve()),
+                        "length": episode.length,
+                        "instruction": episode.instruction,
+                        "mapped_task_index": episode.mapped_task_index,
+                        "source_task_index": episode.source_task_index,
+                        "source_metadata": episode.source_metadata,
+                    }
+                    for episode in part.episodes
+                ],
+            }
+            for part in collection.parts
+        ],
+    }
+
+
+def _resume_fingerprint(collection: Collection) -> str:
+    payload = _resume_fingerprint_payload(collection)
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp-{uuid.uuid4().hex}")
+    try:
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _resume_paths(output: Path) -> tuple[Path, Path, Path]:
+    return (
+        output.with_name(f".{output.name}.resume"),
+        output.with_name(f".{output.name}.resume-state"),
+        output.with_name(f".{output.name}.resume.lock"),
+    )
+
+
+def _resume_marker_path(state_root: Path, part: Part) -> Path:
+    return state_root / RESUME_PARTS_DIR / f"{part.output_name}.json"
+
+
+def _resume_marker_payload(fingerprint: str, part: Part) -> dict[str, Any]:
+    return {
+        "resume_schema_version": RESUME_SCHEMA_VERSION,
+        "collection_fingerprint": fingerprint,
+        "part": part.output_name,
+        "source": part.source_name,
+        "episodes": len(part.episodes),
+        "frames": part.frames,
+    }
+
+
+def _read_resume_json(path: Path, description: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConversionError(f"cannot read {description} {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ConversionError(f"{description} must contain a JSON object: {path}")
+    return value
+
+
+def _prepare_resume_workspace(
+    collection: Collection,
+    data_root: Path,
+    state_root: Path,
+    fingerprint: str,
+) -> list[Part]:
+    """Create/check a checkpoint and return only parts that still need conversion."""
+
+    expected_state = {
+        "resume_schema_version": RESUME_SCHEMA_VERSION,
+        "collection_fingerprint": fingerprint,
+        "dataset_uid": collection.output_path.name,
+        "raw_dataset_root": str(collection.raw_dataset_root.resolve()),
+        "output_path": str(collection.output_path.resolve()),
+        "parts": [part.output_name for part in collection.parts],
+        "total_episodes": collection.episodes,
+        "total_frames": collection.frames,
+    }
+    state_path = state_root / RESUME_STATE_FILE
+    if state_root.exists():
+        if not state_root.is_dir() or not state_path.is_file():
+            raise ConversionError(
+                f"resume state is incomplete: {state_root}; move it aside to start a new checkpoint"
+            )
+        actual_state = _read_resume_json(state_path, "resume state")
+        if actual_state != expected_state:
+            raise ConversionError(
+                f"resume checkpoint does not match this conversion: {state_root}; "
+                "use the original arguments or move the checkpoint aside"
+            )
+    else:
+        state_root.mkdir(parents=True)
+        _write_json_atomic(state_path, expected_state)
+
+    if data_root.exists() and not data_root.is_dir():
+        raise ConversionError(f"resume data path is not a directory: {data_root}")
+    data_root.mkdir(parents=True, exist_ok=True)
+    markers_root = state_root / RESUME_PARTS_DIR
+    markers_root.mkdir(exist_ok=True)
+
+    expected_data_names = {part.output_name for part in collection.parts} | {
+        "collection_manifest.json"
+    }
+    unexpected_data = sorted(
+        path.name for path in data_root.iterdir() if path.name not in expected_data_names
+    )
+    if unexpected_data:
+        raise ConversionError(f"resume data contains unexpected entries: {unexpected_data}")
+    expected_marker_names = {f"{part.output_name}.json" for part in collection.parts}
+    unexpected_markers = sorted(
+        path.name for path in markers_root.iterdir() if path.name not in expected_marker_names
+    )
+    if unexpected_markers:
+        raise ConversionError(f"resume state contains unexpected part markers: {unexpected_markers}")
+
+    pending: list[Part] = []
+    reused = 0
+    for part in collection.parts:
+        part_root = data_root / part.output_name
+        marker_path = _resume_marker_path(state_root, part)
+        expected_marker = _resume_marker_payload(fingerprint, part)
+        marker_matches = False
+        if marker_path.is_file():
+            try:
+                marker_matches = _read_resume_json(marker_path, "part checkpoint") == expected_marker
+            except ConversionError:
+                marker_matches = False
+        if part_root.is_dir() and marker_matches:
+            print(
+                f"[resume] validating completed part: {part.source_task}",
+                file=sys.stderr,
+                flush=True,
+            )
+            try:
+                validate_part(part, part_root, collection.config)
+            except Exception as exc:
+                print(
+                    f"[resume] checkpoint invalid; rebuilding {part.source_task}: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
+                reused += 1
+                continue
+        marker_path.unlink(missing_ok=True)
+        if part_root.exists():
+            if not part_root.is_dir():
+                raise ConversionError(f"resume part path is not a directory: {part_root}")
+            shutil.rmtree(part_root)
+        pending.append(part)
+
+    print(
+        f"[resume] reused {reused}/{len(collection.parts)} verified parts; "
+        f"pending {len(pending)}",
+        file=sys.stderr,
+        flush=True,
+    )
+    return pending
+
+
+def _acquire_resume_lock(lock_path: Path) -> int:
+    import fcntl
+
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        os.close(descriptor)
+        raise ConversionError(f"another resume process is using {lock_path}") from exc
+    return descriptor
+
+
+def _release_resume_lock(descriptor: int) -> None:
+    import fcntl
+
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
+
+
 def _convert_part_worker(
     part: Part,
     output_root: Path,
     config: Config,
     eta_interval_seconds: float,
+    marker_path: Path | None = None,
+    marker_payload: dict[str, Any] | None = None,
 ) -> str:
     """Process-pool entry point; each part owns a disjoint output directory."""
 
     convert_part(part, output_root, config, eta_interval_seconds=eta_interval_seconds)
+    if marker_path is not None:
+        if marker_payload is None:
+            raise ValueError("resume marker payload is required")
+        _write_json_atomic(marker_path, marker_payload)
     return part.output_name
 
 
@@ -1295,21 +1528,34 @@ def convert_collection(
     overwrite: bool,
     eta_interval_seconds: float,
     workers: int = 1,
+    resume: bool = False,
 ) -> Path:
     if workers <= 0:
         raise ValueError(f"workers must be positive, got {workers}")
     output = collection.output_path
-    if output.exists() and not overwrite:
-        raise FileExistsError(f"output already exists: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = output.with_name(f".{output.name}.incomplete-{uuid.uuid4().hex}")
+    resume_data, resume_state, resume_lock = _resume_paths(output)
+    lock_descriptor = _acquire_resume_lock(resume_lock) if resume else None
     try:
-        temporary.mkdir()
-        worker_count = min(workers, len(collection.parts))
+        if output.exists() and not overwrite:
+            raise FileExistsError(f"output already exists: {output}")
+        if resume:
+            fingerprint = _resume_fingerprint(collection)
+            temporary = resume_data
+            pending_parts = _prepare_resume_workspace(
+                collection, temporary, resume_state, fingerprint
+            )
+        else:
+            fingerprint = None
+            temporary = output.with_name(f".{output.name}.incomplete-{uuid.uuid4().hex}")
+            temporary.mkdir()
+            pending_parts = list(collection.parts)
+
+        worker_count = min(workers, len(pending_parts)) if pending_parts else 0
         if worker_count == 1:
-            for index, part in enumerate(collection.parts):
+            for index, part in enumerate(pending_parts):
                 print(
-                    f"[collection] part {index+1}/{len(collection.parts)}: {part.source_task}",
+                    f"[collection] pending part {index+1}/{len(pending_parts)}: {part.source_task}",
                     file=sys.stderr,
                     flush=True,
                 )
@@ -1319,9 +1565,16 @@ def convert_collection(
                     collection.config,
                     eta_interval_seconds=eta_interval_seconds,
                 )
-        else:
+                if resume:
+                    assert fingerprint is not None
+                    _write_json_atomic(
+                        _resume_marker_path(resume_state, part),
+                        _resume_marker_payload(fingerprint, part),
+                    )
+        elif worker_count > 1:
             print(
-                f"[collection] converting {len(collection.parts)} parts with {worker_count} workers",
+                f"[collection] converting {len(pending_parts)} pending parts with "
+                f"{worker_count} workers",
                 file=sys.stderr,
                 flush=True,
             )
@@ -1334,13 +1587,21 @@ def convert_collection(
             )
             futures: dict[Future[str], Part] = {}
             try:
-                for part in collection.parts:
+                for part in pending_parts:
+                    marker_path = _resume_marker_path(resume_state, part) if resume else None
+                    marker_payload = (
+                        _resume_marker_payload(fingerprint, part)
+                        if resume and fingerprint is not None
+                        else None
+                    )
                     future = executor.submit(
                         _convert_part_worker,
                         part,
                         temporary / part.output_name,
                         collection.config,
                         eta_interval_seconds,
+                        marker_path,
+                        marker_payload,
                     )
                     futures[future] = part
                 completed = 0
@@ -1349,7 +1610,7 @@ def convert_collection(
                     future.result()
                     completed += 1
                     print(
-                        f"[collection] completed part {completed}/{len(collection.parts)}: "
+                        f"[collection] completed pending part {completed}/{len(pending_parts)}: "
                         f"{part.source_task}",
                         file=sys.stderr,
                         flush=True,
@@ -1363,10 +1624,21 @@ def convert_collection(
                 executor.shutdown(wait=True)
         _collection_manifest(collection, temporary)
         publish_temporary_output(temporary, output, overwrite=overwrite)
+        if resume and resume_state.exists():
+            try:
+                shutil.rmtree(resume_state)
+            except OSError as exc:
+                print(
+                    f"warning: could not remove resume state {resume_state}: {exc}",
+                    file=sys.stderr,
+                )
     except BaseException:
-        if temporary.exists():
+        if "temporary" in locals() and temporary.exists() and not resume:
             shutil.rmtree(temporary)
         raise
+    finally:
+        if lock_descriptor is not None:
+            _release_resume_lock(lock_descriptor)
     return output
 
 
@@ -1393,6 +1665,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--inspect-only", "--dry-run", dest="inspect_only", action="store_true")
     parser.add_argument("--skip-existing", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Keep verified part checkpoints and resume an interrupted conversion.",
+    )
     parser.add_argument("--eta-interval-seconds", type=_positive_float, default=10.0)
     parser.add_argument(
         "--workers",
@@ -1440,6 +1717,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             overwrite=args.overwrite,
             eta_interval_seconds=args.eta_interval_seconds,
             workers=args.workers,
+            resume=args.resume,
         )
         print(f"wrote verified LeRobot v3 collection: {written}")
         return 0

@@ -213,6 +213,15 @@ def _inspect(raw_root: Path, staging_root: Path) -> gr00t.Collection:
     )
 
 
+def _two_part_collection(tmp_path: Path) -> gr00t.Collection:
+    raw_root = tmp_path / "raw"
+    _write_fixture(raw_root)
+    collection = _inspect(raw_root, tmp_path / "staging")
+    first = collection.parts[0]
+    collection.parts = [first, replace(first, output_name="part-001-synthetic-copy")]
+    return collection
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
@@ -377,16 +386,160 @@ def test_failed_conversion_removes_temporary_collection(tmp_path: Path, monkeypa
     assert not list(output.parent.glob(".failed.incomplete-*"))
 
 
-def test_parallel_parts_publish_one_equivalent_collection(tmp_path: Path):
-    raw_root = tmp_path / "raw"
-    _write_fixture(raw_root)
-    collection = _inspect(raw_root, tmp_path / "staging")
+def test_resume_reuses_verified_part_and_rebuilds_partial_part(tmp_path: Path, monkeypatch):
+    collection = _two_part_collection(tmp_path)
+    first, second = collection.parts
+    original_convert_part = gr00t.convert_part
+    calls: list[str] = []
+
+    def interrupt_second(part, output_root, config, *, eta_interval_seconds):
+        calls.append(part.output_name)
+        if part.output_name == second.output_name:
+            output_root.mkdir(parents=True)
+            (output_root / "partial-junk").write_text("incomplete", encoding="utf-8")
+            raise RuntimeError("synthetic interruption")
+        original_convert_part(
+            part, output_root, config, eta_interval_seconds=eta_interval_seconds
+        )
+
+    monkeypatch.setattr(gr00t, "convert_part", interrupt_second)
+    with pytest.raises(RuntimeError, match="synthetic interruption"):
+        gr00t.convert_collection(
+            collection,
+            overwrite=False,
+            eta_interval_seconds=0.001,
+            resume=True,
+        )
+
+    resume_data, resume_state, _ = gr00t._resume_paths(collection.output_path)
+    assert not collection.output_path.exists()
+    assert (resume_data / first.output_name).is_dir()
+    assert (resume_data / second.output_name / "partial-junk").is_file()
+    assert gr00t._resume_marker_path(resume_state, first).is_file()
+    assert not gr00t._resume_marker_path(resume_state, second).exists()
+
+    calls.clear()
+
+    def finish_pending(part, output_root, config, *, eta_interval_seconds):
+        calls.append(part.output_name)
+        assert part.output_name == second.output_name
+        assert not output_root.exists()
+        original_convert_part(
+            part, output_root, config, eta_interval_seconds=eta_interval_seconds
+        )
+
+    monkeypatch.setattr(gr00t, "convert_part", finish_pending)
+    output = gr00t.convert_collection(
+        collection,
+        overwrite=False,
+        eta_interval_seconds=0.001,
+        resume=True,
+    )
+
+    assert calls == [second.output_name]
+    assert output.is_dir()
+    assert not resume_data.exists()
+    assert not resume_state.exists()
+    assert not list(output.rglob("state.json"))
+    assert not list(output.rglob("partial-junk"))
+
+
+def test_resume_rejects_changed_conversion_fingerprint(tmp_path: Path, monkeypatch):
+    collection = _two_part_collection(tmp_path)
+
+    def interrupt(*args, **kwargs):
+        raise RuntimeError("stop after creating state")
+
+    monkeypatch.setattr(gr00t, "convert_part", interrupt)
+    with pytest.raises(RuntimeError, match="stop after creating state"):
+        gr00t.convert_collection(
+            collection,
+            overwrite=False,
+            eta_interval_seconds=0.001,
+            resume=True,
+        )
+
+    _, resume_state, _ = gr00t._resume_paths(collection.output_path)
+    state_before = (resume_state / gr00t.RESUME_STATE_FILE).read_bytes()
+    collection.config = replace(collection.config, data_file_size_in_mb=101)
+    with pytest.raises(gr00t.ConversionError, match="does not match this conversion"):
+        gr00t.convert_collection(
+            collection,
+            overwrite=False,
+            eta_interval_seconds=0.001,
+            resume=True,
+        )
+    assert (resume_state / gr00t.RESUME_STATE_FILE).read_bytes() == state_before
+
+
+def test_resume_rebuilds_corrupt_completed_part(tmp_path: Path, monkeypatch):
+    collection = _two_part_collection(tmp_path)
     first = collection.parts[0]
-    second = replace(first, output_name="part-001-synthetic-copy")
-    collection.parts = [first, second]
+    resume_data, resume_state, _ = gr00t._resume_paths(collection.output_path)
+    fingerprint = gr00t._resume_fingerprint(collection)
+    gr00t._prepare_resume_workspace(collection, resume_data, resume_state, fingerprint)
+    gr00t.convert_part(
+        first,
+        resume_data / first.output_name,
+        collection.config,
+        eta_interval_seconds=0.001,
+    )
+    gr00t._write_json_atomic(
+        gr00t._resume_marker_path(resume_state, first),
+        gr00t._resume_marker_payload(fingerprint, first),
+    )
+    (resume_data / first.output_name / "meta" / "info.json").unlink()
+
+    original_convert_part = gr00t.convert_part
+    rebuilt: list[str] = []
+
+    def track_rebuild(part, output_root, config, *, eta_interval_seconds):
+        rebuilt.append(part.output_name)
+        if part.output_name == first.output_name:
+            assert not output_root.exists()
+        original_convert_part(
+            part, output_root, config, eta_interval_seconds=eta_interval_seconds
+        )
+
+    monkeypatch.setattr(gr00t, "convert_part", track_rebuild)
+    gr00t.convert_collection(
+        collection,
+        overwrite=False,
+        eta_interval_seconds=0.001,
+        resume=True,
+    )
+    assert rebuilt == [part.output_name for part in collection.parts]
+
+
+def test_resume_lock_rejects_concurrent_conversion(tmp_path: Path):
+    collection = _two_part_collection(tmp_path)
+    _, _, lock_path = gr00t._resume_paths(collection.output_path)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = gr00t._acquire_resume_lock(lock_path)
+    try:
+        with pytest.raises(gr00t.ConversionError, match="another resume process"):
+            gr00t.convert_collection(
+                collection,
+                overwrite=False,
+                eta_interval_seconds=0.001,
+                resume=True,
+            )
+    finally:
+        gr00t._release_resume_lock(descriptor)
+
+    assert not collection.output_path.exists()
+
+
+def test_parallel_parts_publish_one_equivalent_collection(tmp_path: Path):
+    collection = _two_part_collection(tmp_path)
+    first, second = collection.parts
 
     output = gr00t.convert_collection(
-        collection, overwrite=False, eta_interval_seconds=0.001, workers=2
+        collection,
+        overwrite=False,
+        eta_interval_seconds=0.001,
+        workers=2,
+        resume=True,
     )
 
     manifest = json.loads((output / "collection_manifest.json").read_text())
@@ -400,6 +553,10 @@ def test_parallel_parts_publish_one_equivalent_collection(tmp_path: Path):
     second_data = pq.read_table(output / second.output_name / "data/chunk-000/file-000.parquet")
     assert first_data.equals(second_data)
     assert not list(output.parent.glob(f".{output.name}.incomplete-*"))
+    resume_data, resume_state, resume_lock = gr00t._resume_paths(output)
+    assert not resume_data.exists()
+    assert not resume_state.exists()
+    assert resume_lock.is_file()
 
 
 def test_parallel_worker_failure_removes_temporary_collection(tmp_path: Path):
