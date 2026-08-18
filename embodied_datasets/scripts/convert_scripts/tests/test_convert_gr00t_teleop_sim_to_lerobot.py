@@ -37,6 +37,91 @@ def test_progress_is_rate_limited_and_reports_eta():
     assert format_duration(2 * 86_400 + 3_661) == "2d 01:01:01"
 
 
+def test_video_episode_stats_have_one_arrow_compatible_float_dtype(monkeypatch):
+    import lerobot.datasets.compute_stats as compute_stats
+
+    monkeypatch.setattr(
+        gr00t,
+        "_decode_sampled_rgb",
+        lambda _path, _length: np.zeros((2, 3, 256, 256), dtype=np.uint8),
+    )
+    monkeypatch.setattr(
+        compute_stats,
+        "get_feature_stats",
+        lambda _array, axis, keepdims: {
+            "min": np.zeros((1, 3, 1, 1), dtype=np.float32),
+            "q50": np.zeros((1, 3, 1, 1), dtype=np.float64),
+            "count": np.array([2], dtype=np.int64),
+        },
+    )
+
+    part = SimpleNamespace(features={VIDEO_KEY: {"dtype": "video"}})
+    episode = SimpleNamespace(source_video=Path("unused.mp4"), length=2)
+    stats = gr00t._episode_stats(part, episode, table=None)[VIDEO_KEY]
+
+    assert stats["min"].dtype == np.float64
+    assert stats["q50"].dtype == np.float64
+    assert stats["count"].dtype == np.int64
+
+
+def test_boolean_edge_quantiles_are_canonicalized_before_arrow_concatenation():
+    from datasets import Dataset
+    from lerobot.datasets.compute_stats import aggregate_stats, get_feature_stats
+    from lerobot.utils.utils import flatten_dict
+
+    short_done = np.zeros(57, dtype=np.bool_)
+    short_done[-1] = True
+    regular_done = np.zeros(117, dtype=np.bool_)
+    regular_done[-1] = True
+
+    raw_short = get_feature_stats(short_done, axis=0, keepdims=True)
+    raw_regular = get_feature_stats(regular_done, axis=0, keepdims=True)
+    assert raw_short["q99"].dtype == np.float64
+    assert raw_regular["q99"].dtype == np.float32
+
+    part = SimpleNamespace(features={"next.done": {"dtype": "bool"}})
+    episode = SimpleNamespace()
+    short_stats = gr00t._episode_stats(
+        part, episode, pa.table({"next.done": short_done})
+    )
+    regular_stats = gr00t._episode_stats(
+        part, episode, pa.table({"next.done": regular_done})
+    )
+
+    assert short_stats["next.done"]["q99"].dtype == np.float64
+    assert regular_stats["next.done"]["q99"].dtype == np.float64
+    rows = [flatten_dict({"stats": stats}) for stats in (short_stats, regular_stats)]
+    dataset = Dataset.from_list(rows)
+    assert dataset.num_rows == 2
+    aggregated = aggregate_stats([short_stats, regular_stats])
+    assert aggregated["next.done"]["q99"].dtype == np.float64
+
+
+def test_episode_stats_schema_is_checked_before_video_remux():
+    first = {
+        "next.done": {
+            "q99": np.array([0.0], dtype=np.float64),
+            "count": np.array([57], dtype=np.int64),
+        }
+    }
+    second = {
+        "next.done": {
+            "q99": np.array([0.0], dtype=np.float32),
+            "count": np.array([117], dtype=np.int64),
+        }
+    }
+    part = SimpleNamespace(
+        source_task=TASK,
+        episodes=[SimpleNamespace(episode_index=0), SimpleNamespace(episode_index=1)],
+    )
+
+    with pytest.raises(
+        gr00t.ConversionError,
+        match=r"source episode 1 for next\.done/q99: expected .*float64.* got .*float32",
+    ):
+        gr00t._validate_episode_stats_schema(part, [first, second])
+
+
 def _config(dataset_uid: str = "gr00t_fixture") -> gr00t.Config:
     return gr00t.Config(
         dataset_uid=dataset_uid,
@@ -470,6 +555,30 @@ def test_resume_rejects_changed_conversion_fingerprint(tmp_path: Path, monkeypat
             resume=True,
         )
     assert (resume_state / gr00t.RESUME_STATE_FILE).read_bytes() == state_before
+
+
+def test_resume_fingerprint_does_not_resolve_episode_paths(tmp_path: Path, monkeypatch):
+    collection = _two_part_collection(tmp_path)
+    expected_parquet = str(collection.parts[0].episodes[0].source_parquet)
+    expected_video = str(collection.parts[0].episodes[0].source_video)
+
+    def reject_filesystem_resolution(self, *args, **kwargs):
+        raise AssertionError(f"fingerprinting tried to resolve {self}")
+
+    monkeypatch.setattr(Path, "resolve", reject_filesystem_resolution)
+
+    payload = gr00t._resume_fingerprint_payload(collection)
+
+    first_episode = payload["parts"][0]["episodes"][0]
+    assert first_episode["source_parquet"] == expected_parquet
+    assert first_episode["source_video"] == expected_video
+    assert gr00t._resume_fingerprint(collection)
+
+
+def test_lexical_absolute_path_matches_resolve_for_production_style_paths(tmp_path: Path):
+    absolute_path = tmp_path / "raw" / "episode.parquet"
+
+    assert gr00t._lexical_absolute_path(absolute_path) == str(absolute_path.resolve())
 
 
 def test_resume_rebuilds_corrupt_completed_part(tmp_path: Path, monkeypatch):

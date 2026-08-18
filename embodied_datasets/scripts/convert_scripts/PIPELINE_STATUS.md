@@ -30,6 +30,38 @@ convert_scripts/
 
 ## 已验证 vs. 未验证
 
+### 2026-08-18 GR00T Teleop Sim 恢复转换故障记录
+
+GR00T 全量转换在本地 staging 的 part 级 checkpoint 上恢复时，先后暴露了两个容易被误判为
+“卡住”的问题。第一处发生在预检摘要打印完成之后、worker 启动之前：恢复指纹原先对 24000 个
+episode 的 Parquet 和视频路径逐一调用 `Path.resolve()`，在只读 `fuse.ossfs2` 源目录上形成约
+48000 次远端路径解析且没有进度日志。现已改为纯词法绝对路径，并在指纹计算前后打印明确状态；
+生产命令使用的绝对、非符号链接路径得到的指纹字符串不变，因此已有完成 marker 可以继续复用。
+
+第二处发生在 `part-022-posttrainpnpnovelfromtraytotieredbasketsplita`：数据统计和 1000 个 H.264
+视频 packet remux 均已完成，随后 Hugging Face `Dataset.from_list()` 在生成
+`meta/episodes/chunk-000/file-000.parquet` 时失败，错误为
+`arrays to be concatenated must be identically typed, but float and double were encountered`。
+`Auto-inserting h264_mp4toannexb bitstream filter` 与移动 MP4 `moov atom` 都是正常的无重编码 remux
+日志，不是失败原因。真实触发字段是 `next.done/q99`：episode 577（源 trajectory
+`PosttrainPnPNovelFromTrayToTieredbasketSplitA-00190`）长度为 57，统计库返回 `float64`；其余长度
+117～637 的 episode 返回 `float32`。此前只统一了视频统计 dtype，没有覆盖 bool/int 等非视频
+feature 的边缘 quantile。
+
+修复约定是统一所有 episode stats 的物理类型：`count` 固定为 `int64`，其余
+`min/max/mean/std/q*` 固定为 `float64`；写视频前先校验所有 episode 的统计 key、shape 和 dtype，
+使将来的 schema 漂移在昂贵的 remux 之前报告具体 feature/stat/episode。回归测试必须包含长度
+57 与 117 的 bool 序列、Arrow/Hugging Face rows 构造、全局 stats 聚合，以及原有 GR00T
+端到端转换/恢复测试。未写完成 marker 的 part 会在下一次 `--resume` 时安全重建；已有 marker
+且重新打开校验通过的 part 不重算。
+
+修复后的验证结果：由 `HEAD` 和本次拟提交文件组成的干净快照中，GR00T 测试为 23 passed；
+另外使用 part-022 的真实 1000 条 `episodes.jsonl` 长度重建 `next.done` 统计，确认修复前同时
+出现 `float32`/`float64`，修复后 1000 rows 均为 `float64`，Hugging Face Dataset 构造、
+schema 校验和 `aggregate_stats()` 全部通过。全工作树回归为 409 passed / 1 skipped / 1 failed；
+唯一失败来自尚未跟踪、也不属于本次提交的 1X World Model reader 测试，GR00T 修复的干净提交
+快照不含该文件。
+
 **hdf5（readers/hdf5_reader.py + convert_dataset.py）：端到端全链路已验证**，包括真实的
 视频编码。`tests/test_convert_dataset.py` 用一份合成 HDF5 fixture 跑通完整流水线——
 `LeRobotDataset.create` -> `add_frame` -> `save_episode`（真实 ffmpeg/SVT-AV1 视频编码）

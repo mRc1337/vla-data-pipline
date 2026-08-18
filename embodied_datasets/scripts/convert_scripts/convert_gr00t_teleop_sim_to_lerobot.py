@@ -771,6 +771,24 @@ def _numeric_array(column: Any) -> np.ndarray:
     return np.asarray(values)
 
 
+def _canonicalize_feature_stats(
+    feature_stats: dict[str, np.ndarray],
+) -> dict[str, np.ndarray]:
+    """Give every episode-stat column one stable Arrow-compatible dtype.
+
+    LeRobot's histogram quantile implementation may return a float32 bin edge
+    for one episode and a float64 interpolated value for another.  Hugging Face
+    then refuses to concatenate those episode rows.  Counts are integral
+    metadata; every computed statistic uses float64 so source float64 robot
+    values retain their precision and bool/int edge quantiles cannot drift.
+    """
+
+    return {
+        name: np.asarray(value, dtype=np.int64 if name == "count" else np.float64)
+        for name, value in feature_stats.items()
+    }
+
+
 def _episode_stats(part: Part, episode: Episode, table: Any) -> dict[str, dict[str, np.ndarray]]:
     from lerobot.datasets.compute_stats import get_feature_stats
 
@@ -779,14 +797,52 @@ def _episode_stats(part: Part, episode: Episode, table: Any) -> dict[str, dict[s
         if feature["dtype"] == "video":
             array = _decode_sampled_rgb(episode.source_video, episode.length)
             feature_stats = get_feature_stats(array, axis=(0, 2, 3), keepdims=True)
-            stats[key] = {
-                name: value if name == "count" else np.squeeze(value / 255.0, axis=0)
+            normalized_stats = {
+                name: value
+                if name == "count"
+                else np.squeeze(value / 255.0, axis=0)
                 for name, value in feature_stats.items()
             }
+            stats[key] = _canonicalize_feature_stats(normalized_stats)
             continue
         array = _numeric_array(table[key])
-        stats[key] = get_feature_stats(array, axis=0, keepdims=array.ndim == 1)
+        stats[key] = _canonicalize_feature_stats(
+            get_feature_stats(array, axis=0, keepdims=array.ndim == 1)
+        )
     return stats
+
+
+def _validate_episode_stats_schema(part: Part, episode_stats: list[dict]) -> None:
+    """Reject per-episode stats schema drift before the expensive video remux."""
+
+    if len(episode_stats) != len(part.episodes):
+        raise ConversionError(
+            f"{part.source_task}: collected {len(episode_stats)} episode stats for "
+            f"{len(part.episodes)} episodes"
+        )
+    if not episode_stats:
+        raise ConversionError(f"{part.source_task}: no episode stats were collected")
+
+    def signature(stats: dict) -> dict[tuple[str, str], tuple[tuple[int, ...], str]]:
+        return {
+            (feature_key, stat_key): (tuple(np.asarray(value).shape), str(np.asarray(value).dtype))
+            for feature_key, feature_stats in stats.items()
+            for stat_key, value in feature_stats.items()
+        }
+
+    expected = signature(episode_stats[0])
+    for position, stats in enumerate(episode_stats[1:], start=1):
+        actual = signature(stats)
+        if actual != expected:
+            all_keys = sorted(set(expected) | set(actual))
+            mismatch = next(key for key in all_keys if expected.get(key) != actual.get(key))
+            episode = part.episodes[position]
+            feature_key, stat_key = mismatch
+            raise ConversionError(
+                f"{part.source_task}: episode stats schema mismatch at source episode "
+                f"{episode.episode_index} for {feature_key}/{stat_key}: "
+                f"expected {expected.get(mismatch)}, got {actual.get(mismatch)}"
+            )
 
 
 def _pack_data_and_stats(
@@ -1053,6 +1109,7 @@ def convert_part(part: Part, output_root: Path, config: Config, *, eta_interval_
     data_records, stats = _pack_data_and_stats(
         part, output_root, config, eta_interval_seconds=eta_interval_seconds
     )
+    _validate_episode_stats_schema(part, stats)
     video_records = _pack_videos(
         part, output_root, config, eta_interval_seconds=eta_interval_seconds
     )
@@ -1289,15 +1346,15 @@ def _resume_fingerprint_payload(collection: Collection) -> dict[str, Any]:
         "resume_schema_version": RESUME_SCHEMA_VERSION,
         "source_repo": SOURCE_REPO,
         "source_commit": SOURCE_COMMIT,
-        "raw_dataset_root": str(collection.raw_dataset_root.resolve()),
-        "output_path": str(collection.output_path.resolve()),
+        "raw_dataset_root": _lexical_absolute_path(collection.raw_dataset_root),
+        "output_path": _lexical_absolute_path(collection.output_path),
         "config": asdict(collection.config),
         "parts": [
             {
                 "source_name": part.source_name,
                 "source_task": part.source_task,
-                "source_root": str(part.source_root.resolve()),
-                "source_hdf5": str(part.hdf5_path.resolve()),
+                "source_root": _lexical_absolute_path(part.source_root),
+                "source_hdf5": _lexical_absolute_path(part.hdf5_path),
                 "output_name": part.output_name,
                 "source_info": part.source_info,
                 "features": part.features,
@@ -1309,8 +1366,8 @@ def _resume_fingerprint_payload(collection: Collection) -> dict[str, Any]:
                 "episodes": [
                     {
                         "episode_index": episode.episode_index,
-                        "source_parquet": str(episode.source_parquet.resolve()),
-                        "source_video": str(episode.source_video.resolve()),
+                        "source_parquet": _lexical_absolute_path(episode.source_parquet),
+                        "source_video": _lexical_absolute_path(episode.source_video),
                         "length": episode.length,
                         "instruction": episode.instruction,
                         "mapped_task_index": episode.mapped_task_index,
@@ -1323,6 +1380,20 @@ def _resume_fingerprint_payload(collection: Collection) -> dict[str, Any]:
             for part in collection.parts
         ],
     }
+
+
+def _lexical_absolute_path(path: Path) -> str:
+    """Return a normalized absolute path without touching the filesystem.
+
+    ``Path.resolve()`` performs a metadata lookup for every path component.  A
+    full GR00T checkpoint fingerprint contains two paths for each of 24,000
+    episodes, so resolving them on the OSS FUSE mount can look like a hung
+    conversion for tens of minutes.  ``abspath`` is purely lexical and returns
+    the same strings for the absolute, non-symlinked paths used by production
+    runs, preserving compatibility with existing checkpoints.
+    """
+
+    return os.path.abspath(os.fspath(path))
 
 
 def _resume_fingerprint(collection: Collection) -> str:
@@ -1395,8 +1466,8 @@ def _prepare_resume_workspace(
         "resume_schema_version": RESUME_SCHEMA_VERSION,
         "collection_fingerprint": fingerprint,
         "dataset_uid": collection.output_path.name,
-        "raw_dataset_root": str(collection.raw_dataset_root.resolve()),
-        "output_path": str(collection.output_path.resolve()),
+        "raw_dataset_root": _lexical_absolute_path(collection.raw_dataset_root),
+        "output_path": _lexical_absolute_path(collection.output_path),
         "parts": [part.output_name for part in collection.parts],
         "total_episodes": collection.episodes,
         "total_frames": collection.frames,
@@ -1540,7 +1611,9 @@ def convert_collection(
         if output.exists() and not overwrite:
             raise FileExistsError(f"output already exists: {output}")
         if resume:
+            print("[resume] computing checkpoint fingerprint", file=sys.stderr, flush=True)
             fingerprint = _resume_fingerprint(collection)
+            print("[resume] checkpoint fingerprint ready", file=sys.stderr, flush=True)
             temporary = resume_data
             pending_parts = _prepare_resume_workspace(
                 collection, temporary, resume_state, fingerprint
