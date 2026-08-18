@@ -8,13 +8,15 @@ checkpoint snapshots, locking, and atomic publication live in
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import io
 import json
 import math
+import os
 from pathlib import Path
 import shutil
 import signal
+import subprocess
 import sys
 from typing import Any, Sequence
 import uuid
@@ -32,6 +34,7 @@ from convert_core.checkpoint import (
 )
 from convert_core.dataset_config import load_dataset_config
 from convert_core.errors import ConversionError
+from convert_core.equivalence import verify_lerobot_equivalence
 from convert_core.lerobot_writer import (
     convert_dataset,
     plan_summary,
@@ -39,6 +42,18 @@ from convert_core.lerobot_writer import (
     validate_video_files,
     validate_written_dataset,
 )
+from convert_core.parallel import (
+    ParallelWorkUnit,
+    aggregate_lerobot_work_units,
+    isolated_unit_plan,
+    prepare_work_units,
+    run_parallel_work_units,
+    split_plan_into_units,
+    validate_inflight_budget,
+    validate_verified_unit_marker,
+    write_verified_unit_marker,
+)
+from convert_core.performance import ProcessTreeSampler
 from readers.one_x_world_model_reader import OneXWorldModelReader
 
 
@@ -65,6 +80,28 @@ NVENC_PRESETS = {
     "p6": 17,
     "p7": 18,
 }
+
+GIB = 1024**3
+MIB = 1024**2
+DEFAULT_PARALLEL_QUEUE_SIZE = 64
+DEFAULT_ENCODER_THREADS_PER_WORKER = 8
+MAX_TOTAL_ENCODER_THREADS = 32
+
+
+@dataclass(frozen=True)
+class _OneXWorkerPayload:
+    plan: Any
+    video_codec: str
+    video_quality: int
+    video_preset: str | None
+    queue_size: int
+    encoder_threads: int
+    eta_interval_seconds: float
+    conversion_options: dict[str, Any]
+
+
+_WORKER_READER: OneXWorldModelReader | None = None
+_WORKER_PREFLIGHTED: set[str] = set()
 
 
 def _positive_int(value: str) -> int:
@@ -136,7 +173,406 @@ def _preflight_encoder(plan, encoder: Any) -> None:
         ) from exc
 
 
-def _select(plan, *, max_episodes: int | None, max_units: int | None):
+def _visible_cuda_devices() -> tuple[str, ...]:
+    configured = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if configured is not None:
+        devices = tuple(item.strip() for item in configured.split(",") if item.strip())
+        if not devices or configured.strip() == "-1":
+            raise ConversionError("parallel decoding requires visible CUDA devices")
+        return devices
+    try:
+        completed = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ConversionError(f"cannot enumerate CUDA devices with nvidia-smi: {exc}") from exc
+    devices = tuple(line.strip() for line in completed.stdout.splitlines() if line.strip())
+    if not devices:
+        raise ConversionError("parallel decoding requires at least one CUDA device")
+    return devices
+
+
+def _initialize_one_x_worker(slot: int, devices: tuple[str, ...]) -> None:
+    """Bind a spawned worker before any CUDA runtime is imported."""
+
+    global _WORKER_READER, _WORKER_PREFLIGHTED
+    os.environ["CUDA_VISIBLE_DEVICES"] = devices[slot]
+    _WORKER_READER = OneXWorldModelReader()
+    _WORKER_PREFLIGHTED = set()
+
+
+def _convert_one_x_work_unit(unit: ParallelWorkUnit) -> dict[str, Any]:
+    global _WORKER_READER, _WORKER_PREFLIGHTED
+    payload = unit.payload
+    if not isinstance(payload, _OneXWorkerPayload):
+        raise ConversionError(f"invalid 1X worker payload for {unit.key!r}")
+    reader = _WORKER_READER
+    if reader is None:
+        reader = OneXWorldModelReader()
+        _WORKER_READER = reader
+    version = str(payload.plan.extra["source_version"])
+    encoder = _rgb_encoder(
+        payload.video_codec, payload.video_quality, payload.video_preset
+    )
+    if version not in _WORKER_PREFLIGHTED:
+        reader.preflight_decoder(payload.plan)
+        _preflight_encoder(payload.plan, encoder)
+        _WORKER_PREFLIGHTED.add(version)
+    convert_dataset(
+        payload.plan,
+        lambda episode: reader.iter_frames(payload.plan, episode),
+        reader_format="one_x_world_model",
+        resume=True,
+        eta_interval_seconds=payload.eta_interval_seconds,
+        rgb_encoder=encoder,
+        streaming_encoding=True,
+        blocking_streaming_encoding=True,
+        encoder_queue_maxsize=payload.queue_size,
+        encoder_threads=payload.encoder_threads,
+        conversion_options=payload.conversion_options,
+    )
+    validate_written_dataset(payload.plan, Path(unit.target_path))
+    validate_video_files(
+        payload.plan,
+        Path(unit.target_path),
+        expected_frames=unit.weight,
+    )
+    write_verified_unit_marker(unit)
+    return {
+        "unit_index": unit.index,
+        "unit_key": unit.key,
+        "episodes": unit.episode_end - unit.episode_start,
+        "frames": unit.weight,
+        "cuda_visible_device": os.environ.get("CUDA_VISIBLE_DEVICES"),
+    }
+
+
+def _parallel_threads(args: argparse.Namespace) -> int:
+    return (
+        args.encoder_threads_per_worker
+        or args.encoder_threads
+        or DEFAULT_ENCODER_THREADS_PER_WORKER
+    )
+
+
+def _parallel_queue_size(args: argparse.Namespace) -> int:
+    return args.encoder_queue_maxsize or DEFAULT_PARALLEL_QUEUE_SIZE
+
+
+def _build_parallel_work_units(
+    plan: Any,
+    state_root: Path,
+    args: argparse.Namespace,
+    conversion_options: dict[str, Any],
+) -> tuple[ParallelWorkUnit, ...]:
+    # Reader checkpoints are also decoder-context boundaries. In particular,
+    # v2 token blocks can straddle episodes; splitting a shard at an episode
+    # boundary changes cache/batch context and therefore reconstructed pixels.
+    slices = split_plan_into_units(plan)
+    queue_size = _parallel_queue_size(args)
+    threads = _parallel_threads(args)
+    units_root = state_root / "parallel-units" / plan.output_path.name
+    units: list[ParallelWorkUnit] = []
+    for item in slices:
+        target = units_root / f"unit-{item.index:06d}"
+        dataset_uid = f"{plan.dataset_uid}__unit_{item.index:06d}"
+        unit_plan = isolated_unit_plan(
+            plan,
+            item,
+            dataset_uid=dataset_uid,
+            target_path=target,
+        )
+        unit_options = {
+            **conversion_options,
+            "parallel_schema_version": 1,
+            "parallel_unit_index": item.index,
+            "parallel_unit_key": item.key,
+            "blocking_streaming_encoding": True,
+            "encoder_queue_maxsize": queue_size,
+            "encoder_threads_per_worker": threads,
+        }
+        fingerprint = canonical_fingerprint(
+            build_resume_payload(
+                unit_plan,
+                reader_format="one_x_world_model",
+                conversion_options=unit_options,
+            )
+        )
+        camera_bytes = sum(
+            camera.height * camera.width * 3 for camera in unit_plan.camera_features
+        )
+        memory_estimate = 8 * GIB + queue_size * camera_bytes
+        temp_estimate = max(16 * MIB, item.frame_end - item.frame_start << 14)
+        payload = _OneXWorkerPayload(
+            plan=unit_plan,
+            video_codec=args.video_codec,
+            video_quality=args.video_quality,
+            video_preset=args.video_preset,
+            queue_size=queue_size,
+            encoder_threads=threads,
+            eta_interval_seconds=args.eta_interval_seconds,
+            conversion_options=unit_options,
+        )
+        units.append(
+            ParallelWorkUnit(
+                index=item.index,
+                key=item.key,
+                dataset_uid=dataset_uid,
+                target_path=str(target),
+                episode_start=item.episode_start,
+                episode_end=item.episode_end,
+                frame_start=item.frame_start,
+                frame_end=item.frame_end,
+                task_indices=item.task_indices,
+                weight=item.frame_end - item.frame_start,
+                estimated_memory_bytes=memory_estimate,
+                estimated_temp_bytes=temp_estimate,
+                fingerprint=fingerprint,
+                payload=payload,
+            )
+        )
+    return tuple(units)
+
+
+def _validate_parallel_unit_output(unit: ParallelWorkUnit) -> None:
+    payload = unit.payload
+    if not isinstance(payload, _OneXWorkerPayload):
+        raise ConversionError(f"invalid 1X worker payload for {unit.key!r}")
+    validate_written_dataset(payload.plan, Path(unit.target_path))
+    validate_video_files(payload.plan, Path(unit.target_path), expected_frames=unit.weight)
+
+
+def _convert_parallel_partition(
+    plan: Any,
+    state_root: Path,
+    args: argparse.Namespace,
+    conversion_options: dict[str, Any],
+    devices: tuple[str, ...],
+) -> None:
+    assert args.workers is not None
+    units = _build_parallel_work_units(plan, state_root, args, conversion_options)
+    estimate = validate_inflight_budget(
+        units,
+        args.workers,
+        memory_budget_bytes=int(args.inflight_memory_budget_gb * GIB),
+        temp_budget_bytes=int(args.inflight_temp_budget_gb * GIB),
+    )
+    projected_peak = 2 * sum(unit.estimated_temp_bytes for unit in units)
+    configured_temp_budget = int(args.inflight_temp_budget_gb * GIB)
+    available_temp_bytes = shutil.disk_usage(state_root.parent).free
+    effective_temp_budget = min(configured_temp_budget, available_temp_bytes)
+    if projected_peak > effective_temp_budget:
+        raise ConversionError(
+            "parallel unit outputs plus ordered aggregation exceed the temporary-space "
+            f"budget: estimated {projected_peak} bytes > "
+            f"{effective_temp_budget} available/budgeted bytes"
+        )
+    prepared = prepare_work_units(units, _validate_parallel_unit_output)
+    completion_order: tuple[str, ...] = ()
+    if prepared.pending:
+        result = run_parallel_work_units(
+            prepared.pending,
+            _convert_one_x_work_unit,
+            workers=args.workers,
+            initializer=_initialize_one_x_worker,
+            initargs=(devices,),
+        )
+        completion_order = result.completion_order
+    for unit in units:
+        validate_verified_unit_marker(unit)
+    aggregate_lerobot_work_units(
+        plan,
+        units,
+        plan.output_path,
+        reader_format="one_x_world_model",
+        parallel_evidence={
+            "workers": args.workers,
+            "encoder_threads_per_worker": _parallel_threads(args),
+            "total_encoder_threads": args.workers * _parallel_threads(args),
+            "encoder_queue_maxsize": _parallel_queue_size(args),
+            "inflight_memory_estimate_bytes": estimate.memory_bytes,
+            "inflight_temp_estimate_bytes": estimate.temp_bytes,
+            "projected_unit_and_aggregation_peak_bytes": projected_peak,
+            "available_temp_bytes_at_start": available_temp_bytes,
+            "reused_units": [unit.key for unit in prepared.reusable],
+            "repaired_markers": list(prepared.repaired_markers),
+            "discarded_corrupt_units": list(prepared.discarded_corrupt),
+            "worker_completion_order": list(completion_order),
+            "cuda_devices": list(devices[: args.workers]),
+            "video_codec_policy": "CPU libx264/libx265/libsvtav1 only; NVENC forbidden",
+        },
+    )
+
+
+def _strip_cli_option(argv: list[str], option: str, *, many: bool = False) -> list[str]:
+    result: list[str] = []
+    index = 0
+    while index < len(argv):
+        value = argv[index]
+        if value == option:
+            index += 1
+            if many:
+                while index < len(argv) and not argv[index].startswith("--"):
+                    index += 1
+            elif index < len(argv):
+                index += 1
+            continue
+        if value.startswith(f"{option}="):
+            index += 1
+            continue
+        result.append(value)
+        index += 1
+    return result
+
+
+def _semantic_collection_manifest(path: Path) -> dict[str, Any]:
+    value = read_json_object(path, "collection manifest")
+    value = dict(value)
+    value.pop("dataset_uid", None)
+    value.pop("parallel", None)
+    partitions = []
+    for partition in value.get("partitions", []):
+        normalized = dict(partition)
+        normalized.pop("dataset_uid", None)
+        partitions.append(normalized)
+    value["partitions"] = partitions
+    return value
+
+
+def _run_worker_benchmarks(
+    raw_argv: list[str], args: argparse.Namespace
+) -> int:
+    assert args.benchmark_workers
+    base_argv = _strip_cli_option(raw_argv, "--benchmark-workers", many=True)
+    base_argv = _strip_cli_option(base_argv, "--benchmark-report")
+    base_argv = _strip_cli_option(base_argv, "--output-dataset-uid")
+    sample_limits = [
+        value
+        for value in (args.max_episodes, args.max_checkpoint_units)
+        if value is not None
+    ]
+    sample_units = min(sample_limits)
+    base_argv = _strip_cli_option(base_argv, "--max-episodes")
+    base_argv = _strip_cli_option(base_argv, "--max-checkpoint-units")
+    base_argv.extend(
+        [
+            "--max-checkpoint-units",
+            str(sample_units),
+            "--sample-one-episode-per-checkpoint-unit",
+        ]
+    )
+    records: list[dict[str, Any]] = []
+    outputs: dict[int, Path] = {}
+    baseline_wall: float | None = None
+    for workers in args.benchmark_workers:
+        uid = f"{args.output_dataset_uid}_benchmark_w{workers}"
+        final = args.staging_root / "lerobot_v3_0" / uid
+        resume_data, resume_state, _lock = resume_paths(final)
+        sampler = ProcessTreeSampler((final, resume_data, resume_state))
+        command = [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            *base_argv,
+            "--output-dataset-uid",
+            uid,
+            "--workers",
+            str(workers),
+        ]
+        sampler.start()
+        completed = subprocess.run(command)
+        metrics = sampler.stop()
+        if completed.returncode != 0:
+            raise ConversionError(
+                f"benchmark child for {workers} worker(s) exited {completed.returncode}"
+            )
+        manifest = read_json_object(final / "collection_manifest.json", "benchmark manifest")
+        total_frames = sum(int(partition["frames"]) for partition in manifest["partitions"])
+        if baseline_wall is None:
+            baseline_wall = metrics.wall_seconds
+        record = {
+            "workers": workers,
+            "encoder_threads_per_worker": _parallel_threads(args),
+            "total_encoder_threads": workers * _parallel_threads(args),
+            "wall_seconds": metrics.wall_seconds,
+            "frames": total_frames,
+            "frames_per_second": total_frames / metrics.wall_seconds,
+            "speedup": baseline_wall / metrics.wall_seconds,
+            "cpu_seconds": metrics.cpu_seconds,
+            "average_cpu_cores": metrics.average_cpu_cores,
+            "average_cpu_percent": metrics.average_cpu_cores * 100.0,
+            "peak_rss_bytes": metrics.peak_rss_bytes,
+            "read_bytes": metrics.read_bytes,
+            "write_bytes": metrics.write_bytes,
+            "read_chars": metrics.read_chars,
+            "write_chars": metrics.write_chars,
+            "peak_temp_bytes": metrics.peak_temp_bytes,
+        }
+        records.append(record)
+        outputs[workers] = final
+
+    reference_workers = args.benchmark_workers[0]
+    reference = outputs[reference_workers]
+    equivalence: dict[str, Any] = {}
+    reference_collection = _semantic_collection_manifest(
+        reference / "collection_manifest.json"
+    )
+    for workers in args.benchmark_workers[1:]:
+        candidate = outputs[workers]
+        if _semantic_collection_manifest(candidate / "collection_manifest.json") != reference_collection:
+            raise ConversionError(
+                f"collection manifest differs for {reference_workers} and {workers} workers"
+            )
+        partition_reports = {}
+        for partition in sorted(path.name for path in reference.iterdir() if path.is_dir()):
+            report = verify_lerobot_equivalence(
+                reference / partition,
+                candidate / partition,
+                compare_video_frames=True,
+            )
+            partition_reports[partition] = report.as_dict()
+        equivalence[f"{reference_workers}_vs_{workers}"] = partition_reports
+    fastest = max(records, key=lambda row: float(row["frames_per_second"]))
+    report = {
+        "schema_version": 1,
+        "sample": {
+            "versions": args.version or list(VERSIONS),
+            "checkpoint_units": sample_units,
+            "episodes_per_checkpoint_unit": 1,
+            "selection_reason": (
+                "v2 token blocks can cross episode boundaries; sampling one first episode "
+                "from each decoder-context checkpoint keeps worker-count outputs identical"
+            ),
+            "video_codec": args.video_codec,
+            "video_quality": args.video_quality,
+            "video_preset": args.video_preset,
+        },
+        "runs": records,
+        "equivalence": equivalence,
+        "fastest": {
+            "workers": fastest["workers"],
+            "encoder_threads_per_worker": fastest["encoder_threads_per_worker"],
+            "frames_per_second": fastest["frames_per_second"],
+        },
+    }
+    report_path = args.benchmark_report or (
+        args.staging_root / "benchmarks" / f"{args.output_dataset_uid}_workers.json"
+    )
+    atomic_write_json(report_path, report)
+    print(json.dumps(report, indent=2))
+    print(f"benchmark report: {report_path}")
+    return 0
+
+
+def _select(
+    plan,
+    *,
+    max_episodes: int | None,
+    max_units: int | None,
+    one_episode_per_unit: bool = False,
+):
     episodes = list(plan.episodes)
     if max_units is not None:
         units: list[str] = []
@@ -147,7 +583,10 @@ def _select(plan, *, max_episodes: int | None, max_units: int | None):
                 if len(units) >= max_units:
                     break
                 units.append(unit)
-            selected.append(episode)
+            if not one_episode_per_unit or not selected or unit != str(
+                selected[-1].extra["checkpoint_unit"]
+            ):
+                selected.append(episode)
         episodes = selected
     if max_episodes is not None:
         episodes = episodes[:max_episodes]
@@ -187,6 +626,7 @@ def _plans(args: argparse.Namespace, workspace: Path) -> tuple[OneXWorldModelRea
             plan,
             max_episodes=args.max_episodes,
             max_units=args.max_checkpoint_units,
+            one_episode_per_unit=args.sample_one_episode_per_checkpoint_unit,
         )
         video_encoding = dict(plan.extra["video_encoding"])
         video_encoding.update(
@@ -224,6 +664,15 @@ def _collection_payload(plans: list[Any], args: argparse.Namespace) -> dict[str,
         "encoder_queue_maxsize": args.encoder_queue_maxsize,
         "encoder_threads": args.encoder_threads,
     }
+    if args.workers is not None:
+        options.update(
+            {
+                "encoder_threads_per_worker": _parallel_threads(args),
+                "blocking_streaming_encoding": True,
+                "encoder_queue_maxsize": _parallel_queue_size(args),
+                "parallel_schema_version": 1,
+            }
+        )
     return {
         "resume_schema_version": RESUME_SCHEMA_VERSION,
         "kind": "1x_world_model_collection",
@@ -269,7 +718,7 @@ def _prepare_collection_resume(
 
 
 def _collection_manifest(plans: list[Any], args: argparse.Namespace) -> dict[str, Any]:
-    return {
+    manifest = {
         "format": "lerobot_v3_0_collection",
         "dataset_uid": args.output_dataset_uid,
         "source_dataset": "1x-technologies/worldmodel",
@@ -296,6 +745,15 @@ def _collection_manifest(plans: list[Any], args: argparse.Namespace) -> dict[str
         },
         "video_encoding": [plan.extra["video_encoding"] for plan in plans],
     }
+    if args.workers is not None:
+        manifest["parallel"] = {
+            "workers": args.workers,
+            "encoder_threads_per_worker": _parallel_threads(args),
+            "total_encoder_threads": args.workers * _parallel_threads(args),
+            "encoder_queue_maxsize": _parallel_queue_size(args),
+            "deterministic_aggregation": True,
+        }
+    return manifest
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -324,6 +782,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--max-episodes", type=_positive_int)
     parser.add_argument("--max-checkpoint-units", type=_positive_int)
+    parser.add_argument(
+        "--sample-one-episode-per-checkpoint-unit",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--v1-decoder-repo", type=Path)
     parser.add_argument("--cosmos-decoder-path", type=Path)
     parser.add_argument("--decode-batch-size", type=_positive_int, default=8)
@@ -334,12 +797,32 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--video-preset")
     parser.add_argument("--encoder-queue-maxsize", type=_positive_int)
     parser.add_argument("--encoder-threads", type=_positive_int)
+    parser.add_argument(
+        "--workers",
+        type=_positive_int,
+        help="spawn isolated deterministic conversion workers; omitted preserves legacy serial mode",
+    )
+    parser.add_argument("--encoder-threads-per-worker", type=_positive_int)
+    parser.add_argument(
+        "--benchmark-workers",
+        type=_positive_int,
+        nargs="+",
+        help="run identical subset conversions for each worker count and verify equivalence",
+    )
+    parser.add_argument("--benchmark-report", type=Path)
+    parser.add_argument(
+        "--inflight-memory-budget-gb", type=_positive_float, default=64.0
+    )
+    parser.add_argument(
+        "--inflight-temp-budget-gb", type=_positive_float, default=800.0
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    args = parser.parse_args(raw_argv)
     if (
         Path(args.output_dataset_uid).name != args.output_dataset_uid
         or args.output_dataset_uid in {"", ".", ".."}
@@ -347,9 +830,64 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--output-dataset-uid must be one safe path component")
     if sum(bool(value) for value in (args.resume, args.skip_existing, args.overwrite)) > 1:
         parser.error("--resume, --skip-existing, and --overwrite are mutually exclusive")
+    if args.workers is not None and args.benchmark_workers:
+        parser.error("--workers and --benchmark-workers are mutually exclusive")
+    if (
+        args.encoder_threads is not None
+        and args.encoder_threads_per_worker is not None
+    ):
+        parser.error("use only one of --encoder-threads and --encoder-threads-per-worker")
+    if args.encoder_threads_per_worker is not None and not (
+        args.workers is not None or args.benchmark_workers
+    ):
+        parser.error("--encoder-threads-per-worker requires --workers or --benchmark-workers")
+    if args.video_codec in {"h264_nvenc", "hevc_nvenc"}:
+        parser.error("NVENC is unsupported on all four A800 GPUs; use CPU h264/hevc/libsvtav1")
+    if (
+        args.sample_one_episode_per_checkpoint_unit
+        and args.max_checkpoint_units is None
+    ):
+        parser.error("internal checkpoint sampling requires --max-checkpoint-units")
     subset = args.max_episodes is not None or args.max_checkpoint_units is not None
     if subset and args.output_dataset_uid == "1x_world_model_dataset" and not args.dry_run:
         parser.error("smoke/subset conversion requires an independent --output-dataset-uid")
+    requested_workers = (
+        list(args.benchmark_workers) if args.benchmark_workers else [args.workers]
+    )
+    requested_workers = [value for value in requested_workers if value is not None]
+    if requested_workers:
+        if len(requested_workers) != len(set(requested_workers)):
+            parser.error("worker counts must be unique")
+        threads = _parallel_threads(args)
+        for workers in requested_workers:
+            if workers * threads > MAX_TOTAL_ENCODER_THREADS:
+                parser.error(
+                    f"{workers} workers x {threads} encoder threads exceeds the "
+                    f"{MAX_TOTAL_ENCODER_THREADS}-thread limit"
+                )
+        try:
+            devices = _visible_cuda_devices()
+        except ConversionError as exc:
+            parser.error(str(exc))
+        if max(requested_workers) > len(devices):
+            parser.error(
+                f"requested {max(requested_workers)} workers but only "
+                f"{len(devices)} CUDA device(s) are visible"
+            )
+    else:
+        devices = ()
+    if args.benchmark_workers:
+        if not subset:
+            parser.error("--benchmark-workers requires --max-episodes or --max-checkpoint-units")
+        if args.dry_run:
+            parser.error("--benchmark-workers cannot be combined with --dry-run")
+        if args.benchmark_workers[0] != 1:
+            parser.error("--benchmark-workers must start with the 1-worker baseline")
+        try:
+            return _run_worker_benchmarks(raw_argv, args)
+        except (ConversionError, FileExistsError, OSError, RuntimeError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
     final = args.staging_root / "lerobot_v3_0" / args.output_dataset_uid
     if final.exists():
         if args.skip_existing:
@@ -363,7 +901,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         workspace, state_root, lock_path = resume_paths(final)
     else:
         workspace = final.with_name(f".{final.name}.incomplete-{uuid.uuid4().hex}")
-        state_root = lock_path = None
+        state_root = (
+            workspace.with_name(f"{workspace.name}.parallel-state")
+            if args.workers is not None
+            else None
+        )
+        lock_path = None
     try:
         reader, plans = _plans(args, workspace)
         print(json.dumps({"collection": str(final), "partitions": [plan_summary(plan) for plan in plans]}, indent=2))
@@ -371,18 +914,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("inspect-only complete; no decoder loaded and no output written")
             return 0
 
-        encoder = _rgb_encoder(args.video_codec, args.video_quality, args.video_preset)
-        for plan in plans:
-            reader.preflight_decoder(plan)
-            _preflight_encoder(plan, encoder)
-        longest = max(episode.num_frames for plan in plans for episode in plan.episodes)
-        queue_size = args.encoder_queue_maxsize or longest + 1
-        if queue_size <= longest:
-            raise ConversionError(
-                f"streaming queue {queue_size} must exceed longest episode ({longest}) so frames cannot drop"
-            )
-
         payload = _collection_payload(plans, args)
+        if args.workers is None:
+            encoder = _rgb_encoder(args.video_codec, args.video_quality, args.video_preset)
+            for plan in plans:
+                reader.preflight_decoder(plan)
+                _preflight_encoder(plan, encoder)
+            longest = max(episode.num_frames for plan in plans for episode in plan.episodes)
+            queue_size = args.encoder_queue_maxsize or longest + 1
+            if queue_size <= longest:
+                raise ConversionError(
+                    f"streaming queue {queue_size} must exceed longest episode ({longest}) so frames cannot drop"
+                )
+        else:
+            encoder = None
+            queue_size = _parallel_queue_size(args)
         lock_context = exclusive_resume_lock(lock_path) if args.resume else _nullcontext()
         with lock_context:
             if args.resume:
@@ -396,24 +942,34 @@ def main(argv: Sequence[str] | None = None) -> int:
                     validate_video_files(plan, plan.output_path, expected_frames=plan.num_frames)
                     print(f"[{plan.dataset_uid}] reused completed collection partition", flush=True)
                     continue
-                convert_dataset(
-                    plan,
-                    lambda episode, _plan=plan: reader.iter_frames(_plan, episode),
-                    reader_format="one_x_world_model",
-                    resume=args.resume,
-                    eta_interval_seconds=args.eta_interval_seconds,
-                    rgb_encoder=encoder,
-                    streaming_encoding=True,
-                    encoder_queue_maxsize=queue_size,
-                    encoder_threads=args.encoder_threads,
-                    conversion_options=payload["options"],
-                )
+                if args.workers is not None:
+                    assert state_root is not None
+                    _convert_parallel_partition(
+                        plan,
+                        state_root,
+                        args,
+                        payload["options"],
+                        devices,
+                    )
+                else:
+                    convert_dataset(
+                        plan,
+                        lambda episode, _plan=plan: reader.iter_frames(_plan, episode),
+                        reader_format="one_x_world_model",
+                        resume=args.resume,
+                        eta_interval_seconds=args.eta_interval_seconds,
+                        rgb_encoder=encoder,
+                        streaming_encoding=True,
+                        encoder_queue_maxsize=queue_size,
+                        encoder_threads=args.encoder_threads,
+                        conversion_options=payload["options"],
+                    )
             for plan in plans:
                 validate_written_dataset(plan, plan.output_path)
                 validate_video_files(plan, plan.output_path, expected_frames=plan.num_frames)
             atomic_write_json(workspace / "collection_manifest.json", _collection_manifest(plans, args))
             publish_temporary_output(workspace, final, overwrite=args.overwrite)
-            if args.resume and state_root is not None:
+            if state_root is not None:
                 shutil.rmtree(state_root)
         if args.resume and lock_path is not None:
             lock_path.unlink(missing_ok=True)
@@ -425,6 +981,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (ConversionError, FileExistsError, OSError, RuntimeError, ValueError) as exc:
         if not args.resume and workspace.exists():
             shutil.rmtree(workspace)
+        if not args.resume and state_root is not None and state_root.exists():
+            shutil.rmtree(state_root)
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

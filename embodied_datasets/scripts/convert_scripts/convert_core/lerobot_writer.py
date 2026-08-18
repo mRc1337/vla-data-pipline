@@ -16,10 +16,12 @@ import json
 import math
 import os
 from pathlib import Path
+import queue
 import shutil
 import sys
 import time
 from typing import Any, Callable, Iterator
+import types
 import uuid
 
 from convert_core.checkpoint import (
@@ -43,16 +45,57 @@ LEROBOT_VIDEO_PATH = (
 )
 
 
+def _blocking_streaming_feed_frame(self: Any, video_key: str, image: Any) -> None:
+    """Bound a streaming encoder queue without LeRobot's frame-drop policy.
+
+    LeRobot 0.6 waits only 100 ms before silently dropping a frame from a full
+    queue.  Offline conversion must instead apply backpressure: every planned
+    frame is required, and a small fixed queue is what keeps worker memory
+    bounded.  The encoder-thread health check mirrors the upstream method.
+    """
+
+    if not self._episode_active:
+        raise RuntimeError("No active episode. Call start_episode() first.")
+    copied = image.copy()
+    while True:
+        thread = self._threads[video_key]
+        if not thread.is_alive():
+            try:
+                status, message = self._result_queues[video_key].get_nowait()
+                if status == "error":
+                    raise RuntimeError(
+                        f"Encoder thread for {video_key} crashed: {message}"
+                    )
+            except queue.Empty:
+                pass
+            raise RuntimeError(f"Encoder thread for {video_key} is not alive")
+        try:
+            self._frame_queues[video_key].put(copied, timeout=0.1)
+            return
+        except queue.Full:
+            continue
+
+
+def _enable_blocking_streaming_encoding(dataset: Any) -> None:
+    encoder = getattr(getattr(dataset, "writer", None), "_streaming_encoder", None)
+    if encoder is not None:
+        encoder.feed_frame = types.MethodType(_blocking_streaming_feed_frame, encoder)
+
+
 @contextlib.contextmanager
 def _local_datasets_cache(output_root: Path) -> Iterator[None]:
     """Keep Hugging Face parquet cache writes beside staging, never in $HOME."""
 
-    cache_parent = output_root.parent
-    for candidate in (output_root, *output_root.parents):
-        if candidate.name == "lerobot_v3_0":
-            cache_parent = candidate
-            break
-    cache = cache_parent / ".lerobot-datasets-cache"
+    configured_cache = os.environ.get("VLA_DATASETS_CACHE_ROOT")
+    if configured_cache:
+        cache = Path(configured_cache)
+    else:
+        cache_parent = output_root.parent
+        for candidate in (output_root, *output_root.parents):
+            if candidate.name == "lerobot_v3_0":
+                cache_parent = candidate
+                break
+        cache = cache_parent / ".lerobot-datasets-cache"
     cache.mkdir(parents=True, exist_ok=True)
     previous_env = os.environ.get("HF_DATASETS_CACHE")
     os.environ["HF_DATASETS_CACHE"] = str(cache)
@@ -155,6 +198,7 @@ def write_dataset(
     *,
     rgb_encoder: Any = None,
     streaming_encoding: bool = False,
+    blocking_streaming_encoding: bool = False,
     encoder_queue_maxsize: int = 30,
     encoder_threads: int | None = None,
     frame_completed_hook: Callable[[EpisodePlan, int], None] | None = None,
@@ -178,6 +222,8 @@ def write_dataset(
             encoder_queue_maxsize=encoder_queue_maxsize,
             encoder_threads=encoder_threads,
         )
+        if blocking_streaming_encoding:
+            _enable_blocking_streaming_encoding(dataset)
         try:
             for episode_index, episode in enumerate(plan.episodes):
                 print(
@@ -358,6 +404,13 @@ def validate_parquet_feature_schema(plan: DatasetConversionPlan, root: Path) -> 
             continue
         arrow_type = pa.from_numpy_dtype(np.dtype(feature["dtype"]))
         shape = tuple(feature["shape"])
+        # Hugging Face Datasets uses its ArrayND extension types for features
+        # with two or more axes.  Validate their declared shape and scalar
+        # value type directly; their storage lists are variable-sized by
+        # design even though the extension shape is fixed.
+        if len(shape) >= 2:
+            expected_types[key] = ("array_nd", shape, arrow_type)
+            continue
         if shape != (1,):
             for dimension in reversed(shape):
                 arrow_type = pa.list_(arrow_type, int(dimension))
@@ -368,6 +421,22 @@ def validate_parquet_feature_schema(plan: DatasetConversionPlan, root: Path) -> 
             if key not in schema.names:
                 raise ConversionError(f"{path}: missing planned Parquet column {key!r}")
             actual_type = schema.field(key).type
+            if isinstance(expected_type, tuple) and expected_type[0] == "array_nd":
+                _, expected_shape, expected_value_type = expected_type
+                actual_shape = tuple(getattr(actual_type, "shape", ()))
+                actual_value_type = getattr(actual_type, "value_type", None)
+                if (
+                    not isinstance(actual_type, pa.ExtensionType)
+                    or actual_shape != expected_shape
+                    or actual_value_type is None
+                    or pa.from_numpy_dtype(np.dtype(actual_value_type)) != expected_value_type
+                ):
+                    raise ConversionError(
+                        f"{path}: Parquet column {key!r} has physical type {actual_type}, "
+                        f"expected a fixed ArrayND extension with shape {expected_shape} "
+                        f"and value type {expected_value_type}"
+                    )
+                continue
             if actual_type != expected_type:
                 raise ConversionError(
                     f"{path}: Parquet column {key!r} has physical type {actual_type}, "
@@ -600,6 +669,7 @@ def _open_resumable_writer(
     resume_existing: bool,
     rgb_encoder: Any,
     streaming_encoding: bool,
+    blocking_streaming_encoding: bool,
     encoder_queue_maxsize: int,
     encoder_threads: int | None,
 ) -> Any:
@@ -617,8 +687,10 @@ def _open_resumable_writer(
             encoder_threads=encoder_threads,
         )
         dataset.meta._metadata_buffer_size = 1
+        if blocking_streaming_encoding:
+            _enable_blocking_streaming_encoding(dataset)
         return dataset
-    return LeRobotDataset.create(
+    dataset = LeRobotDataset.create(
         repo_id=plan.dataset_uid,
         fps=plan.fps,
         root=root,
@@ -631,6 +703,9 @@ def _open_resumable_writer(
         encoder_queue_maxsize=encoder_queue_maxsize,
         encoder_threads=encoder_threads,
     )
+    if blocking_streaming_encoding:
+        _enable_blocking_streaming_encoding(dataset)
+    return dataset
 
 
 def _write_resumable_unit(
@@ -643,6 +718,7 @@ def _write_resumable_unit(
     progress: EtaProgress,
     rgb_encoder: Any,
     streaming_encoding: bool,
+    blocking_streaming_encoding: bool,
     encoder_queue_maxsize: int,
     encoder_threads: int | None,
     frame_completed_hook: Callable[[EpisodePlan, int], None] | None,
@@ -659,6 +735,7 @@ def _write_resumable_unit(
             resume_existing=start > 0,
             rgb_encoder=rgb_encoder,
             streaming_encoding=streaming_encoding,
+            blocking_streaming_encoding=blocking_streaming_encoding,
             encoder_queue_maxsize=encoder_queue_maxsize,
             encoder_threads=encoder_threads,
         )
@@ -720,6 +797,7 @@ def _convert_dataset_resumable(
     conversion_options: dict[str, Any],
     rgb_encoder: Any,
     streaming_encoding: bool,
+    blocking_streaming_encoding: bool,
     encoder_queue_maxsize: int,
     encoder_threads: int | None,
     frame_completed_hook: Callable[[EpisodePlan, int], None] | None,
@@ -793,6 +871,7 @@ def _convert_dataset_resumable(
                 progress=progress,
                 rgb_encoder=rgb_encoder,
                 streaming_encoding=streaming_encoding,
+                blocking_streaming_encoding=blocking_streaming_encoding,
                 encoder_queue_maxsize=encoder_queue_maxsize,
                 encoder_threads=encoder_threads,
                 frame_completed_hook=frame_completed_hook,
@@ -889,6 +968,7 @@ def convert_dataset(
     conversion_options: dict[str, Any] | None = None,
     rgb_encoder: Any = None,
     streaming_encoding: bool = False,
+    blocking_streaming_encoding: bool = False,
     encoder_queue_maxsize: int = 30,
     encoder_threads: int | None = None,
     frame_completed_hook: Callable[[EpisodePlan, int], None] | None = None,
@@ -899,6 +979,7 @@ def convert_dataset(
     if resume:
         options = {
             "streaming_encoding": streaming_encoding,
+            "blocking_streaming_encoding": blocking_streaming_encoding,
             "encoder_queue_maxsize": encoder_queue_maxsize,
             "encoder_threads": encoder_threads,
             "rgb_encoder": repr(rgb_encoder),
@@ -912,6 +993,7 @@ def convert_dataset(
             conversion_options=options,
             rgb_encoder=rgb_encoder,
             streaming_encoding=streaming_encoding,
+            blocking_streaming_encoding=blocking_streaming_encoding,
             encoder_queue_maxsize=encoder_queue_maxsize,
             encoder_threads=encoder_threads,
             frame_completed_hook=frame_completed_hook,
@@ -929,6 +1011,7 @@ def convert_dataset(
             temporary_path,
             rgb_encoder=rgb_encoder,
             streaming_encoding=streaming_encoding,
+            blocking_streaming_encoding=blocking_streaming_encoding,
             encoder_queue_maxsize=encoder_queue_maxsize,
             encoder_threads=encoder_threads,
             frame_completed_hook=frame_completed_hook,
