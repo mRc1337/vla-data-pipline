@@ -25,8 +25,10 @@ Usage::
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 from pathlib import Path
+import signal
 import sys
 from typing import Sequence
 
@@ -38,16 +40,76 @@ from convert_core.lerobot_writer import convert_dataset, plan_summary
 from readers.registry import get_reader
 
 
-def _run_one(config_path: Path, *, raw_root: Path, staging_root: Path, dry_run: bool, skip_existing: bool, overwrite: bool) -> str:
+def _select_episodes(
+    plan,
+    *,
+    tasks: list[str],
+    max_episodes: int | None,
+    max_checkpoint_units: int | None,
+    output_dataset_uid: str | None,
+):
+    episodes = list(plan.episodes)
+    if tasks:
+        requested = set(tasks)
+        episodes = [episode for episode in episodes if episode.instruction in requested]
+        missing = requested - {episode.instruction for episode in episodes}
+        if missing:
+            raise ConversionError(f"requested tasks are absent: {sorted(missing)}")
+    if max_checkpoint_units is not None:
+        selected_units: list[str] = []
+        kept = []
+        for episode in episodes:
+            unit = str(episode.extra.get("checkpoint_unit", episode.episode_uid))
+            if unit not in selected_units:
+                if len(selected_units) >= max_checkpoint_units:
+                    break
+                selected_units.append(unit)
+            kept.append(episode)
+        episodes = kept
+    if max_episodes is not None:
+        episodes = episodes[:max_episodes]
+    if not episodes:
+        raise ConversionError("episode selection is empty")
+    if output_dataset_uid is not None:
+        if Path(output_dataset_uid).name != output_dataset_uid or output_dataset_uid in {"", ".", ".."}:
+            raise ConversionError(f"output dataset UID must be one path component: {output_dataset_uid!r}")
+        output = plan.output_path.with_name(output_dataset_uid)
+        return replace(plan, dataset_uid=output_dataset_uid, output_path=output, episodes=tuple(episodes))
+    return replace(plan, episodes=tuple(episodes))
+
+
+def _run_one(
+    config_path: Path,
+    *,
+    raw_root: Path,
+    staging_root: Path,
+    dry_run: bool,
+    skip_existing: bool,
+    overwrite: bool,
+    resume: bool,
+    eta_interval_seconds: float,
+    tasks: list[str],
+    max_episodes: int | None,
+    max_checkpoint_units: int | None,
+    output_dataset_uid: str | None,
+) -> str:
     config: DatasetConversionConfig = load_dataset_config(config_path)
     reader = get_reader(config.format)
 
-    expected_output = staging_root / "lerobot_v3_0" / config.dataset_uid
+    expected_uid = output_dataset_uid or config.dataset_uid
+    expected_output = staging_root / "lerobot_v3_0" / expected_uid
     if expected_output.exists() and skip_existing and not dry_run:
         print(f"[{config.dataset_uid}] skipped existing output: {expected_output}")
         return "skipped"
 
     plan = reader.build_plan(config, raw_root, staging_root)
+    plan = _select_episodes(
+        plan,
+        tasks=tasks,
+        max_episodes=max_episodes,
+        max_checkpoint_units=max_checkpoint_units,
+        output_dataset_uid=output_dataset_uid,
+    )
     print(json.dumps(plan_summary(plan), ensure_ascii=False, indent=2, default=str))
     if dry_run:
         return "validated"
@@ -57,6 +119,9 @@ def _run_one(config_path: Path, *, raw_root: Path, staging_root: Path, dry_run: 
         lambda episode: reader.iter_frames(plan, episode),
         reader_format=config.format,
         overwrite=overwrite,
+        resume=resume,
+        eta_interval_seconds=eta_interval_seconds,
+        conversion_options={"config_path": str(config_path)},
     )
     print(f"[{config.dataset_uid}] wrote {len(plan.episodes)} episodes / {plan.num_frames} frames to {output}")
     return "converted"
@@ -79,6 +144,28 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--skip-existing", action="store_true", help="Skip dataset UIDs whose v3 output already exists.")
     parser.add_argument("--overwrite", action="store_true", help="Replace an existing UID only after new output validates.")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from verified reader-defined checkpoints beside the final output.",
+    )
+    parser.add_argument(
+        "--eta-interval-seconds",
+        type=float,
+        default=10.0,
+        help="Seconds between newline progress/ETA records.",
+    )
+    parser.add_argument("--task", action="append", default=[], help="Keep one exact task string; repeatable.")
+    parser.add_argument("--max-episodes", type=int, help="Keep only the first N selected episodes.")
+    parser.add_argument(
+        "--max-checkpoint-units",
+        type=int,
+        help="Keep only the first N reader-defined parts/shards/checkpoint units.",
+    )
+    parser.add_argument(
+        "--output-dataset-uid",
+        help="Use an independent UID/output path, required for non-dry-run subset conversions.",
+    )
     return parser
 
 
@@ -98,34 +185,62 @@ def _resolve_config_paths(args: argparse.Namespace, parser: argparse.ArgumentPar
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    if args.skip_existing and args.overwrite:
-        parser.error("--skip-existing and --overwrite cannot be used together")
+    selected_modes = sum(bool(value) for value in (args.skip_existing, args.overwrite, args.resume))
+    if selected_modes > 1:
+        parser.error("--skip-existing, --overwrite, and --resume are mutually exclusive")
+    for name in ("max_episodes", "max_checkpoint_units"):
+        value = getattr(args, name)
+        if value is not None and value <= 0:
+            parser.error(f"--{name.replace('_', '-')} must be positive")
+    if args.eta_interval_seconds <= 0:
+        parser.error("--eta-interval-seconds must be positive")
+    selection_active = bool(args.task or args.max_episodes or args.max_checkpoint_units)
+    if selection_active and not args.dry_run and args.output_dataset_uid is None:
+        parser.error("subset conversion requires --output-dataset-uid to protect the full dataset UID")
     config_paths = _resolve_config_paths(args, parser)
 
     converted = skipped = validated = 0
     had_error = False
-    for config_path in config_paths:
-        try:
-            status = _run_one(
-                config_path,
-                raw_root=args.raw_root,
-                staging_root=args.staging_root,
-                dry_run=args.dry_run,
-                skip_existing=args.skip_existing,
-                overwrite=args.overwrite,
-            )
-        except (ConversionError, FileExistsError, OSError, RuntimeError, ValidationError, ValueError) as exc:
-            print(f"error: {config_path}: {exc}", file=sys.stderr)
-            had_error = True
-            if not args.all:
-                return 1
-            continue
-        if status == "converted":
-            converted += 1
-        elif status == "skipped":
-            skipped += 1
-        elif status == "validated":
-            validated += 1
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def handle_sigterm(_signum, _frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
+    try:
+        for config_path in config_paths:
+            try:
+                status = _run_one(
+                    config_path,
+                    raw_root=args.raw_root,
+                    staging_root=args.staging_root,
+                    dry_run=args.dry_run,
+                    skip_existing=args.skip_existing,
+                    overwrite=args.overwrite,
+                    resume=args.resume,
+                    eta_interval_seconds=args.eta_interval_seconds,
+                    tasks=args.task,
+                    max_episodes=args.max_episodes,
+                    max_checkpoint_units=args.max_checkpoint_units,
+                    output_dataset_uid=args.output_dataset_uid,
+                )
+            except (ConversionError, FileExistsError, OSError, RuntimeError, ValidationError, ValueError) as exc:
+                print(f"error: {config_path}: {exc}", file=sys.stderr)
+                had_error = True
+                if not args.all:
+                    return 1
+                continue
+            if status == "converted":
+                converted += 1
+            elif status == "skipped":
+                skipped += 1
+            elif status == "validated":
+                validated += 1
+    except KeyboardInterrupt:
+        print("interrupted; --resume retained only the last verified checkpoint unit", file=sys.stderr)
+        return 130
+    finally:
+        signal.signal(signal.SIGTERM, previous_sigterm)
 
     if args.dry_run:
         print(f"validated {validated} dataset(s); no output written")

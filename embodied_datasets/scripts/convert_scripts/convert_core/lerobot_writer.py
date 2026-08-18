@@ -335,6 +335,46 @@ def validate_info_json(
     return info
 
 
+def validate_parquet_feature_schema(plan: DatasetConversionPlan, root: Path) -> None:
+    """Verify that physical Arrow columns match planned dtype and shape.
+
+    LeRobot intentionally represents metadata shape ``[1]`` as a scalar Arrow
+    ``Value``; wider vectors and arrays use fixed-size lists. Checking every
+    shard against that canonical encoding catches real dtype/width drift while
+    accepting LeRobot's documented singleton convention.
+    """
+
+    import numpy as np
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    data_root = root / "data"
+    paths = sorted(data_root.rglob("*.parquet")) if data_root.is_dir() else []
+    if not paths:
+        raise ConversionError(f"written dataset has no Parquet data files: {data_root}")
+    expected_types: dict[str, Any] = {}
+    for key, feature in plan.feature_schema().items():
+        if feature["dtype"] == "video":
+            continue
+        arrow_type = pa.from_numpy_dtype(np.dtype(feature["dtype"]))
+        shape = tuple(feature["shape"])
+        if shape != (1,):
+            for dimension in reversed(shape):
+                arrow_type = pa.list_(arrow_type, int(dimension))
+        expected_types[key] = arrow_type
+    for path in paths:
+        schema = pq.read_schema(path)
+        for key, expected_type in expected_types.items():
+            if key not in schema.names:
+                raise ConversionError(f"{path}: missing planned Parquet column {key!r}")
+            actual_type = schema.field(key).type
+            if actual_type != expected_type:
+                raise ConversionError(
+                    f"{path}: Parquet column {key!r} has physical type {actual_type}, "
+                    f"expected {expected_type}"
+                )
+
+
 def validate_written_prefix(
     plan: DatasetConversionPlan,
     temporary_path: Path,
@@ -346,6 +386,7 @@ def validate_written_prefix(
         episode.num_frames for episode in plan.episodes[:completed_episodes]
     )
     validate_info_json(plan, temporary_path, completed_episodes)
+    validate_parquet_feature_schema(plan, temporary_path)
     with _local_datasets_cache(temporary_path):
         dataset = LeRobotDataset(repo_id=plan.dataset_uid, root=temporary_path)
         if dataset.num_episodes != completed_episodes:
@@ -425,7 +466,7 @@ def validate_written_prefix(
         del dataset
 
 
-def _video_frame_count(path: Path) -> tuple[int, int, int, float | None, str]:
+def _video_frame_count(path: Path) -> tuple[int, int, int, float | None, str, str | None]:
     try:
         import av
     except ImportError as exc:  # pragma: no cover - dependency of lerobot datasets
@@ -444,6 +485,7 @@ def _video_frame_count(path: Path) -> tuple[int, int, int, float | None, str]:
             int(stream.width),
             float(rate) if rate is not None else None,
             stream.codec.canonical_name,
+            stream.codec_context.format.name if stream.codec_context.format else None,
         )
 
 
@@ -457,6 +499,22 @@ def validate_video_files(
     """Open actual MP4 streams and verify frames, rate, and dimensions."""
 
     evidence: dict[str, list[dict[str, Any]]] = {}
+    video_encoding = plan.extra.get("video_encoding", {})
+    requested_codec = (
+        video_encoding.get("target_codec") if isinstance(video_encoding, dict) else None
+    )
+    expected_codec = {
+        "libsvtav1": "av1",
+        "h264": "h264",
+        "h264_nvenc": "h264",
+        "hevc": "hevc",
+        "hevc_nvenc": "hevc",
+    }.get(requested_codec, requested_codec)
+    expected_pix_fmt = (
+        video_encoding.get("target_pix_fmt")
+        if isinstance(video_encoding, dict)
+        else None
+    )
     for camera in plan.camera_features:
         camera_root = root / "videos" / camera.feature_key
         paths = sorted(camera_root.rglob("*.mp4")) if camera_root.is_dir() else []
@@ -471,13 +529,22 @@ def validate_video_files(
         rows: list[dict[str, Any]] = []
         total = 0
         for path in paths:
-            frames, height, width, rate, codec = _video_frame_count(path)
+            frames, height, width, rate, codec, pix_fmt = _video_frame_count(path)
             if (height, width) != (camera.height, camera.width):
                 raise ConversionError(
                     f"{path}: video is {width}x{height}, expected {camera.width}x{camera.height}"
                 )
             if rate is None or not math.isclose(rate, plan.fps, rel_tol=0.0, abs_tol=1e-9):
                 raise ConversionError(f"{path}: video FPS is {rate}, expected {plan.fps}")
+            if expected_codec is not None and codec != expected_codec:
+                raise ConversionError(
+                    f"{path}: video codec is {codec!r}, expected {expected_codec!r} "
+                    f"for requested encoder {requested_codec!r}"
+                )
+            if expected_pix_fmt is not None and pix_fmt != expected_pix_fmt:
+                raise ConversionError(
+                    f"{path}: video pixel format is {pix_fmt!r}, expected {expected_pix_fmt!r}"
+                )
             total += frames
             rows.append(
                 {
@@ -487,6 +554,7 @@ def validate_video_files(
                     "width": width,
                     "fps": rate,
                     "codec": codec,
+                    "pix_fmt": pix_fmt,
                 }
             )
         if total != expected_frames:

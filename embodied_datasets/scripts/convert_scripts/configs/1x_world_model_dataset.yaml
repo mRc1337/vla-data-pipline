@@ -1,0 +1,21 @@
+# Official 1X World Model Challenge token dataset.  The dedicated collection
+# converter invokes this reader separately for v1.1 and v2.0 because their
+# state and video-token schemas are not homogeneous.
+dataset_uid: 1x_world_model_dataset
+format: one_x_world_model
+source_directory: 1x_world_model_dataset
+robot_type: eve
+fps: 30
+
+one_x_version: v2.0
+one_x_splits:
+  - train_v2.0
+  - val_v2.0
+one_x_include_test: false
+
+# Required only for conversion (not --dry-run).  Prefer CLI overrides in the
+# dedicated converter so machine-local paths are not committed here.
+one_x_v1_decoder_repo: null
+one_x_cosmos_decoder_path: null
+one_x_decode_batch_size: 8
+one_x_v1_checkpoint_segments: 128

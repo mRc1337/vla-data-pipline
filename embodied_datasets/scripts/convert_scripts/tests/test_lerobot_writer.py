@@ -1,7 +1,9 @@
 import copy
+from dataclasses import replace
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from convert_core.episode_spec import (
@@ -11,7 +13,14 @@ from convert_core.episode_spec import (
     VectorFeatureSpec,
 )
 from convert_core.errors import ConversionError
-from convert_core.lerobot_writer import build_manifest, validate_info_json
+import convert_core.lerobot_writer as writer
+from convert_core.lerobot_writer import (
+    build_manifest,
+    validate_info_json,
+    validate_parquet_feature_schema,
+    validate_video_files,
+    write_dataset,
+)
 
 
 def _plan(root: Path) -> DatasetConversionPlan:
@@ -145,3 +154,130 @@ def test_manifest_records_explicit_output_indices_and_source_task(tmp_path: Path
     assert manifest["episodes"][0]["source_task"] is None
     assert manifest["episodes"][1]["lerobot_episode_index"] == 1
     assert manifest["episodes"][1]["lerobot_task_index"] == 1
+
+
+def test_parquet_validator_accepts_lerobot_scalar_encoding_for_length_one_vector(
+    tmp_path: Path,
+):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    plan = replace(
+        _plan(tmp_path),
+        vector_features=(
+            VectorFeatureSpec(
+                feature_key="action.hand_closure",
+                dim=1,
+                names=("hand_closure",),
+            ),
+        ),
+        camera_features=(),
+    )
+    parquet = tmp_path / "data" / "chunk-000" / "file-000.parquet"
+    parquet.parent.mkdir(parents=True)
+    pq.write_table(
+        pa.table({"action.hand_closure": pa.array([0.0, 1.0], type=pa.float32())}),
+        parquet,
+    )
+
+    validate_parquet_feature_schema(plan, tmp_path)
+
+    pq.write_table(
+        pa.table(
+            {
+                "action.hand_closure": pa.array(
+                    [[0.0], [1.0]], type=pa.list_(pa.float32(), 1)
+                )
+            }
+        ),
+        parquet,
+    )
+    with pytest.raises(ConversionError, match="physical type fixed_size_list"):
+        validate_parquet_feature_schema(plan, tmp_path)
+
+
+def test_real_writer_accepts_length_one_ndarray_and_writes_scalar_parquet(
+    tmp_path: Path,
+):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    output = tmp_path / "output"
+    episode = EpisodePlan(
+        episode_uid="source:0",
+        source_relative_path="split/segment:0",
+        instruction="fixture task",
+        num_frames=1,
+    )
+    plan = DatasetConversionPlan(
+        dataset_uid="singleton_vector_test",
+        output_path=output,
+        fps=30,
+        measured_fps=30.0,
+        robot_type="eve",
+        vector_features=(
+            VectorFeatureSpec(
+                feature_key="action.hand_closure",
+                dim=1,
+                names=("hand_closure",),
+            ),
+        ),
+        camera_features=(),
+        episodes=(episode,),
+    )
+
+    write_dataset(
+        plan,
+        lambda _episode: iter(
+            (
+                {
+                    "action.hand_closure": np.array([0.25], dtype=np.float32),
+                    "task": "fixture task",
+                },
+            )
+        ),
+        output,
+    )
+
+    parquet = next((output / "data").rglob("*.parquet"))
+    assert pq.read_schema(parquet).field("action.hand_closure").type == pa.float32()
+    validate_parquet_feature_schema(plan, output)
+
+
+def test_video_validator_rejects_codec_or_pixel_format_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    plan = replace(
+        _plan(tmp_path),
+        extra={
+            "video_encoding": {
+                "target_codec": "h264",
+                "target_pix_fmt": "yuv420p",
+            }
+        },
+    )
+    video = (
+        tmp_path
+        / "videos"
+        / "observation.images.head"
+        / "chunk-000"
+        / "file-000.mp4"
+    )
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"fixture")
+
+    monkeypatch.setattr(
+        writer,
+        "_video_frame_count",
+        lambda _path: (5, 256, 256, 30.0, "hevc", "yuv420p"),
+    )
+    with pytest.raises(ConversionError, match="video codec is 'hevc'"):
+        validate_video_files(plan, tmp_path, expected_frames=5)
+
+    monkeypatch.setattr(
+        writer,
+        "_video_frame_count",
+        lambda _path: (5, 256, 256, 30.0, "h264", "yuv444p"),
+    )
+    with pytest.raises(ConversionError, match="video pixel format is 'yuv444p'"):
+        validate_video_files(plan, tmp_path, expected_frames=5)

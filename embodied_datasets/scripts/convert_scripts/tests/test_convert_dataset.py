@@ -7,6 +7,8 @@ import pytest
 import yaml
 
 import convert_dataset as cd
+from convert_core.lerobot_writer import convert_dataset
+from readers.registry import get_reader
 
 # LeRobotDataset.create(..., use_videos=True) encodes every episode's camera
 # frames as an actual video via PyAV/ffmpeg during save_episode() -- unlike
@@ -168,3 +170,53 @@ def test_all_mode_continues_past_one_bad_config_and_reports_nonzero_exit(tmp_pat
     assert exit_code == 1
     assert (tmp_path / "staging" / "lerobot_v3_0" / "good_uid").is_dir()
     assert "bad.yaml" in capsys.readouterr().err
+
+
+@requires_ffmpeg
+def test_resume_reuses_verified_episode_and_cleans_checkpoint(tmp_path: Path):
+    _write_episode(tmp_path / "raw" / "resume_test" / "task" / "episode_0.h5")
+    _write_episode(tmp_path / "raw" / "resume_test" / "task" / "episode_1.h5")
+    config_path = tmp_path / "resume_test.yaml"
+    _write_config(config_path, dataset_uid="resume_test")
+    config = cd.load_dataset_config(config_path)
+    reader = get_reader(config.format)
+    plan = reader.build_plan(config, tmp_path / "raw", tmp_path / "staging")
+
+    def interrupted(episode):
+        if episode.episode_uid == "episode_1":
+            raise KeyboardInterrupt
+        yield from reader.iter_frames(plan, episode)
+
+    with pytest.raises(KeyboardInterrupt):
+        convert_dataset(
+            plan,
+            interrupted,
+            reader_format=config.format,
+            resume=True,
+            eta_interval_seconds=0.01,
+        )
+
+    parent = plan.output_path.parent
+    resume_data = parent / ".resume_test.resume"
+    resume_state = parent / ".resume_test.resume-state"
+    assert resume_data.is_dir()
+    state = yaml.safe_load((resume_state / "state.json").read_text(encoding="utf-8"))
+    assert state["completed_episodes"] == 1
+
+    output = convert_dataset(
+        plan,
+        lambda episode: reader.iter_frames(plan, episode),
+        reader_format=config.format,
+        resume=True,
+        eta_interval_seconds=0.01,
+    )
+
+    assert output.is_dir()
+    assert not resume_data.exists()
+    assert not resume_state.exists()
+    assert not (parent / ".resume_test.resume.lock").exists()
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    dataset = LeRobotDataset(repo_id="resume_test", root=output)
+    assert dataset.num_episodes == 2
+    assert len(dataset) == 8

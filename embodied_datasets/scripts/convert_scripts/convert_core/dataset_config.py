@@ -54,7 +54,13 @@ class DatasetConversionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dataset_uid: str
-    format: Literal["hdf5", "rlds", "raw_image_json"]
+    format: Literal[
+        "hdf5",
+        "one_x_world_model",
+        "robomimic_hdf5",
+        "rlds",
+        "raw_image_json",
+    ]
     robot_type: str
     fps: Optional[float] = None
     """Fallback FPS, used only when the reader cannot measure it from the
@@ -79,6 +85,30 @@ class DatasetConversionConfig(BaseModel):
     instruction_field: Optional[str] = None
     instruction_constant: Optional[str] = None
     uncompressed_color_order: Literal["bgr", "rgb"] = "bgr"
+
+    # --- robomimic_hdf5 reader only ---
+    source_directory: Optional[str] = None
+    """Physical directory below raw_root. Useful when a mounted dataset was
+    published under a misspelled directory name."""
+    source_file: Optional[str] = None
+    """One multi-episode robomimic HDF5 container relative to source_directory."""
+
+    # --- 1X World Model reader only ---
+    one_x_version: Literal["v1.1", "v2.0"] = "v2.0"
+    """Token/state schema to inspect.  The collection converter invokes the
+    reader once per version because the two public releases are heterogeneous."""
+    one_x_splits: list[str] = Field(default_factory=list)
+    """Exact source split directory names, e.g. train_v2.0 and val_v2.0."""
+    one_x_include_test: bool = False
+    """Request inspection of test_v2.0.  Conversion is deliberately rejected:
+    the challenge samples do not contain one video frame per state frame or
+    segment boundaries."""
+    one_x_v1_decoder_repo: Optional[str] = None
+    """Checkout of the official 1x-technologies/1Xgpt repository."""
+    one_x_cosmos_decoder_path: Optional[str] = None
+    """Cosmos-Tokenizer-DV8x8x8 decoder.jit used for v2 token decoding."""
+    one_x_decode_batch_size: int = Field(default=8, ge=1)
+    one_x_v1_checkpoint_segments: int = Field(default=128, ge=1)
 
     # --- rlds reader only ---
     split: str = "all"
