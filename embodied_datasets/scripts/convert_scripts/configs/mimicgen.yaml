@@ -1,0 +1,11 @@
+# Official MimicGen CoRL 2023 release.
+# The mounted directory is misspelled "minicgen"; dataset_uid remains correct.
+dataset_uid: mimicgen
+format: robomimic_hdf5
+source_directory: minicgen
+robot_type: dynamic_from_data_attrs_env_args
+fps: 20
+
+# convert_mimicgen_to_lerobot.py expands all 62 */*.hdf5 containers and sets
+# source_file per partition.  A single source_file may be set here when using
+# convert_dataset.py directly for debugging one container.

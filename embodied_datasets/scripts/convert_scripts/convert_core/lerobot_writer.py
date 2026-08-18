@@ -11,18 +11,65 @@ it never imports h5py/tensorflow_datasets/PIL or looks at a source path.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import math
+import os
 from pathlib import Path
 import shutil
 import sys
+import time
 from typing import Any, Callable, Iterator
 import uuid
 
+from convert_core.checkpoint import (
+    CheckpointManager,
+    atomic_write_json,
+    build_resume_payload,
+    decoder_records_from_plan,
+    exclusive_resume_lock,
+    read_json_object,
+)
 from convert_core.episode_spec import DatasetConversionPlan, EpisodePlan
 from convert_core.errors import ConversionError
+from convert_core.progress import EtaProgress
 
 IterFrames = Callable[[EpisodePlan], Iterator[dict[str, Any]]]
+
+LEROBOT_CODEBASE_VERSION = "v3.0"
+LEROBOT_DATA_PATH = "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet"
+LEROBOT_VIDEO_PATH = (
+    "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
+)
+
+
+@contextlib.contextmanager
+def _local_datasets_cache(output_root: Path) -> Iterator[None]:
+    """Keep Hugging Face parquet cache writes beside staging, never in $HOME."""
+
+    cache_parent = output_root.parent
+    for candidate in (output_root, *output_root.parents):
+        if candidate.name == "lerobot_v3_0":
+            cache_parent = candidate
+            break
+    cache = cache_parent / ".lerobot-datasets-cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    previous_env = os.environ.get("HF_DATASETS_CACHE")
+    os.environ["HF_DATASETS_CACHE"] = str(cache)
+    try:
+        import datasets
+
+        previous_config = datasets.config.HF_DATASETS_CACHE
+        datasets.config.HF_DATASETS_CACHE = cache
+        try:
+            yield
+        finally:
+            datasets.config.HF_DATASETS_CACHE = previous_config
+    finally:
+        if previous_env is None:
+            os.environ.pop("HF_DATASETS_CACHE", None)
+        else:
+            os.environ["HF_DATASETS_CACHE"] = previous_env
 
 
 def plan_summary(plan: DatasetConversionPlan) -> dict[str, Any]:
@@ -40,9 +87,12 @@ def plan_summary(plan: DatasetConversionPlan) -> dict[str, Any]:
 
 
 def build_manifest(plan: DatasetConversionPlan, *, reader_format: str) -> dict[str, Any]:
-    return {
+    task_indices: dict[str, int] = {}
+    for episode in plan.episodes:
+        task_indices.setdefault(episode.instruction, len(task_indices))
+    manifest = {
         "format": "lerobot_v3_0",
-        "converter": "convert_dataset.py",
+        "converter": plan.extra.get("converter", "convert_dataset.py"),
         "source_format": reader_format,
         "dataset_uid": plan.dataset_uid,
         "robot_type": plan.robot_type,
@@ -50,84 +100,696 @@ def build_manifest(plan: DatasetConversionPlan, *, reader_format: str) -> dict[s
         "measured_fps": plan.measured_fps,
         "num_episodes": len(plan.episodes),
         "num_frames": plan.num_frames,
+        "num_video_features": len(plan.camera_features),
         "features": plan.feature_schema(),
         "episodes": [
             {
+                "lerobot_episode_index": episode_index,
+                "lerobot_task_index": task_indices[episode.instruction],
                 "episode_uid": episode.episode_uid,
                 "source": episode.source_relative_path,
+                "source_task": episode.extra.get("source_task"),
                 "instruction": episode.instruction,
                 "num_frames": episode.num_frames,
+                "source_splits": list(episode.extra.get("source_splits", ())),
+                "source_split": episode.extra.get("source_split"),
+                "source_segment_id": episode.extra.get("source_segment_id"),
+                "source_spans": list(episode.extra.get("source_spans", ())),
+                "checkpoint_unit": episode.extra.get("checkpoint_unit"),
             }
-            for episode in plan.episodes
+            for episode_index, episode in enumerate(plan.episodes)
         ],
     }
+    for key in (
+        "source_dataset",
+        "source_revision",
+        "source_relative_path",
+        "source_env_name",
+        "source_env_args",
+        "source_splits",
+        "dangling_split_references",
+        "field_mapping",
+        "video_encoding",
+        "task_provenance",
+        "timestamp_provenance",
+        "split_summaries",
+        "unsupported_source_components",
+        "decoder",
+        "partition_rules",
+    ):
+        if key in plan.extra:
+            manifest[key] = plan.extra[key]
+    manifest["task_index_mapping"] = {
+        str(index): task for task, index in task_indices.items()
+    }
+    decoder_records = decoder_records_from_plan(plan)
+    if decoder_records:
+        manifest["decoder_records"] = decoder_records
+    return manifest
 
 
-def write_dataset(plan: DatasetConversionPlan, iter_frames: IterFrames, temporary_path: Path) -> None:
+def write_dataset(
+    plan: DatasetConversionPlan,
+    iter_frames: IterFrames,
+    temporary_path: Path,
+    *,
+    rgb_encoder: Any = None,
+    streaming_encoding: bool = False,
+    encoder_queue_maxsize: int = 30,
+    encoder_threads: int | None = None,
+    frame_completed_hook: Callable[[EpisodePlan, int], None] | None = None,
+    episode_completed_hook: Callable[[EpisodePlan, int], None] | None = None,
+) -> None:
     try:
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
     except ImportError as exc:  # pragma: no cover - depends on environment
         raise RuntimeError("lerobot==0.6.0 is required; install the project's requirements.txt") from exc
 
-    dataset = LeRobotDataset.create(
+    with _local_datasets_cache(temporary_path):
+        dataset = LeRobotDataset.create(
+            repo_id=plan.dataset_uid,
+            fps=plan.fps,
+            root=temporary_path,
+            features=plan.feature_schema(),
+            robot_type=plan.robot_type,
+            use_videos=True,
+            rgb_encoder=rgb_encoder,
+            streaming_encoding=streaming_encoding,
+            encoder_queue_maxsize=encoder_queue_maxsize,
+            encoder_threads=encoder_threads,
+        )
+        try:
+            for episode_index, episode in enumerate(plan.episodes):
+                print(
+                    f"[{plan.dataset_uid}] episode {episode_index + 1}/{len(plan.episodes)}: "
+                    f"{episode.source_relative_path} ({episode.num_frames} frames)",
+                    file=sys.stderr,
+                )
+                for frame in iter_frames(episode):
+                    dataset.add_frame(frame)
+                    if frame_completed_hook is not None:
+                        frame_completed_hook(episode, episode_index)
+                dataset.save_episode()
+                if episode_completed_hook is not None:
+                    episode_completed_hook(episode, episode_index)
+            dataset.finalize()
+        except BaseException:
+            # Preserve the original error while explicitly closing encoder and
+            # parquet resources. The caller will discard this unmarked unit.
+            with contextlib.suppress(Exception):
+                dataset.clear_episode_buffer(delete_images=True)
+            with contextlib.suppress(Exception):
+                dataset.finalize()
+            del dataset
+            raise
+
+
+def validate_written_dataset(plan: DatasetConversionPlan, temporary_path: Path) -> None:
+    validate_written_prefix(plan, temporary_path, len(plan.episodes))
+
+
+def validate_info_json(
+    plan: DatasetConversionPlan,
+    root: Path,
+    completed_episodes: int,
+) -> dict[str, Any]:
+    """Validate every required LeRobot v3 ``meta/info.json`` contract.
+
+    LeRobot produces this file from the data it actually finalized.  Reading
+    it back (instead of trusting the requested plan) catches stale counts,
+    wrong path templates, feature-name loss, and incomplete video metadata.
+    """
+
+    info = read_json_object(root / "meta" / "info.json", "LeRobot meta/info.json")
+    expected_frames = sum(
+        episode.num_frames for episode in plan.episodes[:completed_episodes]
+    )
+    expected_tasks = list(
+        dict.fromkeys(
+            episode.instruction for episode in plan.episodes[:completed_episodes]
+        )
+    )
+    scalar_expectations = {
+        "codebase_version": LEROBOT_CODEBASE_VERSION,
+        "robot_type": plan.robot_type,
+        "total_episodes": completed_episodes,
+        "total_frames": expected_frames,
+        "total_tasks": len(expected_tasks),
+        "data_path": LEROBOT_DATA_PATH,
+        "video_path": LEROBOT_VIDEO_PATH,
+    }
+    for key, expected in scalar_expectations.items():
+        if info.get(key) != expected:
+            raise ConversionError(
+                f"meta/info.json {key} is {info.get(key)!r}, expected {expected!r}"
+            )
+    try:
+        written_fps = float(info["fps"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ConversionError("meta/info.json fps is missing or invalid") from exc
+    if not math.isclose(written_fps, plan.fps, rel_tol=0.0, abs_tol=1e-9):
+        raise ConversionError(
+            f"meta/info.json fps is {written_fps}, expected {plan.fps}"
+        )
+    for key in ("chunks_size", "data_files_size_in_mb", "video_files_size_in_mb"):
+        value = info.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise ConversionError(f"meta/info.json {key} must be a positive integer")
+    if info.get("splits") != {"train": f"0:{completed_episodes}"}:
+        raise ConversionError(
+            f"meta/info.json splits is {info.get('splits')!r}, expected "
+            f"{{'train': '0:{completed_episodes}'}}"
+        )
+
+    written_features = info.get("features")
+    if not isinstance(written_features, dict):
+        raise ConversionError("meta/info.json features must be an object")
+    expected_features = plan.feature_schema()
+    missing = set(expected_features) - set(written_features)
+    if missing:
+        raise ConversionError(
+            f"meta/info.json is missing planned features: {sorted(missing)}"
+        )
+    for key, expected in expected_features.items():
+        actual = written_features[key]
+        if not isinstance(actual, dict):
+            raise ConversionError(f"meta/info.json feature {key!r} must be an object")
+        for attribute in ("dtype", "names"):
+            if actual.get(attribute) != expected[attribute]:
+                raise ConversionError(
+                    f"meta/info.json feature {key!r} {attribute} is "
+                    f"{actual.get(attribute)!r}, expected {expected[attribute]!r}"
+                )
+        if tuple(actual.get("shape", ())) != tuple(expected["shape"]):
+            raise ConversionError(
+                f"meta/info.json feature {key!r} shape is {actual.get('shape')!r}, "
+                f"expected {expected['shape']!r}"
+            )
+
+    written_video_keys = {
+        key
+        for key, value in written_features.items()
+        if isinstance(value, dict) and value.get("dtype") == "video"
+    }
+    expected_video_keys = {camera.feature_key for camera in plan.camera_features}
+    if written_video_keys != expected_video_keys:
+        raise ConversionError(
+            f"meta/info.json video features are {sorted(written_video_keys)}, "
+            f"expected {sorted(expected_video_keys)}"
+        )
+    camera_by_key = {camera.feature_key: camera for camera in plan.camera_features}
+    for key in expected_video_keys:
+        camera = camera_by_key[key]
+        video_info = written_features[key].get("info")
+        if not isinstance(video_info, dict):
+            raise ConversionError(f"meta/info.json video feature {key!r} has no info object")
+        required = {
+            "video.height": camera.height,
+            "video.width": camera.width,
+            "video.fps": plan.fps,
+            "video.channels": 3,
+            "has_audio": False,
+            "is_depth_map": False,
+        }
+        for attribute, expected in required.items():
+            actual = video_info.get(attribute)
+            if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+                try:
+                    matches = math.isclose(
+                        float(actual), float(expected), rel_tol=0.0, abs_tol=1e-9
+                    )
+                except (TypeError, ValueError):
+                    matches = False
+            else:
+                matches = actual == expected
+            if not matches:
+                raise ConversionError(
+                    f"meta/info.json video feature {key!r} {attribute} is "
+                    f"{actual!r}, expected {expected!r}"
+                )
+        for attribute in ("video.codec", "video.pix_fmt"):
+            if not isinstance(video_info.get(attribute), str) or not video_info[attribute]:
+                raise ConversionError(
+                    f"meta/info.json video feature {key!r} has invalid {attribute}"
+                )
+    return info
+
+
+def validate_written_prefix(
+    plan: DatasetConversionPlan,
+    temporary_path: Path,
+    completed_episodes: int,
+) -> None:
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    expected_frames = sum(
+        episode.num_frames for episode in plan.episodes[:completed_episodes]
+    )
+    validate_info_json(plan, temporary_path, completed_episodes)
+    with _local_datasets_cache(temporary_path):
+        dataset = LeRobotDataset(repo_id=plan.dataset_uid, root=temporary_path)
+        if dataset.num_episodes != completed_episodes:
+            raise ConversionError(
+                f"written dataset has {dataset.num_episodes} episodes, expected {completed_episodes}"
+            )
+        if len(dataset) != expected_frames:
+            raise ConversionError(
+                f"written dataset has {len(dataset)} frames, expected {expected_frames}"
+            )
+        missing = set(plan.feature_schema()) - set(dataset.meta.features)
+        if missing:
+            raise ConversionError(f"written dataset is missing features: {sorted(missing)}")
+        for key, expected in plan.feature_schema().items():
+            actual = dataset.meta.features[key]
+            if actual.get("dtype") != expected["dtype"]:
+                raise ConversionError(
+                    f"written feature {key!r} dtype is {actual.get('dtype')!r}, expected {expected['dtype']!r}"
+                )
+            if tuple(actual.get("shape", ())) != tuple(expected["shape"]):
+                raise ConversionError(
+                    f"written feature {key!r} shape is {actual.get('shape')!r}, expected {expected['shape']!r}"
+                )
+            if actual.get("names") != expected["names"]:
+                raise ConversionError(
+                    f"written feature {key!r} names are {actual.get('names')!r}, "
+                    f"expected {expected['names']!r}"
+                )
+        written_fps = float(dataset.meta.fps)
+        if not math.isclose(written_fps, plan.fps, rel_tol=0.0, abs_tol=1e-9):
+            raise ConversionError(f"written dataset FPS is {written_fps}, expected {plan.fps}")
+        if dataset.meta.robot_type != plan.robot_type:
+            raise ConversionError(
+                f"written robot_type is {dataset.meta.robot_type!r}, expected {plan.robot_type!r}"
+            )
+        written_tasks = set(dataset.meta.tasks.index.tolist())
+        expected_tasks = {
+            episode.instruction for episode in plan.episodes[:completed_episodes]
+        }
+        if written_tasks != expected_tasks:
+            raise ConversionError(
+                f"written dataset tasks are {sorted(written_tasks)}, expected {sorted(expected_tasks)}"
+            )
+        expected_task_indices = {
+            task: index
+            for index, task in enumerate(
+                dict.fromkeys(
+                    episode.instruction
+                    for episode in plan.episodes[:completed_episodes]
+                )
+            )
+        }
+        written_task_indices = {
+            str(task): int(index)
+            for task, index in dataset.meta.tasks["task_index"].to_dict().items()
+        }
+        if written_task_indices != expected_task_indices:
+            raise ConversionError(
+                f"written task indices are {written_task_indices}, expected {expected_task_indices}"
+            )
+        episode_rows = dataset.meta.episodes
+        for episode_index, expected in enumerate(plan.episodes[:completed_episodes]):
+            row = episode_rows[episode_index]
+            if int(row["episode_index"]) != episode_index:
+                raise ConversionError(
+                    f"written episode row {episode_index} has episode_index "
+                    f"{row['episode_index']!r}"
+                )
+            if int(row["length"]) != expected.num_frames:
+                raise ConversionError(
+                    f"written episode {episode_index} has {int(row['length'])} frames, expected {expected.num_frames}"
+                )
+            if set(row["tasks"]) != {expected.instruction}:
+                raise ConversionError(
+                    f"written episode {episode_index} tasks are {row['tasks']}, expected {[expected.instruction]}"
+                )
+        del dataset
+
+
+def _video_frame_count(path: Path) -> tuple[int, int, int, float | None, str]:
+    try:
+        import av
+    except ImportError as exc:  # pragma: no cover - dependency of lerobot datasets
+        raise RuntimeError("PyAV is required to validate checkpoint videos") from exc
+    with av.open(str(path), mode="r") as container:
+        if not container.streams.video:
+            raise ConversionError(f"video checkpoint has no video stream: {path}")
+        stream = container.streams.video[0]
+        count = int(stream.frames or 0)
+        if count <= 0:
+            count = sum(1 for _ in container.decode(stream))
+        rate = stream.average_rate or stream.base_rate
+        return (
+            count,
+            int(stream.height),
+            int(stream.width),
+            float(rate) if rate is not None else None,
+            stream.codec.canonical_name,
+        )
+
+
+def validate_video_files(
+    plan: DatasetConversionPlan,
+    root: Path,
+    *,
+    expected_frames: int,
+    relative_paths: set[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Open actual MP4 streams and verify frames, rate, and dimensions."""
+
+    evidence: dict[str, list[dict[str, Any]]] = {}
+    for camera in plan.camera_features:
+        camera_root = root / "videos" / camera.feature_key
+        paths = sorted(camera_root.rglob("*.mp4")) if camera_root.is_dir() else []
+        if relative_paths is not None:
+            paths = [
+                path
+                for path in paths
+                if path.relative_to(root).as_posix() in relative_paths
+            ]
+        if not paths:
+            raise ConversionError(f"no written video files found for {camera.feature_key}")
+        rows: list[dict[str, Any]] = []
+        total = 0
+        for path in paths:
+            frames, height, width, rate, codec = _video_frame_count(path)
+            if (height, width) != (camera.height, camera.width):
+                raise ConversionError(
+                    f"{path}: video is {width}x{height}, expected {camera.width}x{camera.height}"
+                )
+            if rate is None or not math.isclose(rate, plan.fps, rel_tol=0.0, abs_tol=1e-9):
+                raise ConversionError(f"{path}: video FPS is {rate}, expected {plan.fps}")
+            total += frames
+            rows.append(
+                {
+                    "relative_path": path.relative_to(root).as_posix(),
+                    "frames": frames,
+                    "height": height,
+                    "width": width,
+                    "fps": rate,
+                    "codec": codec,
+                }
+            )
+        if total != expected_frames:
+            raise ConversionError(
+                f"written videos for {camera.feature_key} contain {total} frames, "
+                f"expected {expected_frames}"
+            )
+        evidence[camera.feature_key] = rows
+    return evidence
+
+
+def _checkpoint_unit(episode: EpisodePlan) -> str:
+    return str(episode.extra.get("checkpoint_unit", episode.episode_uid))
+
+
+def _validate_checkpoint_unit_order(plan: DatasetConversionPlan) -> None:
+    closed: set[str] = set()
+    previous: str | None = None
+    for episode in plan.episodes:
+        current = _checkpoint_unit(episode)
+        if current != previous:
+            if current in closed:
+                raise ConversionError(
+                    f"checkpoint unit {current!r} is not contiguous in the conversion plan"
+                )
+            if previous is not None:
+                closed.add(previous)
+            previous = current
+
+
+def _unit_end(plan: DatasetConversionPlan, start: int) -> int:
+    unit = _checkpoint_unit(plan.episodes[start])
+    end = start + 1
+    while end < len(plan.episodes) and _checkpoint_unit(plan.episodes[end]) == unit:
+        end += 1
+    return end
+
+
+def _open_resumable_writer(
+    plan: DatasetConversionPlan,
+    root: Path,
+    *,
+    resume_existing: bool,
+    rgb_encoder: Any,
+    streaming_encoding: bool,
+    encoder_queue_maxsize: int,
+    encoder_threads: int | None,
+) -> Any:
+    try:
+        from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("lerobot==0.6.0 is required") from exc
+    if resume_existing:
+        dataset = LeRobotDataset.resume(
+            repo_id=plan.dataset_uid,
+            root=root,
+            rgb_encoder=rgb_encoder,
+            streaming_encoding=streaming_encoding,
+            encoder_queue_maxsize=encoder_queue_maxsize,
+            encoder_threads=encoder_threads,
+        )
+        dataset.meta._metadata_buffer_size = 1
+        return dataset
+    return LeRobotDataset.create(
         repo_id=plan.dataset_uid,
         fps=plan.fps,
-        root=temporary_path,
+        root=root,
         features=plan.feature_schema(),
         robot_type=plan.robot_type,
         use_videos=True,
+        rgb_encoder=rgb_encoder,
+        metadata_buffer_size=1,
+        streaming_encoding=streaming_encoding,
+        encoder_queue_maxsize=encoder_queue_maxsize,
+        encoder_threads=encoder_threads,
     )
+
+
+def _write_resumable_unit(
+    plan: DatasetConversionPlan,
+    iter_frames: IterFrames,
+    root: Path,
+    *,
+    start: int,
+    end: int,
+    progress: EtaProgress,
+    rgb_encoder: Any,
+    streaming_encoding: bool,
+    encoder_queue_maxsize: int,
+    encoder_threads: int | None,
+    frame_completed_hook: Callable[[EpisodePlan, int], None] | None,
+    episode_completed_hook: Callable[[EpisodePlan, int], None] | None,
+) -> None:
+    cache_context = _local_datasets_cache(root)
+    cache_context.__enter__()
+    dataset = None
+    current_episode_index = start
     try:
-        for episode_index, episode in enumerate(plan.episodes):
+        dataset = _open_resumable_writer(
+            plan,
+            root,
+            resume_existing=start > 0,
+            rgb_encoder=rgb_encoder,
+            streaming_encoding=streaming_encoding,
+            encoder_queue_maxsize=encoder_queue_maxsize,
+            encoder_threads=encoder_threads,
+        )
+        for episode_index in range(start, end):
+            current_episode_index = episode_index
+            episode = plan.episodes[episode_index]
             print(
                 f"[{plan.dataset_uid}] episode {episode_index + 1}/{len(plan.episodes)}: "
                 f"{episode.source_relative_path} ({episode.num_frames} frames)",
                 file=sys.stderr,
+                flush=True,
             )
+            written = 0
             for frame in iter_frames(episode):
+                if written >= episode.num_frames:
+                    raise ConversionError(
+                        f"{episode.episode_uid}: reader yielded more than {episode.num_frames} frames"
+                    )
                 dataset.add_frame(frame)
+                written += 1
+                progress.update(
+                    progress.completed + 1,
+                    context=f"{_checkpoint_unit(episode)} episode {episode_index + 1}",
+                )
+                if frame_completed_hook is not None:
+                    frame_completed_hook(episode, episode_index)
+            if written != episode.num_frames:
+                raise ConversionError(
+                    f"{episode.episode_uid}: reader yielded {written} frames, "
+                    f"expected {episode.num_frames}"
+                )
             dataset.save_episode()
+            if episode_completed_hook is not None:
+                episode_completed_hook(episode, episode_index)
         dataset.finalize()
     except BaseException:
-        # LeRobot owns its worker cleanup; keep the original conversion error.
-        del dataset
+        if dataset is not None:
+            with contextlib.suppress(Exception):
+                dataset.writer.cancel_pending_videos()
+            with contextlib.suppress(Exception):
+                dataset.writer.cleanup_interrupted_episode(current_episode_index)
+            with contextlib.suppress(Exception):
+                dataset.clear_episode_buffer(delete_images=True)
+            with contextlib.suppress(Exception):
+                dataset.finalize()
         raise
+    finally:
+        if dataset is not None:
+            del dataset
+        cache_context.__exit__(*sys.exc_info())
 
 
-def validate_written_dataset(plan: DatasetConversionPlan, temporary_path: Path) -> None:
-    from lerobot.datasets.lerobot_dataset import LeRobotDataset
-
-    dataset = LeRobotDataset(repo_id=plan.dataset_uid, root=temporary_path)
-    if dataset.num_episodes != len(plan.episodes):
-        raise ConversionError(
-            f"written dataset has {dataset.num_episodes} episodes, expected {len(plan.episodes)}"
+def _convert_dataset_resumable(
+    plan: DatasetConversionPlan,
+    iter_frames: IterFrames,
+    *,
+    reader_format: str,
+    eta_interval_seconds: float,
+    conversion_options: dict[str, Any],
+    rgb_encoder: Any,
+    streaming_encoding: bool,
+    encoder_queue_maxsize: int,
+    encoder_threads: int | None,
+    frame_completed_hook: Callable[[EpisodePlan, int], None] | None,
+    episode_completed_hook: Callable[[EpisodePlan, int], None] | None,
+) -> Path:
+    if plan.output_path.exists():
+        raise FileExistsError(f"output already exists: {plan.output_path}")
+    if not plan.episodes:
+        raise ConversionError("cannot convert an empty episode plan")
+    _validate_checkpoint_unit_order(plan)
+    plan.output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = build_resume_payload(
+        plan,
+        reader_format=reader_format,
+        conversion_options=conversion_options,
+    )
+    manager = CheckpointManager(plan.output_path, payload)
+    succeeded = False
+    with exclusive_resume_lock(manager.lock_path):
+        position = manager.prepare()
+        completed = position.completed_episodes
+        expected_completed_frames = sum(
+            episode.num_frames for episode in plan.episodes[:completed]
         )
-    if len(dataset) != plan.num_frames:
-        raise ConversionError(f"written dataset has {len(dataset)} frames, expected {plan.num_frames}")
-    missing = set(plan.feature_schema()) - set(dataset.meta.features)
-    if missing:
-        raise ConversionError(f"written dataset is missing features: {sorted(missing)}")
-    written_fps = float(dataset.meta.fps)
-    if not math.isclose(written_fps, plan.fps, rel_tol=0.0, abs_tol=1e-9):
-        raise ConversionError(f"written dataset FPS is {written_fps}, expected {plan.fps}")
-    written_tasks = set(dataset.meta.tasks.index.tolist())
-    expected_tasks = {episode.instruction for episode in plan.episodes}
-    if written_tasks != expected_tasks:
-        raise ConversionError(
-            f"written dataset tasks are {sorted(written_tasks)}, expected {sorted(expected_tasks)}"
+        if position.completed_frames != expected_completed_frames:
+            raise ConversionError(
+                f"resume state records {position.completed_frames} frames, "
+                f"expected {expected_completed_frames} for {completed} episodes"
+            )
+        if completed:
+            if completed > len(plan.episodes):
+                raise ConversionError(
+                    f"checkpoint has {completed} episodes, plan has {len(plan.episodes)}"
+                )
+            if completed < len(plan.episodes) and _checkpoint_unit(
+                plan.episodes[completed - 1]
+            ) == _checkpoint_unit(plan.episodes[completed]):
+                raise ConversionError("checkpoint ends in the middle of a conversion unit")
+            validate_written_prefix(plan, manager.data_root, completed)
+            validate_video_files(
+                plan,
+                manager.data_root,
+                expected_frames=expected_completed_frames,
+            )
+            print(
+                f"[{plan.dataset_uid}] reused {position.reused_units} verified checkpoint "
+                f"units, {completed} episodes / {expected_completed_frames} frames",
+                file=sys.stderr,
+                flush=True,
+            )
+        progress = EtaProgress(
+            f"{plan.dataset_uid} convert",
+            plan.num_frames,
+            "frames",
+            interval_seconds=eta_interval_seconds,
+            initial_completed=expected_completed_frames,
         )
-    episode_rows = dataset.meta.episodes
-    for episode_index, expected in enumerate(plan.episodes):
-        row = episode_rows[episode_index]
-        if int(row["length"]) != expected.num_frames:
-            raise ConversionError(
-                f"written episode {episode_index} has {int(row['length'])} frames, expected {expected.num_frames}"
+        started_at = time.monotonic()
+        while completed < len(plan.episodes):
+            end = _unit_end(plan, completed)
+            unit = _checkpoint_unit(plan.episodes[completed])
+            previous_paths = {
+                str(row["relative_path"]) for row in manager.prior_inventory
+            }
+            _write_resumable_unit(
+                plan,
+                iter_frames,
+                manager.data_root,
+                start=completed,
+                end=end,
+                progress=progress,
+                rgb_encoder=rgb_encoder,
+                streaming_encoding=streaming_encoding,
+                encoder_queue_maxsize=encoder_queue_maxsize,
+                encoder_threads=encoder_threads,
+                frame_completed_hook=frame_completed_hook,
+                episode_completed_hook=episode_completed_hook,
             )
-        if set(row["tasks"]) != {expected.instruction}:
-            raise ConversionError(
-                f"written episode {episode_index} tasks are {row['tasks']}, expected {[expected.instruction]}"
+            completed_frames = sum(
+                episode.num_frames for episode in plan.episodes[:end]
             )
-    del dataset
+            validate_written_prefix(plan, manager.data_root, end)
+            new_video_paths = {
+                path.relative_to(manager.data_root).as_posix()
+                for path in (manager.data_root / "videos").rglob("*.mp4")
+            } - previous_paths
+            unit_frames = sum(
+                episode.num_frames for episode in plan.episodes[completed:end]
+            )
+            validate_video_files(
+                plan,
+                manager.data_root,
+                expected_frames=unit_frames,
+                relative_paths=new_video_paths,
+            )
+            manager.commit(
+                checkpoint_unit=unit,
+                completed_episodes=end,
+                completed_frames=completed_frames,
+            )
+            completed = end
+            progress.update(
+                completed_frames,
+                context=f"{unit} verified checkpoint committed",
+                force=True,
+            )
+
+        validate_written_dataset(plan, manager.data_root)
+        video_evidence = validate_video_files(
+            plan,
+            manager.data_root,
+            expected_frames=plan.num_frames,
+        )
+        manifest = build_manifest(plan, reader_format=reader_format)
+        manifest.update(
+            {
+                "num_video_files": sum(len(rows) for rows in video_evidence.values()),
+                "video_validation": video_evidence,
+                "resume": {
+                    "schema_version": payload["resume_schema_version"],
+                    "granularity": "reader-defined unit; episode by default",
+                    "fingerprint": manager.fingerprint,
+                    "elapsed_seconds": time.monotonic() - started_at,
+                    "kill_9_limit": (
+                        "the active uncommitted unit is discarded on restart; the last "
+                        "finalized and re-opened unit remains reusable"
+                    ),
+                },
+            }
+        )
+        atomic_write_json(manager.data_root / "conversion_manifest.json", manifest)
+        publish_temporary_output(manager.data_root, plan.output_path, overwrite=False)
+        manager.cleanup_state()
+        progress.finish(context="conversion validated and atomically published")
+        succeeded = True
+    if succeeded:
+        manager.lock_path.unlink(missing_ok=True)
+    return plan.output_path
 
 
 def publish_temporary_output(temporary_path: Path, output_path: Path, *, overwrite: bool) -> None:
@@ -154,17 +816,61 @@ def convert_dataset(
     *,
     reader_format: str,
     overwrite: bool = False,
+    resume: bool = False,
+    eta_interval_seconds: float = 10.0,
+    conversion_options: dict[str, Any] | None = None,
+    rgb_encoder: Any = None,
+    streaming_encoding: bool = False,
+    encoder_queue_maxsize: int = 30,
+    encoder_threads: int | None = None,
+    frame_completed_hook: Callable[[EpisodePlan, int], None] | None = None,
+    episode_completed_hook: Callable[[EpisodePlan, int], None] | None = None,
 ) -> Path:
+    if resume and overwrite:
+        raise ConversionError("resume and overwrite are mutually exclusive")
+    if resume:
+        options = {
+            "streaming_encoding": streaming_encoding,
+            "encoder_queue_maxsize": encoder_queue_maxsize,
+            "encoder_threads": encoder_threads,
+            "rgb_encoder": repr(rgb_encoder),
+            **(conversion_options or {}),
+        }
+        return _convert_dataset_resumable(
+            plan,
+            iter_frames,
+            reader_format=reader_format,
+            eta_interval_seconds=eta_interval_seconds,
+            conversion_options=options,
+            rgb_encoder=rgb_encoder,
+            streaming_encoding=streaming_encoding,
+            encoder_queue_maxsize=encoder_queue_maxsize,
+            encoder_threads=encoder_threads,
+            frame_completed_hook=frame_completed_hook,
+            episode_completed_hook=episode_completed_hook,
+        )
     output_path = plan.output_path
     if output_path.exists() and not overwrite:
         raise FileExistsError(f"output already exists: {output_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = output_path.with_name(f".{output_path.name}.incomplete-{uuid.uuid4().hex}")
     try:
-        write_dataset(plan, iter_frames, temporary_path)
+        write_dataset(
+            plan,
+            iter_frames,
+            temporary_path,
+            rgb_encoder=rgb_encoder,
+            streaming_encoding=streaming_encoding,
+            encoder_queue_maxsize=encoder_queue_maxsize,
+            encoder_threads=encoder_threads,
+            frame_completed_hook=frame_completed_hook,
+            episode_completed_hook=episode_completed_hook,
+        )
         validate_written_dataset(plan, temporary_path)
+        manifest = build_manifest(plan, reader_format=reader_format)
+        manifest["num_video_files"] = len(list((temporary_path / "videos").rglob("*.mp4")))
         (temporary_path / "conversion_manifest.json").write_text(
-            json.dumps(build_manifest(plan, reader_format=reader_format), ensure_ascii=False, indent=2) + "\n",
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
         publish_temporary_output(temporary_path, output_path, overwrite=overwrite)

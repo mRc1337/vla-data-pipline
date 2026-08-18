@@ -22,6 +22,12 @@ class VectorFeatureSpec:
     feature_key: str
     dim: int
     names: tuple[str, ...] | None = None
+    dtype: str = "float32"
+    shape: tuple[int, ...] | None = None
+
+    @property
+    def resolved_shape(self) -> tuple[int, ...]:
+        return self.shape if self.shape is not None else (self.dim,)
 
 
 @dataclass(frozen=True)
@@ -70,8 +76,8 @@ class DatasetConversionPlan:
         features: dict[str, dict[str, Any]] = {}
         for vector in self.vector_features:
             features[vector.feature_key] = {
-                "dtype": "float32",
-                "shape": (vector.dim,),
+                "dtype": vector.dtype,
+                "shape": vector.resolved_shape,
                 "names": list(vector.names) if vector.names else None,
             }
         for camera in self.camera_features:

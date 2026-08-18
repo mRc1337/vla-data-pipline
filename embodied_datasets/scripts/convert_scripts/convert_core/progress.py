@@ -26,6 +26,7 @@ class EtaProgress:
         unit: str,
         *,
         interval_seconds: float = 10.0,
+        initial_completed: int = 0,
         clock: Any = time.monotonic,
         stream: Any = None,
     ) -> None:
@@ -41,7 +42,10 @@ class EtaProgress:
         self.stream = stream if stream is not None else sys.stderr
         self.started_at = float(clock())
         self.last_emitted_at = self.started_at
-        self.completed = 0
+        if not 0 <= initial_completed <= total:
+            raise ValueError("initial completed must be between zero and total")
+        self.completed = initial_completed
+        self.initial_completed = initial_completed
 
     def update(self, completed: int, *, context: str | None = None, force: bool = False) -> None:
         if completed < self.completed:
@@ -51,7 +55,8 @@ class EtaProgress:
         if not force and now - self.last_emitted_at < self.interval_seconds:
             return
         elapsed = max(0.0, now - self.started_at)
-        rate = self.completed / elapsed if elapsed > 0 and self.completed else 0.0
+        newly_completed = self.completed - self.initial_completed
+        rate = newly_completed / elapsed if elapsed > 0 and newly_completed else 0.0
         eta = (self.total - self.completed) / rate if rate else math.inf
         eta_text = format_duration(eta) if math.isfinite(eta) else "--:--:--"
         suffix = f" | {context}" if context else ""
