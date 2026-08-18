@@ -122,11 +122,13 @@ class ProcessTreeSampler:
         self._latest: dict[int, tuple[int, dict[str, int]]] = {}
         self._peak_rss = 0
         self._peak_temp = 0
+        self._baseline_temp = 0
         self._io_counters_available = False
 
     def start(self) -> None:
         if self._thread is not None:
             raise RuntimeError("sampler already started")
+        self._baseline_temp = sum(_tree_size(root) for root in self.temp_roots)
         for pid in _process_tree(self.root_pid):
             counters = _proc_counters(pid)
             if counters is not None:
@@ -148,8 +150,9 @@ class ProcessTreeSampler:
             self._io_counters_available |= bool(io_values)
             rss += rss_pages * self._page_size
         self._peak_rss = max(self._peak_rss, rss)
+        current_temp = sum(_tree_size(root) for root in self.temp_roots)
         self._peak_temp = max(
-            self._peak_temp, sum(_tree_size(root) for root in self.temp_roots)
+            self._peak_temp, max(0, current_temp - self._baseline_temp)
         )
 
     def _run(self) -> None:

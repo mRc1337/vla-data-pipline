@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -114,6 +115,89 @@ def test_collection_resume_rejects_changed_fingerprint(tmp_path: Path):
 
     with pytest.raises(ConversionError, match="collection resume fingerprint changed"):
         converter._prepare_collection_resume(data, state, {"codec": "hevc"})
+
+
+def test_checkpoint_sample_selects_first_episode_from_each_unit(tmp_path: Path):
+    base = _plan(tmp_path, "v2.0")
+    episodes = tuple(
+        replace(
+            base.episodes[0],
+            episode_uid=f"episode-{index}",
+            source_relative_path=f"source/{index}",
+            num_frames=index + 1,
+            extra={"checkpoint_unit": unit},
+        )
+        for index, unit in enumerate(("shard-0", "shard-0", "shard-1", "shard-2"))
+    )
+    plan = replace(base, episodes=episodes)
+
+    selected = converter._select(
+        plan,
+        max_episodes=None,
+        max_units=2,
+        one_episode_per_unit=True,
+    )
+
+    assert [episode.episode_uid for episode in selected.episodes] == [
+        "episode-0",
+        "episode-2",
+    ]
+    assert [episode.extra["checkpoint_unit"] for episode in selected.episodes] == [
+        "shard-0",
+        "shard-1",
+    ]
+
+
+def test_formal_multi_worker_conversion_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    monkeypatch.setattr(converter, "_visible_cuda_devices", lambda: ("0", "1", "2", "3"))
+
+    with pytest.raises(SystemExit, match="2"):
+        converter.main(
+            [
+                "--workers",
+                "2",
+                "--max-episodes",
+                "1",
+                "--output-dataset-uid",
+                "diagnostic",
+            ]
+        )
+
+    assert "exact equivalence failed" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("codec", ["h264_nvenc", "hevc_nvenc"])
+def test_nvenc_is_always_rejected(codec: str, capsys: pytest.CaptureFixture[str]):
+    with pytest.raises(SystemExit, match="2"):
+        converter.main(["--video-codec", codec, "--dry-run"])
+
+    assert "NVENC is unsupported" in capsys.readouterr().err
+
+
+def test_total_parallel_encoder_threads_are_capped(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    monkeypatch.setattr(converter, "_visible_cuda_devices", lambda: ("0", "1", "2", "3"))
+
+    with pytest.raises(SystemExit, match="2"):
+        converter.main(
+            [
+                "--benchmark-workers",
+                "1",
+                "2",
+                "4",
+                "--encoder-threads-per-worker",
+                "9",
+                "--max-episodes",
+                "1",
+                "--output-dataset-uid",
+                "diagnostic",
+            ]
+        )
+
+    assert "32-thread limit" in capsys.readouterr().err
 
 
 def test_evaluator_requires_declared_vector_shape_dtype_and_values():

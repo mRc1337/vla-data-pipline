@@ -86,6 +86,7 @@ MIB = 1024**2
 DEFAULT_PARALLEL_QUEUE_SIZE = 64
 DEFAULT_ENCODER_THREADS_PER_WORKER = 8
 MAX_TOTAL_ENCODER_THREADS = 32
+DETERMINISTIC_CUBLAS_WORKSPACE_CONFIG = ":4096:8"
 
 
 @dataclass(frozen=True)
@@ -200,6 +201,27 @@ def _initialize_one_x_worker(slot: int, devices: tuple[str, ...]) -> None:
 
     global _WORKER_READER, _WORKER_PREFLIGHTED
     os.environ["CUDA_VISIBLE_DEVICES"] = devices[slot]
+    os.environ.setdefault(
+        "CUBLAS_WORKSPACE_CONFIG", DETERMINISTIC_CUBLAS_WORKSPACE_CONFIG
+    )
+    # The source tokens are deterministic, so decoder output must not depend
+    # on which identical A800 handles a work unit.  Configure torch only after
+    # binding the spawned process; the reader deliberately imports torch
+    # lazily, so no CUDA context exists before this point.
+    import torch
+
+    torch.manual_seed(0)
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_tf32 = False
+    for attribute in (
+        "allow_bf16_reduced_precision_reduction",
+        "allow_fp16_reduced_precision_reduction",
+    ):
+        if hasattr(torch.backends.cuda.matmul, attribute):
+            setattr(torch.backends.cuda.matmul, attribute, False)
     _WORKER_READER = OneXWorldModelReader()
     _WORKER_PREFLIGHTED = set()
 
@@ -402,6 +424,16 @@ def _convert_parallel_partition(
             "discarded_corrupt_units": list(prepared.discarded_corrupt),
             "worker_completion_order": list(completion_order),
             "cuda_devices": list(devices[: args.workers]),
+            "deterministic_cuda": {
+                "torch_deterministic_algorithms": True,
+                "cudnn_benchmark": False,
+                "cudnn_deterministic": True,
+                "tf32": False,
+                "reduced_precision_reduction": False,
+                "cublas_workspace_config": os.environ.get(
+                    "CUBLAS_WORKSPACE_CONFIG", DETERMINISTIC_CUBLAS_WORKSPACE_CONFIG
+                ),
+            },
             "video_codec_policy": "CPU libx264/libx265/libsvtav1 only; NVENC forbidden",
         },
     )
@@ -470,12 +502,16 @@ def _run_worker_benchmarks(
     for workers in args.benchmark_workers:
         uid = f"{args.output_dataset_uid}_benchmark_w{workers}"
         final = args.staging_root / "lerobot_v3_0" / uid
-        resume_data, resume_state, _lock = resume_paths(final)
-        sampler = ProcessTreeSampler((final, resume_data, resume_state))
+        # Non-resume children use random ``.<uid>.incomplete-*`` siblings, so
+        # sample growth of the common parent rather than only the final path.
+        # ProcessTreeSampler subtracts the parent's start size, excluding prior
+        # benchmark outputs while still capturing unit and aggregation peaks.
+        sampler = ProcessTreeSampler(final.parent)
         command = [
             sys.executable,
             str(Path(__file__).resolve()),
             *base_argv,
+            "--benchmark-child",
             "--output-dataset-uid",
             uid,
             "--workers",
@@ -509,6 +545,7 @@ def _run_worker_benchmarks(
             "read_chars": metrics.read_chars,
             "write_chars": metrics.write_chars,
             "peak_temp_bytes": metrics.peak_temp_bytes,
+            "io_counters_available": metrics.io_counters_available,
         }
         records.append(record)
         outputs[workers] = final
@@ -516,25 +553,77 @@ def _run_worker_benchmarks(
     reference_workers = args.benchmark_workers[0]
     reference = outputs[reference_workers]
     equivalence: dict[str, Any] = {}
+    invalid_workers: dict[int, str] = {}
     reference_collection = _semantic_collection_manifest(
         reference / "collection_manifest.json"
     )
     for workers in args.benchmark_workers[1:]:
         candidate = outputs[workers]
+        key = f"{reference_workers}_vs_{workers}"
+        comparison: dict[str, Any] = {"equivalent": True, "partitions": {}}
         if _semantic_collection_manifest(candidate / "collection_manifest.json") != reference_collection:
-            raise ConversionError(
-                f"collection manifest differs for {reference_workers} and {workers} workers"
-            )
-        partition_reports = {}
+            comparison = {
+                "equivalent": False,
+                "error": (
+                    f"collection manifest differs for {reference_workers} and "
+                    f"{workers} workers"
+                ),
+                "partitions": {},
+            }
+            invalid_workers[workers] = str(comparison["error"])
+            equivalence[key] = comparison
+            continue
         for partition in sorted(path.name for path in reference.iterdir() if path.is_dir()):
-            report = verify_lerobot_equivalence(
-                reference / partition,
-                candidate / partition,
-                compare_video_frames=True,
-            )
-            partition_reports[partition] = report.as_dict()
-        equivalence[f"{reference_workers}_vs_{workers}"] = partition_reports
-    fastest = max(records, key=lambda row: float(row["frames_per_second"]))
+            try:
+                partition_report = verify_lerobot_equivalence(
+                    reference / partition,
+                    candidate / partition,
+                    compare_video_frames=True,
+                )
+            except (ConversionError, OSError, RuntimeError, ValueError) as exc:
+                comparison["equivalent"] = False
+                comparison["partitions"][partition] = {
+                    "equivalent": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                invalid_workers[workers] = f"{partition}: {type(exc).__name__}: {exc}"
+            else:
+                comparison["partitions"][partition] = {
+                    "equivalent": True,
+                    **partition_report.as_dict(),
+                }
+        equivalence[key] = comparison
+
+    for record in records:
+        workers = int(record["workers"])
+        record["equivalence_to_baseline"] = (
+            "baseline" if workers == reference_workers else
+            "failed" if workers in invalid_workers else "passed"
+        )
+        record["valid_for_formal_conversion"] = workers not in invalid_workers
+
+    valid_records = [
+        row for row in records if bool(row["valid_for_formal_conversion"])
+    ]
+    fastest = max(valid_records, key=lambda row: float(row["frames_per_second"]))
+    rejected = [
+        {"workers": workers, "reason": reason}
+        for workers, reason in sorted(invalid_workers.items())
+    ]
+    if invalid_workers:
+        recommendation_reason = (
+            "multi-worker output failed exact equivalence; formal conversion is restricted "
+            "to the 1-worker baseline"
+        )
+    elif int(fastest["workers"]) == reference_workers:
+        recommendation_reason = (
+            "no equivalent multi-worker configuration produced a positive end-to-end speedup"
+        )
+    else:
+        recommendation_reason = (
+            "fastest equivalent configuration in this run; repeat the benchmark before "
+            "treating the speedup as reproducible"
+        )
     report = {
         "schema_version": 1,
         "sample": {
@@ -543,7 +632,8 @@ def _run_worker_benchmarks(
             "episodes_per_checkpoint_unit": 1,
             "selection_reason": (
                 "v2 token blocks can cross episode boundaries; sampling one first episode "
-                "from each decoder-context checkpoint keeps worker-count outputs identical"
+                "from each decoder-context checkpoint preserves those boundaries before "
+                "empirical worker-count equivalence checking"
             ),
             "video_codec": args.video_codec,
             "video_quality": args.video_quality,
@@ -551,10 +641,33 @@ def _run_worker_benchmarks(
         },
         "runs": records,
         "equivalence": equivalence,
+        "bottleneck_assessment": {
+            "formal_scaling_blocker": (
+                "official bfloat16 Cosmos decoder output changes with worker/GPU process "
+                "context, violating exact output equivalence"
+            ),
+            "resource_interpretation": (
+                "inspect average_cpu_cores, physical read/write bytes, and peak temp in runs; "
+                "the observed W1 profile is not CPU- or physical-I/O-saturated, while W2/W4 "
+                "parallelize decoder/encoder/write work but are semantically invalid"
+            ),
+        },
+        "parallel_eligible": not invalid_workers and int(fastest["workers"]) > 1,
+        "rejected_worker_counts": rejected,
+        "formal_conversion_allowed_workers": [
+            int(row["workers"]) for row in valid_records
+        ],
         "fastest": {
             "workers": fastest["workers"],
             "encoder_threads_per_worker": fastest["encoder_threads_per_worker"],
             "frames_per_second": fastest["frames_per_second"],
+        },
+        "recommendation": {
+            "workers": int(fastest["workers"]),
+            "encoder_threads_per_worker": int(
+                fastest["encoder_threads_per_worker"]
+            ),
+            "reason": recommendation_reason,
         },
     }
     report_path = args.benchmark_report or (
@@ -563,6 +676,11 @@ def _run_worker_benchmarks(
     atomic_write_json(report_path, report)
     print(json.dumps(report, indent=2))
     print(f"benchmark report: {report_path}")
+    if invalid_workers:
+        print(
+            "benchmark rejected multi-worker formal conversion because exact equivalence failed",
+            file=sys.stderr,
+        )
     return 0
 
 
@@ -752,6 +870,7 @@ def _collection_manifest(plans: list[Any], args: argparse.Namespace) -> dict[str
             "total_encoder_threads": args.workers * _parallel_threads(args),
             "encoder_queue_maxsize": _parallel_queue_size(args),
             "deterministic_aggregation": True,
+            "deterministic_cuda_decoding": True,
         }
     return manifest
 
@@ -810,6 +929,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="run identical subset conversions for each worker count and verify equivalence",
     )
     parser.add_argument("--benchmark-report", type=Path)
+    parser.add_argument("--benchmark-child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--inflight-memory-budget-gb", type=_positive_float, default=64.0
     )
@@ -832,6 +952,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--resume, --skip-existing, and --overwrite are mutually exclusive")
     if args.workers is not None and args.benchmark_workers:
         parser.error("--workers and --benchmark-workers are mutually exclusive")
+    if args.benchmark_child and args.benchmark_workers:
+        parser.error("internal --benchmark-child cannot be combined with --benchmark-workers")
     if (
         args.encoder_threads is not None
         and args.encoder_threads_per_worker is not None
@@ -849,6 +971,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     ):
         parser.error("internal checkpoint sampling requires --max-checkpoint-units")
     subset = args.max_episodes is not None or args.max_checkpoint_units is not None
+    if args.benchmark_child and not subset:
+        parser.error("internal --benchmark-child requires a bounded subset")
+    if args.workers is not None and args.workers > 1 and not args.benchmark_child:
+        parser.error(
+            "--workers > 1 is disabled for formal conversion because real-sample exact "
+            "equivalence failed; use --benchmark-workers 1 2 4 on a bounded subset for "
+            "diagnostics, or use --workers 1"
+        )
     if subset and args.output_dataset_uid == "1x_world_model_dataset" and not args.dry_run:
         parser.error("smoke/subset conversion requires an independent --output-dataset-uid")
     requested_workers = (

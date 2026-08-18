@@ -123,6 +123,46 @@ validation, and atomic publication. The main additions are the reader, YAML conf
 independent evaluator, checkpoint core, focused tests, and this document; the generic CLI/writer/config/
 registry plus README and pipeline status were extended without removing existing entry points.
 
+## Parallel benchmark and formal-worker decision
+
+The generic scheduler lives in `convert_core/parallel.py`; process-tree resource sampling lives in
+`convert_core/performance.py`; exact LeRobot comparison lives in `convert_core/equivalence.py`.
+Work units are reader checkpoint boundaries, not arbitrary episode slices. This is required for v2:
+17-frame Cosmos token blocks can cross episode boundaries, and splitting a decoder-context shard at an
+episode changes reconstructed pixels. The coordinator freezes episode/frame/task indices and output
+paths before dispatch. Each worker has its own writer, temp root, and SHA-256 verified marker; aggregation
+always follows plan order. Dispatch is bounded, stops after the first failure, and resume reuses only
+verified units. The inflight memory/temp estimates include worker count and the aggregation peak.
+
+The final real-sample benchmark used the first episode from each of four distinct v2 checkpoint shards:
+4 episodes / 2,765 frames, identical source tokens and selection for W1/W2/W4, CPU libx264 CRF 18 medium,
+8 encoder threads per worker, and at most 32 encoder threads total. Wall time covers source planning,
+decode, encode, write, validation, ordered aggregation, and publication. `/proc` process-tree counters
+cover CPU/RSS/I/O; temp peak is growth above the staging-parent baseline, so random `.incomplete-*` and
+aggregation directories are included.
+
+| Workers | Wall | Frames/s | Speedup | CPU seconds / avg cores | Peak RSS | Read chars / physical read | Physical write | Temp peak | Exact vs W1 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 1 | 102.62 s | 26.94 | 1.000× | 131.60 / 1.28 | 3.06 GiB | 1.30 GiB / 0 B | 99.51 MiB | 22.68 MiB | baseline |
+| 2 | 87.26 s | 31.69 | 1.176× | 170.85 / 1.96 | 5.10 GiB | 2.12 GiB / 0 B | 99.66 MiB | 23.15 MiB | **failed** |
+| 4 | 73.55 s | 37.59 | 1.395× | 204.15 / 2.78 | 9.40 GiB | 3.75 GiB / 8 KiB | 99.54 MiB | 23.11 MiB | **failed** |
+
+The source was cached, hence near-zero physical reads; `read_chars` still shows bytes requested through
+the process tree. W2/W4 reduce wall time, but both fail the mandatory episode image-statistics check.
+Decoded-video diagnostics found W1↔W2 changed 291/2,765 frames (maximum channel delta 35, mean absolute
+delta 0.130742) and W1↔W4 changed 685/2,765 frames (maximum 36, mean 0.299968). Schema, non-image
+indices/values, episode/task boundaries, and counts reach the image-stat gate, but the pixel difference
+is sufficient to reject the output. Deterministic PyTorch/cuDNN/cuBLAS settings, one physical GPU, and
+serialized GPU calls were also tested; the official bfloat16 Cosmos decoder remains sensitive to
+process/call history. These variants did not establish exact multi-worker output and are not recommended.
+
+Therefore `parallel_eligible=false`: formal `--workers 2` and `--workers 4` are intentionally rejected
+instead of silently falling back. The only approved configuration is `--workers 1` with
+`--encoder-threads-per-worker 8`. W1 was separately compared with the legacy serial path on the same real
+806-frame episode: schema, every index/value, episode/task boundary, all 806 decoded video frames, and
+the semantic manifest were exact. The machine-readable final report is
+`/home/pai/zxw/1x_world_model_dataset_staging/benchmarks/1x_world_model_v2_workers.json`.
+
 ## Commands
 
 Full read-only preflight (loads no decoder and writes no dataset):
@@ -135,20 +175,35 @@ cd /home/pai/zxw/vla-data-pipeline
 ```
 
 Verified one-episode smoke commands use independent UIDs. Replace `--version` and decoder argument as
-shown; both use `--max-episodes 1 --video-codec h264 --video-quality 18 --video-preset medium`:
+shown; both use the approved W1 configuration:
 
 ```bash
 # v1
 .../convert_1x_world_model_dataset.py --version v1.1 \
   --output-dataset-uid 1x_world_model_dataset_smoke_v1 --max-episodes 1 --resume \
   --v1-decoder-repo /home/pai/zxw/1x_world_model_dataset_staging/decoders/1Xgpt \
-  --video-codec h264 --video-quality 18 --video-preset medium --encoder-threads 8
+  --video-codec h264 --video-quality 18 --video-preset medium \
+  --workers 1 --encoder-threads-per-worker 8
 
 # v2
 .../convert_1x_world_model_dataset.py --version v2.0 \
   --output-dataset-uid 1x_world_model_dataset_smoke_v2 --max-episodes 1 --resume \
   --cosmos-decoder-path /home/pai/zxw/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
-  --video-codec h264 --video-quality 18 --video-preset medium --encoder-threads 8
+  --video-codec h264 --video-quality 18 --video-preset medium \
+  --workers 1 --encoder-threads-per-worker 8
+```
+
+Bounded W1/W2/W4 diagnostic benchmark (never use its W2/W4 outputs as formal data):
+
+```bash
+/home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
+  embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
+  --version v2.0 --max-checkpoint-units 4 \
+  --output-dataset-uid 1x_world_model_parallel_benchmark_v2 \
+  --cosmos-decoder-path /home/pai/zxw/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
+  --benchmark-workers 1 2 4 --encoder-threads-per-worker 8 \
+  --video-codec h264 --video-quality 18 --video-preset medium \
+  --benchmark-report /home/pai/zxw/1x_world_model_dataset_staging/benchmarks/1x_world_model_v2_workers.json
 ```
 
 Independent evaluation:
@@ -167,13 +222,14 @@ background command, writing only to local staging:
 mkdir -p /home/pai/zxw/1x_world_model_dataset_logs
 nohup env CUDA_VISIBLE_DEVICES=0 \
   MPLCONFIGDIR=/home/pai/zxw/1x_world_model_dataset_staging/matplotlib-cache \
-  HF_DATASETS_CACHE=/home/pai/zxw/1x_world_model_dataset_staging/hf-datasets-cache \
+  VLA_DATASETS_CACHE_ROOT=/home/pai/zxw/1x_world_model_dataset_staging/hf-datasets-cache \
   /home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
   --resume \
   --v1-decoder-repo /home/pai/zxw/1x_world_model_dataset_staging/decoders/1Xgpt \
   --cosmos-decoder-path /home/pai/zxw/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
-  --video-codec h264 --video-quality 18 --video-preset medium --encoder-threads 8 \
+  --video-codec h264 --video-quality 18 --video-preset medium \
+  --workers 1 --encoder-threads-per-worker 8 \
   --eta-interval-seconds 10 \
   > /home/pai/zxw/1x_world_model_dataset_logs/convert.log 2>&1 &
 echo $! > /home/pai/zxw/1x_world_model_dataset_logs/convert.pid
@@ -209,11 +265,14 @@ rsync -rcn --itemize-changes \
 - The strengthened complete `meta/info.json` contract validator passes against both existing real
   smoke partitions, not only synthetic fixtures.
 - Reports: `/home/pai/zxw/1x_world_model_dataset_staging/smoke_v{1,2}_evaluation.json`.
+- Final worker benchmark report:
+  `/home/pai/zxw/1x_world_model_dataset_staging/benchmarks/1x_world_model_v2_workers.json`;
+  W2/W4 are rejected and only W1 is approved for formal conversion.
 - Full-value scans found no non-finite robot values, out-of-codebook tokens, missing binaries, or
   unreferenced split files. Relevant unit/integration tests cover resume reuse/cleanup, fingerprint
   mismatch, corrupt marker, concurrent lock, and partial active-unit cleanup.
-- Final audit tests: 18 focused 1X/checkpoint/writer/collection tests passed; 6 generic real-LeRobot
-  writer tests passed; `py_compile` and `git diff --check` passed. The repository suite excluding the
+- Final focused audit: 41 converter/reader/checkpoint/parallel/writer/performance tests passed;
+  `py_compile` and `git diff --check` passed. The repository suite excluding the
   nine localhost HTTP-server tests passed with 410 passed / 1 skipped / 4 pre-existing fork warnings.
   The unfiltered suite produced the same 410 passes but those nine unrelated tests could not call
   `socket(AF_INET)` in the managed network sandbox; the requested host-context rerun was rejected when
