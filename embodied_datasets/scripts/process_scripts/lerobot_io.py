@@ -135,6 +135,11 @@ def load_lerobot_episodes(dataset_path: Path, load_video_frames: bool = True) ->
     `Episode.language_instruction` was `None`) maps back to `None`, not
     `""`, so callers can use a plain truthiness check.
 
+    Loads an optional ``action.base`` feature into ``Episode.base_action``
+    without concatenating it onto the arm action. Frame trimming stages can
+    therefore keep the Mobile ALOHA 2-D [linear, angular] command aligned
+    while canonical arm processing continues to consume ``Episode.action``.
+
     Populates `Episode.frames[<feature_key>]` for every feature declared
     `dtype: "video"` in `dataset.meta.features`. Verified empirically:
     `dataset[i][<video_key>]` is a decoded `torch.Tensor` of shape `(C, H,
@@ -164,6 +169,11 @@ def load_lerobot_episodes(dataset_path: Path, load_video_frames: bool = True) ->
         rows = _rows_for_episode(dataset, from_index, to_index, load_video_frames)
         state = np.stack([row["observation.state"].numpy() for row in rows])
         action = np.stack([row["action"].numpy() for row in rows])
+        base_action = (
+            np.stack([row["action.base"].numpy() for row in rows])
+            if "action.base" in dataset.meta.features
+            else None
+        )
         timestamps = np.array([row["timestamp"].item() for row in rows], dtype=np.float64)
 
         task = rows[0]["task"] if rows else ""
@@ -193,6 +203,7 @@ def load_lerobot_episodes(dataset_path: Path, load_video_frames: bool = True) ->
                 timestamps=timestamps,
                 state=state,
                 action=action,
+                base_action=base_action,
                 frames=frames,
                 language_instruction=language_instruction,
                 camera_calibration=camera_calibration,
@@ -246,6 +257,37 @@ def write_lerobot_episodes(
         "observation.state": {"dtype": "float32", "shape": (state_dim,), "names": None},
         "action": {"dtype": "float32", "shape": (action_dim,), "names": None},
     }
+    base_action_presence = [episode.base_action is not None for episode in episodes]
+    if any(base_action_presence) and not all(base_action_presence):
+        raise ValueError("base_action presence must be consistent across all episodes")
+    if all(base_action_presence):
+        for episode in episodes:
+            if episode.base_action.ndim != 2:
+                raise ValueError(
+                    f"episode {episode.episode_index} base_action must be a 2-D matrix, "
+                    f"got shape {episode.base_action.shape}"
+                )
+        base_action_dim = episodes[0].base_action.shape[1]
+        inconsistent_dims = [
+            episode.episode_index
+            for episode in episodes
+            if episode.base_action.shape[1] != base_action_dim
+        ]
+        if inconsistent_dims:
+            raise ValueError(
+                f"base_action width must be consistent across all episodes; "
+                f"expected {base_action_dim}, mismatched episodes: {inconsistent_dims}"
+            )
+        base_action_names = (
+            ["base_linear_velocity", "base_angular_velocity"]
+            if base_action_dim == 2
+            else [f"base_{index}" for index in range(base_action_dim)]
+        )
+        features["action.base"] = {
+            "dtype": "float32",
+            "shape": (base_action_dim,),
+            "names": base_action_names,
+        }
     if canonical_mask is not None:
         canonical_mask = np.asarray(canonical_mask, dtype=bool)
         features["observation.state_canonical_mask"] = {
@@ -283,12 +325,19 @@ def write_lerobot_episodes(
         use_videos=write_videos,
     )
     for episode in episodes:
+        if episode.base_action is not None and episode.base_action.shape[0] != episode.state.shape[0]:
+            raise ValueError(
+                f"episode {episode.episode_index} base_action has {episode.base_action.shape[0]} frames, "
+                f"expected {episode.state.shape[0]}"
+            )
         for t in range(episode.state.shape[0]):
             frame = {
                 "observation.state": episode.state[t].astype(np.float32),
                 "action": episode.action[t].astype(np.float32),
                 "task": episode.language_instruction or "",
             }
+            if episode.base_action is not None:
+                frame["action.base"] = episode.base_action[t].astype(np.float32)
             if canonical_mask is not None:
                 frame["observation.state_canonical_mask"] = canonical_mask
             if action_canonical_mask is not None:

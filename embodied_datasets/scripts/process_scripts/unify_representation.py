@@ -2,16 +2,17 @@
 section 8). Per-arm 35-dim block = [joint(<=7) | eef_pos(3)+eef_quat(4) |
 gripper_or_hand_slot(<=21)]; dual-arm datasets concatenate arm1[0:35] +
 arm2[35:70]; [70:128] is reserved for future whole-body control / other
-sensor modalities (left zero) -- mobile-base velocity (vx/vy/yaw) is
-carved out of the arm-column split when has_mobile_base is set (so it
-doesn't corrupt arm/gripper packing) but is not itself captured in any
-canonical slot; the raw values live only in staging, not this layout.
+sensor modalities (left zero). Mobile-base commands are carried separately
+as Episode.base_action / LeRobot ``action.base`` and therefore never alter
+the state/action arm-column split. They are preserved in processed output,
+but are not copied into the 128-dim canonical vectors.
 
-Assumes episode.state columns are ALREADY ordered per-arm as [joint |
-eef_pos+eef_quat | gripper_or_hand_slot], concatenated arm-by-arm -- this
-module only pads/truncates/repositions into the fixed 128-dim layout, it
-does not reorder raw per-dataset columns. That reordering is whatever
-upstream process produced the staging data's responsibility.
+Assumes episode.state columns are ordered arm-by-arm. It supports both an
+enriched per-arm [joint | eef_pos+eef_quat | gripper_or_hand_slot] layout and
+Mobile ALOHA's compact [joint | gripper] qpos layout; the compact form is
+inferred when the arm block cannot contain a complete 7-D eef pose plus a
+gripper value. This module only pads/truncates/repositions into the fixed
+128-dim layout and does not otherwise reorder raw columns.
 
 Known limitations:
 - This module trusts `config.dof_per_arm` as the authoritative
@@ -101,37 +102,34 @@ def _pack_arm(canonical: np.ndarray, mask: np.ndarray, offset: int, arm_cols: np
         canonical[:, offset:offset + joint_width] = joint_cols
         mask[offset:offset + joint_width] = True
 
+    # Some datasets expose an enriched [joint | eef pose | gripper] state,
+    # while Mobile ALOHA exposes compact qpos [joint | gripper]. Infer the
+    # compact layout when there is not enough room for a complete 7-D eef
+    # pose plus at least one gripper value. This keeps a qpos gripper from
+    # being mislabeled as the first eef-position coordinate.
     eef_start = dof_per_arm
     eef_offset = offset + JOINT_SLOT
-    eef_cols = arm_cols[:, eef_start:eef_start + EEF_SLOT]
+    has_eef_pose = arm_cols.shape[1] >= dof_per_arm + EEF_SLOT + 1
+    eef_cols = arm_cols[:, eef_start:eef_start + EEF_SLOT] if has_eef_pose else arm_cols[:, 0:0]
     eef_width = eef_cols.shape[1]
     if eef_width > 0:
         canonical[:, eef_offset:eef_offset + eef_width] = eef_cols
         mask[eef_offset:eef_offset + eef_width] = True
 
-    gripper_start = eef_start + EEF_SLOT
+    gripper_start = eef_start + EEF_SLOT if has_eef_pose else min(dof_per_arm, arm_cols.shape[1])
     gripper_cols = arm_cols[:, gripper_start:]
     gripper_offset = eef_offset + EEF_SLOT
     _pack_gripper(canonical, mask, gripper_offset, gripper_cols, gripper_type)
 
 
 def _state_arm_slice(episode: Episode, config: ProcessConfig, arm_idx: int, num_arms: int) -> np.ndarray:
-    """Returns arm `arm_idx`'s raw per-dataset state columns, using the same
-    mobile-base carve-out + equal-division convention apply() uses. Shared
-    by apply() and apply_action() -- the latter needs each arm's *original*
-    reported eef pose from episode.state to compute action_frame="absolute"
-    deltas, which must use this exact same column-slicing convention.
+    """Return one arm's columns from the arm-only state vector.
 
-    The mobile-base vx/vy/yaw columns (when present) are appended AFTER all
-    arm columns in episode.state, and must be carved out of the total width
-    BEFORE dividing the remainder among arms -- otherwise they'd shift
-    cols_per_arm and corrupt the arm/gripper packing. Mobile-base velocity
-    itself has no slot in the canonical layout (folded into the [70:128]
-    reserve, not yet implemented), so the carved-out values are discarded
-    rather than written anywhere.
+    Mobile ALOHA's state is always the 14-D dual-arm qpos; its independent
+    2-D base command lives in ``episode.base_action`` and must not be carved
+    out of state. Shared with apply_action() for absolute-action deltas.
     """
-    mobile_base_width = 3 if config.has_mobile_base else 0
-    arm_cols_total = max(episode.state.shape[1] - mobile_base_width, 0)
+    arm_cols_total = episode.state.shape[1]
     cols_per_arm = arm_cols_total // num_arms
     start = arm_idx * cols_per_arm
     return episode.state[:, start:start + cols_per_arm]
@@ -220,14 +218,10 @@ def apply_action(episode: Episode, config: ProcessConfig) -> StageResult:
     num_frames = episode.action.shape[0]
     action_canonical = np.zeros((num_frames, ACTION_CANONICAL_DIM), dtype=np.float64)
     mask = np.zeros(ACTION_CANONICAL_DIM, dtype=bool)
-    # Mirrors _state_arm_slice's mobile-base carve-out: when present, the
-    # mobile-base velocity columns are appended after all arm columns and
-    # must be excluded before dividing the remainder among arms -- otherwise
-    # they shift action_cols_per_arm and corrupt every arm's packing (worst
-    # case: base velocity silently landing in a dexterous hand's gripper
-    # slot with mask=True, no error raised).
-    action_mobile_base_width = 3 if config.has_mobile_base else 0
-    action_arm_cols_total = max(episode.action.shape[1] - action_mobile_base_width, 0)
+    # The arm action and mobile-base command are independent features.  Never
+    # remove base-width columns from the arm action: Mobile ALOHA's ``action``
+    # is 14-D and ``action.base`` is a separate 2-D vector.
+    action_arm_cols_total = episode.action.shape[1]
     action_cols_per_arm = action_arm_cols_total // num_arms
 
     stats = {
@@ -235,6 +229,13 @@ def apply_action(episode: Episode, config: ProcessConfig) -> StageResult:
         "action_canonical_mask": mask,
         "action_canonical_dim": ACTION_CANONICAL_DIM,
     }
+    if config.has_mobile_base:
+        if episode.base_action is None:
+            stats["base_action_skip_reason"] = "mobile_base_action_missing"
+        elif episode.base_action.ndim != 2 or episode.base_action.shape[1] != 2:
+            stats["base_action_skip_reason"] = "expected_2d_linear_angular_velocity"
+        else:
+            stats["base_action_preserved"] = True
 
     for arm_idx in range(num_arms):
         start = arm_idx * action_cols_per_arm

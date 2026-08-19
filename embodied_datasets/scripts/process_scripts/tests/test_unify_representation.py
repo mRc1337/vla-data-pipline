@@ -82,32 +82,39 @@ def test_dexterous_hand_with_21_dof_packs_without_truncation():
     assert not np.any(mask[35:])
 
 
-def test_mobile_base_columns_excluded_from_arm_packing_but_not_captured():
-    # 14 arm cols (single arm) + 3 trailing mobile-base vx/vy/yaw cols = 17.
-    # Mobile-base velocity has no slot in the canonical layout (folded into
-    # the [70:128] reserve, not yet implemented) -- but the trailing 3
-    # columns must still be excluded from the arm-column split, or they'd
-    # shift cols_per_arm and corrupt the arm1 packing checked below.
+def test_mobile_aloha_compact_qpos_and_separate_base_action_pack_correctly():
+    # Mobile ALOHA state is two compact [joint(6) | gripper(1)] arm blocks;
+    # its [linear_velocity, angular_velocity] base command is independent.
     num_frames = 3
-    state = np.zeros((num_frames, 17))
+    state = np.zeros((num_frames, 14))
     state[:, :6] = np.arange(6)
-    state[:, 6:9] = [1.0, 2.0, 3.0]
-    state[:, 9:13] = [0.0, 0.0, 0.0, 1.0]
-    state[:, 13] = 0.5
-    state[:, 14:17] = [0.1, 0.2, 0.3]
-    episode = Episode(episode_index=0, timestamps=np.arange(num_frames, dtype=np.float64), state=state, action=state.copy())
+    state[:, 6] = 0.5
+    state[:, 7:13] = np.arange(10, 16)
+    state[:, 13] = 0.9
+    base_action = np.tile([0.1, 0.2], (num_frames, 1))
+    episode = Episode(
+        episode_index=0,
+        timestamps=np.arange(num_frames, dtype=np.float64),
+        state=state,
+        action=state.copy(),
+        base_action=base_action,
+    )
     config = ProcessConfig(
-        id="x", embodiment_class="mobile_manipulator", num_arms=1, dof_per_arm=6,
+        id="x", embodiment_class="mobile_manipulator", num_arms=2, dof_per_arm=6,
         gripper_type="parallel_jaw", has_mobile_base=True,
     )
     result = apply(episode, config)
     canonical = result.stats["canonical_state"]
     mask = result.stats["canonical_mask"]
     assert np.allclose(canonical[:, :6], np.arange(6))
-    assert np.allclose(canonical[:, 7:14], [1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0])
     assert np.allclose(canonical[:, 14], 0.5)
+    assert np.allclose(canonical[:, 35:41], np.arange(10, 16))
+    assert np.allclose(canonical[:, 49], 0.9)
+    assert not np.any(mask[7:14])
+    assert not np.any(mask[42:49])
     assert np.all(canonical[:, 70:128] == 0)
     assert not np.any(mask[70:128])
+    assert np.array_equal(result.episode.base_action, base_action)
 
 
 def test_dof_per_arm_exceeding_available_columns_does_not_crash():
@@ -416,24 +423,20 @@ def test_apply_action_dual_arm_packs_into_correct_blocks():
     assert not np.any(mask[68:128])  # reserve untouched
 
 
-def test_apply_action_mobile_base_columns_excluded_before_arm_division():
-    # 2 arms x 8 action cols each (eef_pos3+eef_quat4+gripper1) + 3 trailing
-    # mobile-base velocity cols = 19. Mirrors
-    # test_mobile_base_columns_excluded_from_arm_packing_but_not_captured for
-    # apply() -- regression for apply_action() not carving out the mobile-base
-    # columns before dividing by num_arms, which shifts action_cols_per_arm
-    # and corrupts every arm's packing (arm2's slice picks up leftover
-    # mobile-base columns as its own gripper data).
+def test_apply_action_keeps_separate_2d_mobile_base_out_of_arm_division():
+    # Two 8-D eef arm commands remain in ``action``; the 2-D base command is
+    # explicitly separate and must survive without shifting either arm.
     num_frames = 2
-    action = np.zeros((num_frames, 19))
+    action = np.zeros((num_frames, 16))
     action[:, 0:3] = [1.0, 2.0, 3.0]
     action[:, 3:7] = [0.0, 0.0, 0.0, 1.0]
     action[:, 7] = 0.5
     action[:, 8:11] = [4.0, 5.0, 6.0]
     action[:, 11:15] = [0.0, 0.0, 0.0, 1.0]
     action[:, 15] = 0.9
-    action[:, 16:19] = [9.0, 9.0, 9.0]  # mobile-base velocity, must be ignored
+    base_action = np.tile([0.4, -0.3], (num_frames, 1))
     episode = _action_episode(action)
+    episode.base_action = base_action
     config = ProcessConfig(
         id="x", embodiment_class="mobile_manipulator", action_space="eef_pose", action_frame="delta",
         num_arms=2, gripper_type="parallel_jaw", has_mobile_base=True,
@@ -445,6 +448,8 @@ def test_apply_action_mobile_base_columns_excluded_before_arm_division():
     assert np.allclose(canonical[:, 13], 0.5)
     assert np.allclose(canonical[:, 41:44], [4.0, 5.0, 6.0])
     assert np.allclose(canonical[:, 47], 0.9)
+    assert result.stats["base_action_preserved"] is True
+    assert np.array_equal(result.episode.base_action, base_action)
 
 
 def test_apply_action_zero_frames_episode_does_not_crash():

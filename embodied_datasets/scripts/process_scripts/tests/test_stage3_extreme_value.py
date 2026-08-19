@@ -151,6 +151,7 @@ def test_apply_filters_per_view_frames_arrays_alongside_state():
         timestamps=np.arange(n, dtype=np.float64),
         state=state,
         action=np.zeros((n, 1)),
+        base_action=np.arange(n * 2, dtype=np.float64).reshape(n, 2),
         frames={"cam0": frames},
     )
     config = ProcessConfig(id="x")
@@ -160,6 +161,10 @@ def test_apply_filters_per_view_frames_arrays_alongside_state():
     assert result.episode.frames["cam0"].shape == (2, 4, 4, 3)
     np.testing.assert_array_equal(result.episode.frames["cam0"][0], np.full((4, 4, 3), 3.0))
     np.testing.assert_array_equal(result.episode.frames["cam0"][1], np.full((4, 4, 3), 4.0))
+    np.testing.assert_array_equal(
+        result.episode.base_action,
+        np.arange(n * 2, dtype=np.float64).reshape(n, 2)[2:],
+    )
 
 
 def test_apply_bound_dim_index_beyond_array_width_is_skipped_not_indexed():

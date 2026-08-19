@@ -27,6 +27,10 @@ class Episode:
     timestamps: np.ndarray
     state: np.ndarray
     action: np.ndarray
+    # Optional mobile-base command kept separate from the arm action.  Mobile
+    # ALOHA stores [linear_velocity, angular_velocity] in the independent
+    # LeRobot feature ``action.base``; it is not appended to state or action.
+    base_action: Optional[np.ndarray] = None
     frames: Dict[str, np.ndarray] = field(default_factory=dict)
     language_instruction: Optional[str] = None
     camera_calibration: Dict[str, CameraCalibration] = field(default_factory=dict)

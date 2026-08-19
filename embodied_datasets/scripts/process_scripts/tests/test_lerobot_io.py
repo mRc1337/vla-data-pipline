@@ -134,6 +134,57 @@ def test_write_lerobot_episodes_produces_loadable_dataset(tmp_path: Path):
     assert reloaded[0].state.shape == (4, 2)
 
 
+def test_write_and_load_lerobot_episodes_round_trips_separate_base_action(tmp_path: Path):
+    from episode import Episode
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    from lerobot_io import load_lerobot_episodes, write_lerobot_episodes
+
+    base_action = np.array(
+        [[0.1, -0.2], [0.3, -0.4], [0.5, -0.6]], dtype=np.float32
+    )
+    episodes = [
+        Episode(
+            episode_index=0,
+            timestamps=np.arange(3, dtype=np.float64) / 50.0,
+            state=np.zeros((3, 14), dtype=np.float32),
+            action=np.ones((3, 14), dtype=np.float32),
+            base_action=base_action,
+        )
+    ]
+    output_path = tmp_path / "written_mobile_aloha"
+
+    write_lerobot_episodes(episodes, output_path, fps=50.0, robot_type="mobile_aloha")
+
+    dataset = LeRobotDataset(repo_id=output_path.name, root=output_path)
+    assert dataset.meta.features["action.base"]["shape"] == (2,)
+    assert dataset.meta.features["action.base"]["names"] == [
+        "base_linear_velocity",
+        "base_angular_velocity",
+    ]
+    reloaded = load_lerobot_episodes(output_path)
+    assert np.array_equal(reloaded[0].base_action, base_action)
+
+
+def test_write_lerobot_episodes_rejects_mixed_base_action_presence(tmp_path: Path):
+    from episode import Episode
+    from lerobot_io import write_lerobot_episodes
+
+    common = {
+        "timestamps": np.arange(2, dtype=np.float64),
+        "state": np.zeros((2, 14), dtype=np.float32),
+        "action": np.zeros((2, 14), dtype=np.float32),
+    }
+    episodes = [
+        Episode(episode_index=0, base_action=np.zeros((2, 2), dtype=np.float32), **common),
+        Episode(episode_index=1, **common),
+    ]
+
+    with pytest.raises(ValueError, match="presence must be consistent"):
+        write_lerobot_episodes(
+            episodes, tmp_path / "mixed_base_action", fps=50.0, robot_type="mobile_aloha"
+        )
+
+
 def test_write_lerobot_episodes_without_canonical_mask_has_no_mask_feature(tmp_path: Path):
     """Explicit regression coverage for the canonical_mask=None default: no
     caller of write_lerobot_episodes existing before this feature was added

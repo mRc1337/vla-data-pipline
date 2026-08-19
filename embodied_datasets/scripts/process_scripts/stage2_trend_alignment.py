@@ -70,9 +70,11 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
 
     if lag == 0:
         aligned_state, aligned_action = state, action
+        aligned_base_action = episode.base_action
         aligned_frames = episode.frames
     elif lag > 0:
         aligned_state, aligned_action = state[lag:], action[:-lag]
+        aligned_base_action = episode.base_action[:-lag] if episode.base_action is not None else None
         # Mirror state's trim (not action's -- state and frames are the two
         # arrays being shifted forward by `lag`; action is trimmed from the
         # opposite end instead). Matches the keep_mask-based frame rebuild
@@ -80,6 +82,7 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
         aligned_frames = {view: frames[lag:] for view, frames in episode.frames.items()}
     else:
         aligned_state, aligned_action = state[:lag], action[-lag:]
+        aligned_base_action = episode.base_action[-lag:] if episode.base_action is not None else None
         aligned_frames = {view: frames[:lag] for view, frames in episode.frames.items()}
 
     new_length = aligned_state.shape[0]
@@ -87,6 +90,7 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
         episode,
         state=aligned_state,
         action=aligned_action,
+        base_action=aligned_base_action,
         timestamps=episode.timestamps[:new_length],
         frames=aligned_frames,
     )

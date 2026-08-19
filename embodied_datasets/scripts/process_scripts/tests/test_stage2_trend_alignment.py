@@ -114,7 +114,8 @@ def test_frames_are_trimmed_in_lockstep_with_state_on_nonzero_lag():
     # Distinct per-frame markers (frame i's pixel value == i) so the exact
     # trim offset/direction can be verified, not just "some shorter length".
     original_frames = {"cam0": np.arange(num_frames, dtype=np.float64).reshape(num_frames, 1, 1)}
-    episode = replace(episode, frames=original_frames)
+    original_base_action = np.arange(num_frames * 2, dtype=np.float64).reshape(num_frames, 2)
+    episode = replace(episode, frames=original_frames, base_action=original_base_action)
 
     config = ProcessConfig(id="x", max_lag_frames=5, da_threshold=0.5)
     result = apply(episode, config)
@@ -128,6 +129,12 @@ def test_frames_are_trimmed_in_lockstep_with_state_on_nonzero_lag():
     # frames[:lag] for negative lag) -- not action's opposite-end trim.
     expected = original_frames["cam0"][detected_lag:] if detected_lag > 0 else original_frames["cam0"][:detected_lag]
     np.testing.assert_array_equal(result.episode.frames["cam0"], expected)
+    expected_base_action = (
+        original_base_action[:-detected_lag]
+        if detected_lag > 0
+        else original_base_action[-detected_lag:]
+    )
+    np.testing.assert_array_equal(result.episode.base_action, expected_base_action)
 
 
 def test_frames_are_trimmed_in_lockstep_with_state_on_negative_lag():

@@ -40,10 +40,13 @@ def test_black_frame_is_dropped():
     frames = rng.randint(50, 200, size=(5, 8, 8, 3)).astype(np.uint8)
     frames[2] = 0  # fully black frame
     episode = _episode_with_frames(frames)
+    base_action = np.arange(10, dtype=np.float64).reshape(5, 2)
+    episode = replace(episode, base_action=base_action)
     config = ProcessConfig(id="x", black_threshold=10.0, blur_threshold=1.0, still_min_consecutive_frames=100)
     result = apply(episode, config)
     assert 2 in result.dropped_frame_indices
     assert result.episode.state.shape[0] == 4
+    np.testing.assert_array_equal(result.episode.base_action, base_action[[0, 1, 3, 4]])
     assert result.stats["head"]["frame_reasons"] == {2: "black"}
 
 

@@ -118,6 +118,7 @@ def apply(episode: Episode, config: ProcessConfig) -> StageResult:
         episode,
         state=episode.state[keep_mask],
         action=episode.action[keep_mask],
+        base_action=episode.base_action[keep_mask] if episode.base_action is not None else None,
         timestamps=episode.timestamps[keep_mask],
         frames={view: frames[keep_mask] for view, frames in episode.frames.items()},
     )
