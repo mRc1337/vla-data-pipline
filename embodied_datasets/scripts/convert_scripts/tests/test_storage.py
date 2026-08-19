@@ -1,4 +1,5 @@
 from pathlib import Path
+import errno
 
 import pytest
 
@@ -89,17 +90,34 @@ def test_directory_accounting_refuses_symlinks(tmp_path: Path):
         directory_size(payload)
 
 
-def test_directory_accounting_tolerates_concurrent_cache_removal(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "error_number", [errno.ENOENT, getattr(errno, "ESTALE", 116)]
+)
+def test_directory_accounting_tolerates_concurrent_cache_removal_or_stale_handle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_number: int
 ):
     cache = tmp_path / "worker-cache"
     cache.mkdir()
 
     def vanished(_path: Path):
-        raise FileNotFoundError(2, "cache removed by worker", str(cache))
+        raise OSError(error_number, "cache changed concurrently", str(cache))
 
     monkeypatch.setattr("convert_core.storage.os.scandir", vanished)
     assert directory_size(cache) == 0
+
+
+def test_directory_accounting_rejects_nontransient_io_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    cache = tmp_path / "worker-cache"
+    cache.mkdir()
+
+    def failed(_path: Path):
+        raise OSError(errno.EIO, "backend I/O failure", str(cache))
+
+    monkeypatch.setattr("convert_core.storage.os.scandir", failed)
+    with pytest.raises(ConversionError, match="backend I/O failure"):
+        directory_size(cache)
 
 
 def test_layout_cannot_bypass_forbidden_root_through_symlink(tmp_path: Path):

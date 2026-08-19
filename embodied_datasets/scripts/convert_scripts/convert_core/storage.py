@@ -23,6 +23,9 @@ from convert_core.errors import ConversionError
 GIB = 1024**3
 MINIMUM_SAFETY_RESERVE_BYTES = 200 * GIB
 DEFAULT_SAFETY_RESERVE_FRACTION = 0.15
+TRANSIENT_ACCOUNTING_ERRNOS = frozenset(
+    {errno.ENOENT, getattr(errno, "ESTALE", 116)}
+)
 
 
 def _existing_ancestor(path: Path) -> Path:
@@ -106,12 +109,17 @@ def required_safety_reserve(
 def directory_size(path: Path) -> int:
     """Return logical bytes for regular files without following symlinks."""
 
-    if not path.exists():
-        return 0
-    if path.is_symlink():
-        raise ConversionError(f"storage accounting refuses symbolic-link root: {path}")
-    if path.is_file():
-        return path.stat().st_size
+    try:
+        if not path.exists():
+            return 0
+        if path.is_symlink():
+            raise ConversionError(f"storage accounting refuses symbolic-link root: {path}")
+        if path.is_file():
+            return path.stat().st_size
+    except OSError as exc:
+        if exc.errno in TRANSIENT_ACCOUNTING_ERRNOS:
+            return 0
+        raise ConversionError(f"cannot account storage root {path}: {exc}") from exc
     total = 0
     pending = [path]
     while pending:
@@ -120,9 +128,10 @@ def directory_size(path: Path) -> int:
             entries = list(os.scandir(directory))
         except OSError as exc:
             # A worker may remove its bounded cache after the coordinator has
-            # queued that directory for scanning.  Treat a vanished directory
-            # as zero current bytes, just like a vanished entry below.
-            if exc.errno == errno.ENOENT:
+            # queued that directory for scanning. OSSFS may report the race as
+            # either ENOENT or ESTALE; in both cases that directory contributes
+            # no current bytes, just like a vanished entry below.
+            if exc.errno in TRANSIENT_ACCOUNTING_ERRNOS:
                 continue
             raise ConversionError(f"cannot account storage under {directory}: {exc}") from exc
         for entry in entries:
@@ -141,10 +150,11 @@ def directory_size(path: Path) -> int:
                     )
             except OSError as exc:
                 # Runtime caches and writers publish files by same-directory
-                # rename.  An entry may legitimately disappear between
-                # ``scandir`` and ``stat`` while accounting runs concurrently;
-                # it contributes no current bytes and must not stop dispatch.
-                if exc.errno == errno.ENOENT:
+                # rename. An entry may legitimately disappear or become stale
+                # between ``scandir`` and ``stat`` while accounting runs
+                # concurrently; it contributes no current bytes and must not
+                # stop dispatch.
+                if exc.errno in TRANSIENT_ACCOUNTING_ERRNOS:
                     continue
                 raise ConversionError(f"cannot account storage entry {entry.path}: {exc}") from exc
     return total
@@ -482,6 +492,7 @@ class DiskGuard:
         max_local_bytes: int | None,
         interval_seconds: float,
         baseline_usage_bytes: int | None = None,
+        enforce_policy_floor: bool = True,
     ) -> None:
         if interval_seconds <= 0:
             raise ValueError("disk check interval must be positive")
@@ -493,9 +504,14 @@ class DiskGuard:
             raise ValueError("DiskGuard requires at least one usage root")
         snapshot = filesystem_snapshot(target_path)
         self.device = snapshot.device
-        self.min_free_bytes = required_safety_reserve(
-            snapshot, requested_bytes=min_free_bytes
-        )
+        if enforce_policy_floor:
+            self.min_free_bytes = required_safety_reserve(
+                snapshot, requested_bytes=min_free_bytes
+            )
+        else:
+            if min_free_bytes is None or min_free_bytes <= 0:
+                raise ValueError("min_free_bytes must be positive")
+            self.min_free_bytes = min_free_bytes
         self.max_local_bytes = max_local_bytes
         self.interval_seconds = interval_seconds
         if baseline_usage_bytes is not None and baseline_usage_bytes < 0:
