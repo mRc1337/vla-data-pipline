@@ -23,7 +23,6 @@ import argparse
 from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 import filecmp
-import hashlib
 import json
 import math
 import multiprocessing
@@ -38,6 +37,12 @@ import numpy as np
 import yaml
 
 from convert_core.errors import ConversionError
+from convert_core.checkpoint import (
+    atomic_write_json,
+    canonical_fingerprint,
+    read_json_object,
+    resume_paths,
+)
 from convert_core.lerobot_writer import publish_temporary_output
 from convert_core.progress import EtaProgress
 
@@ -58,6 +63,12 @@ RESUME_STATE_FILE = "state.json"
 RESUME_PARTS_DIR = "parts"
 DEFAULT_CONFIG = Path(__file__).with_name("configs") / "gr00t_teleop_sim.yaml"
 VIDEO_KEY = "observation.images.ego_view"
+# LeRobot decodes video query timestamps as float32 tensors.  Once packed
+# videos are a few thousand seconds long, adjacent float32 values are about
+# 0.24 ms apart, so the library's 0.1 ms default can reject an otherwise exact
+# 20 Hz frame.  Keep validation far below one frame (50 ms) while covering
+# that representation-only quantization.
+VIDEO_VALIDATION_TOLERANCE_S = 5e-4
 REQUIRED_COLUMNS = (
     "observation.state",
     "action",
@@ -1157,7 +1168,11 @@ def _validate_part_with_lerobot(part: Part, output_root: Path, config: Config) -
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
     from lerobot.datasets.utils import DEFAULT_DATA_PATH
 
-    dataset = LeRobotDataset(repo_id=part.output_name, root=output_root)
+    dataset = LeRobotDataset(
+        repo_id=part.output_name,
+        root=output_root,
+        tolerance_s=VIDEO_VALIDATION_TOLERANCE_S,
+    )
     if dataset.num_episodes != len(part.episodes) or len(dataset) != part.frames:
         raise ConversionError(f"{output_root}: LeRobot reopen count mismatch")
     if (
@@ -1397,36 +1412,15 @@ def _lexical_absolute_path(path: Path) -> str:
 
 
 def _resume_fingerprint(collection: Collection) -> str:
-    payload = _resume_fingerprint_payload(collection)
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return canonical_fingerprint(_resume_fingerprint_payload(collection))
 
 
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp-{uuid.uuid4().hex}")
-    try:
-        temporary.write_text(
-            json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    atomic_write_json(path, payload)
 
 
 def _resume_paths(output: Path) -> tuple[Path, Path, Path]:
-    return (
-        output.with_name(f".{output.name}.resume"),
-        output.with_name(f".{output.name}.resume-state"),
-        output.with_name(f".{output.name}.resume.lock"),
-    )
+    return resume_paths(output)
 
 
 def _resume_marker_path(state_root: Path, part: Part) -> Path:
@@ -1445,13 +1439,7 @@ def _resume_marker_payload(fingerprint: str, part: Part) -> dict[str, Any]:
 
 
 def _read_resume_json(path: Path, description: str) -> dict[str, Any]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ConversionError(f"cannot read {description} {path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise ConversionError(f"{description} must contain a JSON object: {path}")
-    return value
+    return read_json_object(path, description)
 
 
 def _prepare_resume_workspace(

@@ -21,7 +21,12 @@ from convert_core.episode_spec import (
     VectorFeatureSpec,
 )
 from convert_core.errors import ConversionError
-from convert_core.hdf5_common import require_h5py
+from convert_core.hdf5_common import (
+    hdf5_leaf_schema,
+    require_h5py,
+    robomimic_demo_sort_key,
+    validate_time_major_group,
+)
 
 
 TASK_INSTRUCTIONS = {
@@ -70,13 +75,6 @@ class RobomimicPartitionInfo:
     all_frame_count: int
 
 
-def _demo_sort_key(name: str) -> int:
-    match = re.fullmatch(r"demo_(\d+)", name)
-    if match is None:
-        raise ConversionError(f"unexpected robomimic episode name {name!r}; expected demo_<integer>")
-    return int(match.group(1))
-
-
 def _task_instruction(env_name: str) -> str:
     base = re.sub(r"_(?:D\d+|O\d+)$", "", env_name)
     try:
@@ -85,18 +83,6 @@ def _task_instruction(env_name: str) -> str:
         raise ConversionError(
             f"no evidence-backed natural-language task mapping for environment {env_name!r}"
         ) from None
-
-
-def _leaf_schema(group: Any) -> tuple[tuple[str, tuple[int, ...], str], ...]:
-    h5py = require_h5py()
-    leaves: list[tuple[str, tuple[int, ...], str]] = []
-
-    def visit(name: str, obj: Any) -> None:
-        if isinstance(obj, h5py.Dataset):
-            leaves.append((name, tuple(int(v) for v in obj.shape[1:]), str(obj.dtype)))
-
-    group.visititems(visit)
-    return tuple(sorted(leaves))
 
 
 def _model_joint_names(model_file: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -190,11 +176,11 @@ def inspect_partition(
             raise ConversionError(f"{source_path}: non-integer control_freq {control_freq!r} is unsupported")
         instruction = _task_instruction(env_name)
 
-        demo_names = sorted(data.keys(), key=_demo_sort_key)
+        demo_names = sorted(data.keys(), key=robomimic_demo_sort_key)
         if not demo_names:
             raise ConversionError(f"{source_path}: data group contains no episodes")
         first = data[demo_names[0]]
-        reference_schema = _leaf_schema(first)
+        reference_schema = hdf5_leaf_schema(first)
         model_file = first.attrs.get("model_file", "")
         if isinstance(model_file, bytes):
             model_file = model_file.decode("utf-8")
@@ -212,7 +198,9 @@ def inspect_partition(
         for split_name, members in source_splits.items():
             unknown = set(members) - set(demo_names)
             if unknown:
-                dangling_split_references[split_name] = tuple(sorted(unknown, key=_demo_sort_key))
+                dangling_split_references[split_name] = tuple(
+                    sorted(unknown, key=robomimic_demo_sort_key)
+                )
             for member in members:
                 if member in memberships:
                     memberships[member].append(split_name)
@@ -221,22 +209,18 @@ def inspect_partition(
         episode_lengths: dict[str, int] = {}
         for demo_name in demo_names:
             demo = data[demo_name]
-            schema = _leaf_schema(demo)
-            if schema != reference_schema:
-                raise ConversionError(f"{source_path}:{demo_name}: schema differs from {demo_names[0]}")
             try:
                 num_samples = int(demo.attrs["num_samples"])
             except (KeyError, TypeError, ValueError) as exc:
                 raise ConversionError(f"{source_path}:{demo_name}: invalid num_samples") from exc
             if num_samples <= 0:
                 raise ConversionError(f"{source_path}:{demo_name}: num_samples must be positive")
-            for leaf_name, _tail_shape, _dtype in schema:
-                dataset = demo[leaf_name]
-                if not dataset.shape or int(dataset.shape[0]) != num_samples:
-                    raise ConversionError(
-                        f"{source_path}:{demo_name}/{leaf_name}: first dimension {dataset.shape} "
-                        f"does not match num_samples={num_samples}"
-                    )
+            validate_time_major_group(
+                demo,
+                reference_schema,
+                expected_frames=num_samples,
+                description=f"{source_path}:{demo_name}",
+            )
             episode_lengths[demo_name] = num_samples
             all_frames += num_samples
         declared_total = int(data.attrs.get("total", -1))

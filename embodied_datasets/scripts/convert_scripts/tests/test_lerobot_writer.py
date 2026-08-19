@@ -244,6 +244,51 @@ def test_real_writer_accepts_length_one_ndarray_and_writes_scalar_parquet(
     validate_parquet_feature_schema(plan, output)
 
 
+def test_real_writer_preserves_multidimensional_array_shape(tmp_path: Path):
+    output = tmp_path / "output"
+    episode = EpisodePlan(
+        episode_uid="source:0",
+        source_relative_path="split/segment:0",
+        instruction="fixture task",
+        num_frames=1,
+    )
+    plan = DatasetConversionPlan(
+        dataset_uid="multidimensional_vector_test",
+        output_path=output,
+        fps=30,
+        measured_fps=30.0,
+        robot_type="eve",
+        vector_features=(
+            VectorFeatureSpec(
+                feature_key="observation.state.joints",
+                dim=2,
+                names=("joint_a", "joint_b"),
+                dtype="float64",
+                shape=(2, 1),
+            ),
+        ),
+        camera_features=(),
+        episodes=(episode,),
+    )
+
+    write_dataset(
+        plan,
+        lambda _episode: iter(
+            (
+                {
+                    "observation.state.joints": np.array(
+                        [[0.25], [0.5]], dtype=np.float64
+                    ),
+                    "task": "fixture task",
+                },
+            )
+        ),
+        output,
+    )
+
+    validate_parquet_feature_schema(plan, output)
+
+
 def test_video_validator_rejects_codec_or_pixel_format_mismatch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -281,3 +326,241 @@ def test_video_validator_rejects_codec_or_pixel_format_mismatch(
     )
     with pytest.raises(ConversionError, match="video pixel format is 'yuv444p'"):
         validate_video_files(plan, tmp_path, expected_frames=5)
+
+
+def test_deferred_metadata_batches_info_stats_and_writer_updates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import lerobot.datasets.dataset_metadata as metadata_module
+    import lerobot.datasets.dataset_writer as writer_module
+
+    calls = {"info": 0, "stats": 0}
+
+    def write_info(_value, _root):
+        calls["info"] += 1
+
+    def write_stats(_value, _root):
+        calls["stats"] += 1
+
+    monkeypatch.setattr(metadata_module, "write_info", write_info)
+    monkeypatch.setattr(metadata_module, "write_stats", write_stats)
+    monkeypatch.setattr(writer_module, "write_info", write_info)
+    dataset = type(
+        "Dataset",
+        (),
+        {"meta": type("Meta", (), {"info": {}, "stats": {}, "root": tmp_path})()},
+    )()
+
+    with writer._deferred_info_stats_writes(dataset, True):
+        for _ in range(3):
+            metadata_module.write_info({}, tmp_path)
+            metadata_module.write_stats({}, tmp_path)
+            writer_module.write_info({}, tmp_path)
+
+    assert calls == {"info": 1, "stats": 1}
+
+
+def test_fragmented_mp4_context_forces_sequential_write_movflags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    import lerobot.datasets.video_utils as video_utils
+
+    calls = []
+
+    class FakeContainer:
+        def close(self):
+            return None
+
+    def fake_open(file, mode=None, *args, **kwargs):
+        calls.append((file, mode, args, kwargs))
+        return FakeContainer()
+
+    monkeypatch.setattr(video_utils.av, "open", fake_open)
+    with writer._fragmented_mp4_writes(True):
+        container = video_utils.av.open(
+            tmp_path / "fixture.mp4", mode="w", options={"movflags": "faststart"}
+        )
+        container.close()
+        video_utils.av.open("fixture.mp4", mode="r")
+
+    assert calls[0][3]["options"]["movflags"] == (
+        "frag_keyframe+empty_moov+default_base_moof+negative_cts_offsets"
+    )
+    assert "options" not in calls[1][3]
+
+
+def test_fragmented_mp4_context_retries_transient_ossfs_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    import errno
+    import lerobot.datasets.video_utils as video_utils
+
+    attempts = 0
+    sleeps: list[float] = []
+
+    class FakeContainer:
+        def close(self):
+            return None
+
+    def flaky_open(file, mode=None, *args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise OSError(errno.EINVAL, "fresh OSSFS directory is not visible", file)
+        return FakeContainer()
+
+    monkeypatch.setattr(video_utils.av, "open", flaky_open)
+    monkeypatch.setattr(writer.time, "sleep", sleeps.append)
+
+    with writer._fragmented_mp4_writes(True):
+        container = video_utils.av.open(tmp_path / "fixture.mp4", mode="w")
+        container.close()
+
+    assert attempts == 2
+    assert sleeps == [0.05]
+
+
+def test_fragmented_mp4_context_retries_pyav_value_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    import av
+    import errno
+    import lerobot.datasets.video_utils as video_utils
+
+    attempts = 0
+    sleeps: list[float] = []
+
+    class FakeContainer:
+        def close(self):
+            return None
+
+    def flaky_open(file, mode=None, *args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise av.error.ValueError(errno.EINVAL, "fresh OSSFS file is not visible", file)
+        return FakeContainer()
+
+    monkeypatch.setattr(video_utils.av, "open", flaky_open)
+    monkeypatch.setattr(writer.time, "sleep", sleeps.append)
+
+    with writer._fragmented_mp4_writes(True):
+        container = video_utils.av.open(tmp_path / "fixture.mp4", mode="w")
+        container.close()
+
+    assert attempts == 2
+    assert sleeps == [0.05]
+
+
+def test_fragmented_mp4_context_does_not_retry_unrelated_value_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    import lerobot.datasets.video_utils as video_utils
+
+    attempts = 0
+
+    def invalid_open(file, mode=None, *args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        raise ValueError("invalid codec configuration")
+
+    monkeypatch.setattr(video_utils.av, "open", invalid_open)
+
+    with writer._fragmented_mp4_writes(True), pytest.raises(
+        ValueError, match="invalid codec configuration"
+    ):
+        video_utils.av.open(tmp_path / "fixture.mp4", mode="w")
+
+    assert attempts == 1
+
+
+def test_in_place_part_resume_reuses_verified_prefix_without_directory_publish(
+    tmp_path: Path,
+):
+    output = tmp_path / "final-compatible"
+    state = tmp_path / "resume-state"
+    lock = tmp_path / "resume.lock"
+    episodes = tuple(
+        EpisodePlan(
+            episode_uid=f"source:{index}",
+            source_relative_path=f"source/{index}",
+            instruction="fixture task",
+            num_frames=1,
+            extra={"checkpoint_unit": f"part-{index // 2}"},
+        )
+        for index in range(4)
+    )
+    plan = DatasetConversionPlan(
+        dataset_uid="in_place_resume",
+        output_path=output,
+        fps=30,
+        measured_fps=30.0,
+        robot_type="fixture",
+        vector_features=(VectorFeatureSpec("observation.state", 1),),
+        camera_features=(),
+        episodes=episodes,
+    )
+    first_calls: list[str] = []
+
+    def interrupted(episode: EpisodePlan):
+        first_calls.append(episode.episode_uid)
+        if episode.episode_uid == "source:2":
+            raise RuntimeError("synthetic interruption")
+        yield {
+            "observation.state": np.array([0.25], dtype=np.float32),
+            "task": episode.instruction,
+        }
+
+    options = {
+        "reader_format": "fixture",
+        "resume": True,
+        "metadata_buffer_size": 2,
+        "resume_data_root": output,
+        "resume_state_root": state,
+        "resume_lock_path": lock,
+        "publish_on_complete": False,
+        "cleanup_resume_state": False,
+        "rebuild_corrupt_checkpoint": True,
+        "batch_metadata_writes": True,
+    }
+    with pytest.raises(RuntimeError, match="synthetic interruption"):
+        writer.convert_dataset(plan, interrupted, **options)
+
+    assert first_calls == ["source:0", "source:1", "source:2"]
+    assert len(list((state / "markers").glob("*.json"))) == 1
+    resumed_calls: list[str] = []
+
+    def resumed(episode: EpisodePlan):
+        resumed_calls.append(episode.episode_uid)
+        yield {
+            "observation.state": np.array([0.25], dtype=np.float32),
+            "task": episode.instruction,
+        }
+
+    result = writer.convert_dataset(plan, resumed, **options)
+
+    assert result == output
+    assert resumed_calls == ["source:2", "source:3"]
+    assert (output / "conversion_manifest.json").is_file()
+    assert len(list((state / "markers").glob("*.json"))) == 2
+    assert not list(tmp_path.glob(".final-compatible.incomplete-*"))
+
+    # Preserve the recorded file size so structural inventory validation
+    # passes; the Parquet reopen must still detect the damaged latest part and
+    # roll back exactly one checkpoint unit.
+    latest_data = sorted((output / "data").rglob("*.parquet"))[-1]
+    damaged = bytearray(latest_data.read_bytes())
+    damaged[:4] = b"FAIL"
+    latest_data.write_bytes(damaged)
+    rebuilt_calls: list[str] = []
+
+    def rebuilt(episode: EpisodePlan):
+        rebuilt_calls.append(episode.episode_uid)
+        yield {
+            "observation.state": np.array([0.25], dtype=np.float32),
+            "task": episode.instruction,
+        }
+
+    writer.convert_dataset(plan, rebuilt, **options)
+    assert rebuilt_calls == ["source:2", "source:3"]
+    writer.validate_written_dataset(plan, output)

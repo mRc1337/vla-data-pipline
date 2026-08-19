@@ -1,0 +1,5 @@
+dataset_uid: arcap
+format: arcap_hdf5
+robot_type: heterogeneous; overridden by each official partition
+source_directory: arcap
+source_file: assemble_arcap.hdf5

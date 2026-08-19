@@ -1,13 +1,14 @@
 """Deterministic scheduling and aggregation for isolated conversion units."""
 from __future__ import annotations
 
-from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from dataclasses import dataclass, replace
 import hashlib
 import json
 import multiprocessing
+from multiprocessing.connection import wait as wait_connections
 from pathlib import Path
 import shutil
+import time
 from typing import Any, Callable, Sequence
 import uuid
 
@@ -290,12 +291,40 @@ def _dispatch_order(units: Sequence[ParallelWorkUnit]) -> list[ParallelWorkUnit]
     return sorted(units, key=lambda unit: (-unit.weight, unit.index, unit.key))
 
 
-def _initialize_worker_slot(
-    slot_queue: Any,
-    initializer: Callable[..., None],
+def _persistent_worker_loop(
+    connection: Any,
+    slot: int,
+    worker: Callable[[ParallelWorkUnit], Any],
+    initializer: Callable[..., None] | None,
     initargs: tuple[Any, ...],
 ) -> None:
-    initializer(int(slot_queue.get()), *initargs)
+    """Serve units over a Pipe without Queue/SemLock `/dev/shm` artifacts."""
+
+    try:
+        if initializer is not None:
+            initializer(slot, *initargs)
+        connection.send(("ready", slot, None))
+    except BaseException as exc:
+        connection.send(("init_error", slot, f"{type(exc).__name__}: {exc}"))
+        connection.close()
+        return
+    try:
+        while True:
+            unit = connection.recv()
+            if unit is None:
+                return
+            try:
+                value = worker(unit)
+            except BaseException as exc:
+                connection.send(
+                    ("error", unit.index, f"{type(exc).__name__}: {exc}")
+                )
+                return
+            connection.send(("ok", unit.index, value))
+    except (EOFError, BrokenPipeError):
+        return
+    finally:
+        connection.close()
 
 
 def run_parallel_work_units(
@@ -306,17 +335,27 @@ def run_parallel_work_units(
     on_result: Callable[[ParallelWorkResult], None] | None = None,
     initializer: Callable[..., None] | None = None,
     initargs: tuple[Any, ...] = (),
+    health_check: Callable[[], None] | None = None,
+    health_check_interval_seconds: float = 10.0,
+    before_dispatch: Callable[
+        [ParallelWorkUnit, tuple[ParallelWorkUnit, ...]], None
+    ]
+    | None = None,
 ) -> ParallelRunResult:
     """Run a bounded frontier and stop dispatching new work after a failure."""
 
     validate_work_units(units, require_complete_plan=False)
     if workers <= 0:
         raise ConversionError("workers must be positive")
+    if health_check_interval_seconds <= 0:
+        raise ConversionError("health check interval must be positive")
     dispatch = _dispatch_order(units)
     if workers == 1 and initializer is None:
         ordered: dict[int, ParallelWorkResult] = {}
         completion: list[str] = []
         for unit in dispatch:
+            if before_dispatch is not None:
+                before_dispatch(unit, ())
             try:
                 value = worker(unit)
             except BaseException as exc:
@@ -326,73 +365,156 @@ def run_parallel_work_units(
             completion.append(unit.key)
             if on_result is not None:
                 on_result(result)
+            if health_check is not None:
+                health_check()
         return ParallelRunResult(
             tuple(ordered[index] for index in sorted(ordered)), tuple(completion)
         )
 
     context = multiprocessing.get_context("spawn")
     max_workers = min(workers, len(units))
-    slot_queue = None
-    executor_kwargs: dict[str, Any] = {
-        "max_workers": max_workers,
-        "mp_context": context,
-    }
-    if initializer is not None:
-        slot_queue = context.Queue()
-        for slot in range(max_workers):
-            slot_queue.put(slot)
-        executor_kwargs.update(
-            initializer=_initialize_worker_slot,
-            initargs=(slot_queue, initializer, initargs),
+    processes: list[Any] = []
+    connections: list[Any] = []
+    for slot in range(max_workers):
+        parent, child = context.Pipe(duplex=True)
+        process = context.Process(
+            target=_persistent_worker_loop,
+            args=(child, slot, worker, initializer, initargs),
+            name=f"conversion-worker-{slot}",
         )
-    executor = ProcessPoolExecutor(**executor_kwargs)
+        process.start()
+        child.close()
+        processes.append(process)
+        connections.append(parent)
+
+    # Do not dispatch until every process has initialized successfully. This
+    # makes GPU binding failures coordinator-visible before any output starts.
+    waiting_ready = set(connections)
+    while waiting_ready:
+        readable = wait_connections(tuple(waiting_ready))
+        for connection in readable:
+            try:
+                status, _slot, detail = connection.recv()
+            except EOFError as exc:
+                status, detail = "init_error", f"worker exited during initialization: {exc}"
+            if status != "ready":
+                for process in processes:
+                    if process.is_alive():
+                        process.terminate()
+                for process in processes:
+                    process.join()
+                for item in connections:
+                    item.close()
+                raise ConversionError(str(detail))
+            waiting_ready.remove(connection)
+
     iterator = iter(dispatch)
-    active: dict[Future[Any], ParallelWorkUnit] = {}
+    active: dict[Any, ParallelWorkUnit] = {}
     ordered: dict[int, ParallelWorkResult] = {}
     completion: list[str] = []
     failed: tuple[ParallelWorkUnit, BaseException] | None = None
+    coordinator_failure: BaseException | None = None
+    last_health_check = time.monotonic()
 
-    def submit_next() -> bool:
+    def submit_next(connection: Any) -> bool:
+        nonlocal coordinator_failure
         try:
             unit = next(iterator)
         except StopIteration:
             return False
-        active[executor.submit(worker, unit)] = unit
+        try:
+            if before_dispatch is not None:
+                before_dispatch(unit, tuple(active.values()))
+            connection.send(unit)
+        except BaseException as exc:
+            coordinator_failure = exc
+            return False
+        active[connection] = unit
         return True
 
     try:
-        for _ in range(max_workers):
-            submit_next()
-        while active and failed is None:
-            done, _not_done = wait(active, return_when=FIRST_COMPLETED)
-            successful: list[tuple[ParallelWorkUnit, Any]] = []
-            for future in done:
-                unit = active.pop(future)
+        for connection in connections:
+            submit_next(connection)
+            if coordinator_failure is not None:
+                break
+        while active and failed is None and coordinator_failure is None:
+            timeout = None
+            if health_check is not None:
+                timeout = max(
+                    0.0,
+                    health_check_interval_seconds
+                    - (time.monotonic() - last_health_check),
+                )
+            readable = wait_connections(tuple(active), timeout=timeout)
+            if health_check is not None and (
+                not readable
+                or time.monotonic() - last_health_check
+                >= health_check_interval_seconds
+            ):
                 try:
-                    successful.append((unit, future.result()))
+                    health_check()
                 except BaseException as exc:
+                    coordinator_failure = exc
+                last_health_check = time.monotonic()
+                if coordinator_failure is not None:
+                    break
+            successful: list[tuple[ParallelWorkUnit, Any]] = []
+            freed: list[Any] = []
+            for connection in readable:
+                unit = active.pop(connection)
+                freed.append(connection)
+                try:
+                    status, unit_index, value = connection.recv()
+                except EOFError as exc:
                     failed = (unit, exc)
+                    continue
+                if unit_index != unit.index:
+                    failed = (
+                        unit,
+                        ConversionError(
+                            f"worker returned unit index {unit_index}, expected {unit.index}"
+                        ),
+                    )
+                elif status == "ok":
+                    successful.append((unit, value))
+                else:
+                    failed = (unit, RuntimeError(str(value)))
             for unit, value in sorted(successful, key=lambda item: item[0].index):
                 result = ParallelWorkResult(unit.index, unit.key, value)
                 ordered[unit.index] = result
                 completion.append(unit.key)
                 if on_result is not None:
-                    on_result(result)
-            if failed is None:
-                while len(active) < max_workers and submit_next():
-                    pass
-        if failed is not None:
-            for future in active:
-                future.cancel()
+                    try:
+                        on_result(result)
+                    except BaseException as exc:
+                        coordinator_failure = exc
+                        break
+            if failed is None and coordinator_failure is None:
+                for connection in freed:
+                    submit_next(connection)
+                    if coordinator_failure is not None:
+                        break
     finally:
-        executor.shutdown(wait=True, cancel_futures=True)
-        if slot_queue is not None:
-            slot_queue.close()
-            slot_queue.join_thread()
+        abort = failed is not None or coordinator_failure is not None
+        for process in processes:
+            if abort and process.is_alive():
+                process.terminate()
+        if not abort:
+            for connection in connections:
+                try:
+                    connection.send(None)
+                except (BrokenPipeError, EOFError):
+                    pass
+        for process in processes:
+            process.join()
+        for connection in connections:
+            connection.close()
 
     if failed is not None:
         unit, exc = failed
         raise ParallelWorkError(unit) from exc
+    if coordinator_failure is not None:
+        raise coordinator_failure
     return ParallelRunResult(
         tuple(ordered[index] for index in sorted(ordered)), tuple(completion)
     )
@@ -462,10 +584,12 @@ def validate_verified_unit_marker(unit: ParallelWorkUnit) -> dict[str, Any]:
 def prepare_work_units(
     units: Sequence[ParallelWorkUnit],
     validate_output: Callable[[ParallelWorkUnit], None],
+    *,
+    require_complete_plan: bool = True,
 ) -> PreparedUnits:
     """Reuse only validated units; repair marker-only damage without rebuilding."""
 
-    validate_work_units(units)
+    validate_work_units(units, require_complete_plan=require_complete_plan)
     reusable: list[ParallelWorkUnit] = []
     pending: list[ParallelWorkUnit] = []
     repaired: list[str] = []

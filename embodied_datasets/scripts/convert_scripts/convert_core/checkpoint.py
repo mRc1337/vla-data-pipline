@@ -199,18 +199,44 @@ def _changed_categories(previous: dict[str, Any], current: dict[str, Any]) -> li
     return [key for key in keys if previous.get(key) != current.get(key)]
 
 
-def _inventory(root: Path) -> list[dict[str, Any]]:
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _inventory(
+    root: Path, previous: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
+    prior = {
+        str(record.get("relative_path")): record
+        for record in (previous or [])
+        if isinstance(record, dict)
+    }
     records: list[dict[str, Any]] = []
-    for directory in (root / "data", root / "videos"):
+    for directory in (root / "data", root / "videos", root / "meta"):
         if not directory.is_dir():
             continue
         for path in sorted(directory.rglob("*"), key=lambda item: item.as_posix()):
             if path.is_file():
                 stat = path.stat()
+                relative = path.relative_to(root).as_posix()
+                old = prior.get(relative, {})
+                digest = None
+                if (
+                    old.get("size") == stat.st_size
+                    and old.get("mtime_ns") == stat.st_mtime_ns
+                    and isinstance(old.get("sha256"), str)
+                ):
+                    digest = old["sha256"]
                 records.append(
                     {
-                        "relative_path": path.relative_to(root).as_posix(),
+                        "relative_path": relative,
                         "size": stat.st_size,
+                        "mtime_ns": stat.st_mtime_ns,
+                        "sha256": digest or _sha256_file(path),
                     }
                 )
     return records
@@ -250,8 +276,17 @@ class CheckpointManager:
         self,
         output: Path,
         payload: dict[str, Any],
+        *,
+        data_root: Path | None = None,
+        state_root: Path | None = None,
+        lock_path: Path | None = None,
+        allow_corrupt_rebuild: bool = False,
     ) -> None:
-        self.data_root, self.state_root, self.lock_path = resume_paths(output)
+        default_data, default_state, default_lock = resume_paths(output)
+        self.data_root = data_root if data_root is not None else default_data
+        self.state_root = state_root if state_root is not None else default_state
+        self.lock_path = lock_path if lock_path is not None else default_lock
+        self.allow_corrupt_rebuild = allow_corrupt_rebuild
         self.payload = payload
         self.fingerprint = canonical_fingerprint(payload)
         self.state_path = self.state_root / "state.json"
@@ -301,6 +336,7 @@ class CheckpointManager:
                 "snapshot": None,
                 "marker": None,
                 "inventory": [],
+                "history": [],
             }
             atomic_write_json(self.state_path, self._state)
 
@@ -316,7 +352,12 @@ class CheckpointManager:
             raise ConversionError(
                 f"resume state records {completed} episodes but data is missing: {self.data_root}"
             )
-        self._restore_snapshot()
+        try:
+            self._restore_snapshot()
+        except ConversionError:
+            if not self.allow_corrupt_rebuild:
+                raise
+            return self.rollback_latest()
         return ResumePosition(
             completed,
             frames,
@@ -348,14 +389,19 @@ class CheckpointManager:
             raise ConversionError(f"checkpoint metadata snapshot is missing: {snapshot_meta}")
 
         live_meta = self.data_root / "meta"
-        if live_meta.exists():
-            shutil.rmtree(live_meta)
-        shutil.copytree(snapshot_meta, live_meta)
+        live_meta.mkdir(parents=True, exist_ok=True)
+        # Nested episode metadata parquet files are immutable after a finalized
+        # checkpoint part. Snapshot only mutable root files and use the
+        # inventory below to prune files created by an interrupted later part.
+        # This avoids recursively copying a growing metadata tree every time.
+        for path in snapshot_meta.iterdir():
+            if path.is_file():
+                shutil.copy2(path, live_meta / path.name)
         allowed = {
-            str(record["relative_path"]): int(record["size"])
+            str(record["relative_path"]): record
             for record in self._state["inventory"]
         }
-        for directory_name in ("data", "videos"):
+        for directory_name in ("data", "videos", "meta"):
             directory = self.data_root / directory_name
             if not directory.is_dir():
                 continue
@@ -363,12 +409,20 @@ class CheckpointManager:
                 if path.is_file() and path.relative_to(self.data_root).as_posix() not in allowed:
                     path.unlink()
             _remove_empty_directories(directory)
-        for relative, expected_size in allowed.items():
+        for relative, record in allowed.items():
+            expected_size = int(record["size"])
             path = self.data_root / relative
             if not path.is_file() or path.stat().st_size != expected_size:
                 raise ConversionError(
                     f"verified checkpoint file is missing or changed: {path} "
                     f"(expected {expected_size} bytes)"
+                )
+            expected_sha256 = record.get("sha256")
+            # Schema-v1 checkpoints created before content hashes remain
+            # readable; the next commit upgrades every legacy record.
+            if isinstance(expected_sha256, str) and _sha256_file(path) != expected_sha256:
+                raise ConversionError(
+                    f"verified checkpoint file checksum changed: {path}"
                 )
         images = self.data_root / "images"
         if images.exists():
@@ -376,6 +430,58 @@ class CheckpointManager:
         for path in self.data_root.iterdir():
             if path.is_dir() and path.name.startswith("tmp"):
                 shutil.rmtree(path)
+
+    def _reset(self) -> ResumePosition:
+        if self.data_root.exists():
+            shutil.rmtree(self.data_root)
+        self._state = {
+            "resume_schema_version": RESUME_SCHEMA_VERSION,
+            "fingerprint": self.fingerprint,
+            "configuration": self.payload,
+            "completed_episodes": 0,
+            "completed_frames": 0,
+            "checkpoint_unit": None,
+            "completed_units": 0,
+            "snapshot": None,
+            "marker": None,
+            "inventory": [],
+            "history": [],
+        }
+        atomic_write_json(self.state_path, self._state)
+        return ResumePosition(0, 0, None, 0)
+
+    def rollback_latest(self) -> ResumePosition:
+        """Discard the latest checkpoint and restore the newest valid prefix."""
+
+        if self._state is None:
+            raise RuntimeError("prepare must be called before rollback_latest")
+        history = self._state.get("history", [])
+        if not isinstance(history, list):
+            return self._reset()
+        for history_index in range(len(history) - 2, -1, -1):
+            entry = history[history_index]
+            if not isinstance(entry, dict):
+                continue
+            candidate = {
+                "resume_schema_version": RESUME_SCHEMA_VERSION,
+                "fingerprint": self.fingerprint,
+                "configuration": self.payload,
+                **entry,
+                "history": history[: history_index + 1],
+            }
+            self._state = candidate
+            try:
+                self._restore_snapshot()
+            except ConversionError:
+                continue
+            atomic_write_json(self.state_path, candidate)
+            return ResumePosition(
+                int(candidate["completed_episodes"]),
+                int(candidate["completed_frames"]),
+                str(candidate["checkpoint_unit"]),
+                int(candidate["completed_units"]),
+            )
+        return self._reset()
 
     def commit(
         self,
@@ -386,7 +492,7 @@ class CheckpointManager:
     ) -> None:
         if not (self.data_root / "meta" / "info.json").is_file():
             raise ConversionError("cannot checkpoint before meta/info.json is durable")
-        inventory = _inventory(self.data_root)
+        inventory = _inventory(self.data_root, self.prior_inventory)
         identifier = hashlib.sha256(
             f"{checkpoint_unit}\0{completed_episodes}\0{completed_frames}".encode("utf-8")
         ).hexdigest()[:20]
@@ -395,7 +501,11 @@ class CheckpointManager:
         temporary_snapshot.parent.mkdir(parents=True, exist_ok=True)
         if snapshot.exists():
             shutil.rmtree(snapshot)
-        shutil.copytree(self.data_root / "meta", temporary_snapshot / "meta")
+        snapshot_meta = temporary_snapshot / "meta"
+        snapshot_meta.mkdir(parents=True)
+        for path in (self.data_root / "meta").iterdir():
+            if path.is_file():
+                shutil.copy2(path, snapshot_meta / path.name)
         temporary_snapshot.rename(snapshot)
 
         marker = {
@@ -410,10 +520,7 @@ class CheckpointManager:
         marker_path = self.state_root / marker_rel
         atomic_write_json(marker_path, marker)
         completed_units = int((self._state or {}).get("completed_units", 0)) + 1
-        self._state = {
-            "resume_schema_version": RESUME_SCHEMA_VERSION,
-            "fingerprint": self.fingerprint,
-            "configuration": self.payload,
+        entry = {
             "completed_episodes": completed_episodes,
             "completed_frames": completed_frames,
             "checkpoint_unit": checkpoint_unit,
@@ -422,10 +529,17 @@ class CheckpointManager:
             "marker": marker_rel,
             "inventory": inventory,
         }
+        previous_history = (self._state or {}).get("history", [])
+        if not isinstance(previous_history, list):
+            previous_history = []
+        self._state = {
+            "resume_schema_version": RESUME_SCHEMA_VERSION,
+            "fingerprint": self.fingerprint,
+            "configuration": self.payload,
+            **entry,
+            "history": [*previous_history, entry],
+        }
         atomic_write_json(self.state_path, self._state)
-        for old_snapshot in self.snapshots_root.iterdir():
-            if old_snapshot != snapshot and old_snapshot.is_dir():
-                shutil.rmtree(old_snapshot)
 
     def cleanup_state(self) -> None:
         if self.state_root.exists():

@@ -20,6 +20,14 @@ TASK = "SyntheticPickAndPlace"
 VIDEO_KEY = "observation.images.ego_view"
 
 
+def test_video_validation_tolerance_covers_long_video_float32_quantization():
+    timestamp = np.float32(2758.6)
+    float32_step = float(np.nextafter(timestamp, np.float32(np.inf)) - timestamp)
+
+    assert float32_step < gr00t.VIDEO_VALIDATION_TOLERANCE_S
+    assert gr00t.VIDEO_VALIDATION_TOLERANCE_S < 1 / 20 / 10
+
+
 def test_progress_is_rate_limited_and_reports_eta():
     now = [100.0]
     stream = io.StringIO()

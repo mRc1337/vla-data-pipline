@@ -12,6 +12,7 @@ it never imports h5py/tensorflow_datasets/PIL or looks at a source path.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import math
 import os
@@ -76,10 +77,209 @@ def _blocking_streaming_feed_frame(self: Any, video_key: str, image: Any) -> Non
             continue
 
 
-def _enable_blocking_streaming_encoding(dataset: Any) -> None:
+def _enable_blocking_streaming_encoding(
+    dataset: Any, *, encoder_temp_root: Path | None = None
+) -> None:
     encoder = getattr(getattr(dataset, "writer", None), "_streaming_encoder", None)
     if encoder is not None:
         encoder.feed_frame = types.MethodType(_blocking_streaming_feed_frame, encoder)
+        if encoder_temp_root is not None:
+            configured_root = Path(encoder_temp_root)
+            configured_root.mkdir(parents=True, exist_ok=True)
+            original_start_episode = encoder.start_episode
+
+            def start_episode_in_work_root(
+                _self: Any,
+                video_keys: list[str],
+                temp_dir: Path,
+                depth_video_keys: list[str] | None = None,
+            ) -> None:
+                del temp_dir
+                original_start_episode(
+                    video_keys=video_keys,
+                    temp_dir=configured_root,
+                    depth_video_keys=depth_video_keys,
+                )
+
+            encoder.start_episode = types.MethodType(
+                start_episode_in_work_root, encoder
+            )
+
+
+class _SequentialMp4Sink:
+    """Write-only file object that never advertises FUSE seek support."""
+
+    def __init__(self, path: Path):
+        self._stream = path.open("wb")
+        self._position = 0
+
+    @property
+    def closed(self) -> bool:
+        return self._stream.closed
+
+    def readable(self) -> bool:
+        return False
+
+    def writable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return False
+
+    def write(self, data: bytes) -> int:
+        written = self._stream.write(data)
+        self._position += written
+        return written
+
+    def tell(self) -> int:
+        return self._position
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+    def close(self) -> None:
+        self._stream.close()
+
+
+class _ContainerWithSink:
+    """Keep a Python AVIO sink alive and close it with its PyAV container."""
+
+    def __init__(self, container: Any, sink: _SequentialMp4Sink):
+        self._container = container
+        self._sink = sink
+        self._closed = False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._container, name)
+
+    def __enter__(self) -> "_ContainerWithSink":
+        self._container.__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> Any:
+        try:
+            return self._container.__exit__(exc_type, exc, traceback)
+        finally:
+            self._sink.close()
+            self._closed = True
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        try:
+            self._container.close()
+        finally:
+            self._sink.close()
+            self._closed = True
+
+
+@contextlib.contextmanager
+def _fragmented_mp4_writes(enabled: bool) -> Iterator[None]:
+    """Make MP4 muxing sequential-write compatible for OSSFS/FUSE targets."""
+
+    if not enabled:
+        yield
+        return
+    import lerobot.datasets.dataset_metadata as metadata_module
+    import lerobot.datasets.video_utils as video_utils
+
+    original_open = video_utils.av.open
+    original_get_video_info = video_utils.get_video_info
+    original_metadata_get_video_info = metadata_module.get_video_info
+
+    def open_with_fragmented_mp4(file: Any, mode: str | None = None, *args: Any, **kwargs: Any):
+        sequential_mp4 = (
+            mode is not None
+            and "w" in mode
+            and str(file).lower().endswith(".mp4")
+        )
+        if sequential_mp4:
+            options = dict(kwargs.get("options") or {})
+            options["movflags"] = (
+                "frag_keyframe+empty_moov+default_base_moof+negative_cts_offsets"
+            )
+            kwargs["options"] = options
+        path_output = sequential_mp4 and isinstance(file, (str, os.PathLike))
+        # A path-backed AVIO context advertises seekability because OSSFS/FUSE
+        # implements seek(2), but movenc fragment bookkeeping can still fail
+        # with EINVAL under concurrent decode/encode traffic. A write-only
+        # Python object makes the non-seekable contract explicit.
+        delays = (0.05, 0.1, 0.2, 0.4, 0.8, 1.6) if sequential_mp4 else ()
+        for attempt in range(len(delays) + 1):
+            sink = None
+            try:
+                if path_output:
+                    sink = _SequentialMp4Sink(Path(file))
+                    kwargs.setdefault("format", "mp4")
+                    container = original_open(sink, mode, *args, **kwargs)
+                    return _ContainerWithSink(container, sink)
+                return original_open(file, mode, *args, **kwargs)
+            except Exception as exc:
+                if sink is not None:
+                    sink.close()
+                # PyAV maps FFmpeg's AVERROR(EINVAL) to av.error.ValueError,
+                # which inherits from built-in ValueError rather than OSError.
+                # Inspect errno instead of the Python exception hierarchy so
+                # both kernel/FUSE and FFmpeg wrappers receive the same narrow
+                # retry policy. Exceptions without one of the explicitly
+                # transient errnos are still raised immediately.
+                if (
+                    not sequential_mp4
+                    or getattr(exc, "errno", None) not in {errno.EINVAL, errno.ESTALE}
+                    or attempt == len(delays)
+                ):
+                    raise
+                time.sleep(delays[attempt])
+
+    def get_fragmented_video_info(
+        video_path: Any, video_encoder: Any = None
+    ) -> dict[str, Any]:
+        info = original_get_video_info(video_path, video_encoder=video_encoder)
+        with video_utils.av.open(str(video_path), "r") as video_file:
+            stream = video_file.streams.video[0]
+            if stream.average_rate is not None:
+                info["video.fps"] = int(stream.average_rate)
+        return info
+
+    video_utils.av.open = open_with_fragmented_mp4
+    video_utils.get_video_info = get_fragmented_video_info
+    metadata_module.get_video_info = get_fragmented_video_info
+    try:
+        yield
+    finally:
+        metadata_module.get_video_info = original_metadata_get_video_info
+        video_utils.get_video_info = original_get_video_info
+        video_utils.av.open = original_open
+
+
+@contextlib.contextmanager
+def _deferred_info_stats_writes(dataset: Any, enabled: bool) -> Iterator[None]:
+    """Batch LeRobot's per-episode info/stats rewrites at one unit boundary."""
+
+    if not enabled:
+        yield
+        return
+    import lerobot.datasets.dataset_metadata as metadata_module
+    import lerobot.datasets.dataset_writer as writer_module
+
+    original_info = metadata_module.write_info
+    original_stats = metadata_module.write_stats
+    original_writer_info = writer_module.write_info
+    succeeded = False
+    metadata_module.write_info = lambda _value, _root: None
+    metadata_module.write_stats = lambda _value, _root: None
+    writer_module.write_info = lambda _value, _root: None
+    try:
+        yield
+        succeeded = True
+    finally:
+        metadata_module.write_info = original_info
+        metadata_module.write_stats = original_stats
+        writer_module.write_info = original_writer_info
+        if succeeded:
+            original_info(dataset.meta.info, dataset.meta.root)
+            if dataset.meta.stats is not None:
+                original_stats(dataset.meta.stats, dataset.meta.root)
 
 
 @contextlib.contextmanager
@@ -152,6 +352,11 @@ def build_manifest(plan: DatasetConversionPlan, *, reader_format: str) -> dict[s
                 "episode_uid": episode.episode_uid,
                 "source": episode.source_relative_path,
                 "source_task": episode.extra.get("source_task"),
+                "source_episode_id": episode.extra.get("source_episode_id"),
+                "source_model_sha256": episode.extra.get("source_model_sha256"),
+                "source_model_uncompressed_bytes": episode.extra.get(
+                    "source_model_uncompressed_bytes"
+                ),
                 "instruction": episode.instruction,
                 "num_frames": episode.num_frames,
                 "source_splits": list(episode.extra.get("source_splits", ())),
@@ -166,6 +371,7 @@ def build_manifest(plan: DatasetConversionPlan, *, reader_format: str) -> dict[s
     for key in (
         "source_dataset",
         "source_revision",
+        "source_files",
         "source_relative_path",
         "source_env_name",
         "source_env_args",
@@ -179,6 +385,13 @@ def build_manifest(plan: DatasetConversionPlan, *, reader_format: str) -> dict[s
         "unsupported_source_components",
         "decoder",
         "partition_rules",
+        "action_semantics",
+        "quaternion_convention",
+        "pointcloud_semantics",
+        "source_builder",
+        "source_data_attributes",
+        "payload_scan_coverage",
+        "model_sidecar",
     ):
         if key in plan.extra:
             manifest[key] = plan.extra[key]
@@ -201,6 +414,9 @@ def write_dataset(
     blocking_streaming_encoding: bool = False,
     encoder_queue_maxsize: int = 30,
     encoder_threads: int | None = None,
+    batch_metadata_writes: bool = False,
+    encoder_temp_root: Path | None = None,
+    fragmented_mp4_writes: bool = False,
     frame_completed_hook: Callable[[EpisodePlan, int], None] | None = None,
     episode_completed_hook: Callable[[EpisodePlan, int], None] | None = None,
 ) -> None:
@@ -209,7 +425,9 @@ def write_dataset(
     except ImportError as exc:  # pragma: no cover - depends on environment
         raise RuntimeError("lerobot==0.6.0 is required; install the project's requirements.txt") from exc
 
-    with _local_datasets_cache(temporary_path):
+    with _local_datasets_cache(temporary_path), _fragmented_mp4_writes(
+        fragmented_mp4_writes
+    ):
         dataset = LeRobotDataset.create(
             repo_id=plan.dataset_uid,
             fps=plan.fps,
@@ -223,22 +441,25 @@ def write_dataset(
             encoder_threads=encoder_threads,
         )
         if blocking_streaming_encoding:
-            _enable_blocking_streaming_encoding(dataset)
+            _enable_blocking_streaming_encoding(
+                dataset, encoder_temp_root=encoder_temp_root
+            )
         try:
-            for episode_index, episode in enumerate(plan.episodes):
-                print(
-                    f"[{plan.dataset_uid}] episode {episode_index + 1}/{len(plan.episodes)}: "
-                    f"{episode.source_relative_path} ({episode.num_frames} frames)",
-                    file=sys.stderr,
-                )
-                for frame in iter_frames(episode):
-                    dataset.add_frame(frame)
-                    if frame_completed_hook is not None:
-                        frame_completed_hook(episode, episode_index)
-                dataset.save_episode()
-                if episode_completed_hook is not None:
-                    episode_completed_hook(episode, episode_index)
-            dataset.finalize()
+            with _deferred_info_stats_writes(dataset, batch_metadata_writes):
+                for episode_index, episode in enumerate(plan.episodes):
+                    print(
+                        f"[{plan.dataset_uid}] episode {episode_index + 1}/{len(plan.episodes)}: "
+                        f"{episode.source_relative_path} ({episode.num_frames} frames)",
+                        file=sys.stderr,
+                    )
+                    for frame in iter_frames(episode):
+                        dataset.add_frame(frame)
+                        if frame_completed_hook is not None:
+                            frame_completed_hook(episode, episode_index)
+                    dataset.save_episode()
+                    if episode_completed_hook is not None:
+                        episode_completed_hook(episode, episode_index)
+                dataset.finalize()
         except BaseException:
             # Preserve the original error while explicitly closing encoder and
             # parquet resources. The caller will discard this unmarked unit.
@@ -672,6 +893,8 @@ def _open_resumable_writer(
     blocking_streaming_encoding: bool,
     encoder_queue_maxsize: int,
     encoder_threads: int | None,
+    metadata_buffer_size: int,
+    encoder_temp_root: Path | None,
 ) -> Any:
     try:
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -686,9 +909,11 @@ def _open_resumable_writer(
             encoder_queue_maxsize=encoder_queue_maxsize,
             encoder_threads=encoder_threads,
         )
-        dataset.meta._metadata_buffer_size = 1
+        dataset.meta._metadata_buffer_size = metadata_buffer_size
         if blocking_streaming_encoding:
-            _enable_blocking_streaming_encoding(dataset)
+            _enable_blocking_streaming_encoding(
+                dataset, encoder_temp_root=encoder_temp_root
+            )
         return dataset
     dataset = LeRobotDataset.create(
         repo_id=plan.dataset_uid,
@@ -698,13 +923,16 @@ def _open_resumable_writer(
         robot_type=plan.robot_type,
         use_videos=True,
         rgb_encoder=rgb_encoder,
-        metadata_buffer_size=1,
+        metadata_buffer_size=metadata_buffer_size,
         streaming_encoding=streaming_encoding,
         encoder_queue_maxsize=encoder_queue_maxsize,
         encoder_threads=encoder_threads,
     )
     if blocking_streaming_encoding:
-        _enable_blocking_streaming_encoding(dataset)
+        _enable_blocking_streaming_encoding(
+            dataset, encoder_temp_root=encoder_temp_root
+        )
+    dataset.meta._metadata_buffer_size = metadata_buffer_size
     return dataset
 
 
@@ -721,6 +949,10 @@ def _write_resumable_unit(
     blocking_streaming_encoding: bool,
     encoder_queue_maxsize: int,
     encoder_threads: int | None,
+    metadata_buffer_size: int,
+    batch_metadata_writes: bool,
+    encoder_temp_root: Path | None,
+    fragmented_mp4_writes: bool,
     frame_completed_hook: Callable[[EpisodePlan, int], None] | None,
     episode_completed_hook: Callable[[EpisodePlan, int], None] | None,
 ) -> None:
@@ -728,6 +960,8 @@ def _write_resumable_unit(
     cache_context.__enter__()
     dataset = None
     current_episode_index = start
+    fragmented_context = _fragmented_mp4_writes(fragmented_mp4_writes)
+    fragmented_context.__enter__()
     try:
         dataset = _open_resumable_writer(
             plan,
@@ -738,39 +972,42 @@ def _write_resumable_unit(
             blocking_streaming_encoding=blocking_streaming_encoding,
             encoder_queue_maxsize=encoder_queue_maxsize,
             encoder_threads=encoder_threads,
+            metadata_buffer_size=metadata_buffer_size,
+            encoder_temp_root=encoder_temp_root,
         )
-        for episode_index in range(start, end):
-            current_episode_index = episode_index
-            episode = plan.episodes[episode_index]
-            print(
-                f"[{plan.dataset_uid}] episode {episode_index + 1}/{len(plan.episodes)}: "
-                f"{episode.source_relative_path} ({episode.num_frames} frames)",
-                file=sys.stderr,
-                flush=True,
-            )
-            written = 0
-            for frame in iter_frames(episode):
-                if written >= episode.num_frames:
-                    raise ConversionError(
-                        f"{episode.episode_uid}: reader yielded more than {episode.num_frames} frames"
+        with _deferred_info_stats_writes(dataset, batch_metadata_writes):
+            for episode_index in range(start, end):
+                current_episode_index = episode_index
+                episode = plan.episodes[episode_index]
+                print(
+                    f"[{plan.dataset_uid}] episode {episode_index + 1}/{len(plan.episodes)}: "
+                    f"{episode.source_relative_path} ({episode.num_frames} frames)",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                written = 0
+                for frame in iter_frames(episode):
+                    if written >= episode.num_frames:
+                        raise ConversionError(
+                            f"{episode.episode_uid}: reader yielded more than {episode.num_frames} frames"
+                        )
+                    dataset.add_frame(frame)
+                    written += 1
+                    progress.update(
+                        progress.completed + 1,
+                        context=f"{_checkpoint_unit(episode)} episode {episode_index + 1}",
                     )
-                dataset.add_frame(frame)
-                written += 1
-                progress.update(
-                    progress.completed + 1,
-                    context=f"{_checkpoint_unit(episode)} episode {episode_index + 1}",
-                )
-                if frame_completed_hook is not None:
-                    frame_completed_hook(episode, episode_index)
-            if written != episode.num_frames:
-                raise ConversionError(
-                    f"{episode.episode_uid}: reader yielded {written} frames, "
-                    f"expected {episode.num_frames}"
-                )
-            dataset.save_episode()
-            if episode_completed_hook is not None:
-                episode_completed_hook(episode, episode_index)
-        dataset.finalize()
+                    if frame_completed_hook is not None:
+                        frame_completed_hook(episode, episode_index)
+                if written != episode.num_frames:
+                    raise ConversionError(
+                        f"{episode.episode_uid}: reader yielded {written} frames, "
+                        f"expected {episode.num_frames}"
+                    )
+                dataset.save_episode()
+                if episode_completed_hook is not None:
+                    episode_completed_hook(episode, episode_index)
+            dataset.finalize()
     except BaseException:
         if dataset is not None:
             with contextlib.suppress(Exception):
@@ -785,6 +1022,7 @@ def _write_resumable_unit(
     finally:
         if dataset is not None:
             del dataset
+        fragmented_context.__exit__(*sys.exc_info())
         cache_context.__exit__(*sys.exc_info())
 
 
@@ -800,10 +1038,20 @@ def _convert_dataset_resumable(
     blocking_streaming_encoding: bool,
     encoder_queue_maxsize: int,
     encoder_threads: int | None,
+    metadata_buffer_size: int,
+    resume_data_root: Path | None,
+    resume_state_root: Path | None,
+    resume_lock_path: Path | None,
+    publish_on_complete: bool,
+    cleanup_resume_state: bool,
+    rebuild_corrupt_checkpoint: bool,
+    batch_metadata_writes: bool,
+    encoder_temp_root: Path | None,
+    fragmented_mp4_writes: bool,
     frame_completed_hook: Callable[[EpisodePlan, int], None] | None,
     episode_completed_hook: Callable[[EpisodePlan, int], None] | None,
 ) -> Path:
-    if plan.output_path.exists():
+    if publish_on_complete and plan.output_path.exists():
         raise FileExistsError(f"output already exists: {plan.output_path}")
     if not plan.episodes:
         raise ConversionError("cannot convert an empty episode plan")
@@ -814,7 +1062,18 @@ def _convert_dataset_resumable(
         reader_format=reader_format,
         conversion_options=conversion_options,
     )
-    manager = CheckpointManager(plan.output_path, payload)
+    manager = CheckpointManager(
+        plan.output_path,
+        payload,
+        data_root=resume_data_root,
+        state_root=resume_state_root,
+        lock_path=resume_lock_path,
+        allow_corrupt_rebuild=rebuild_corrupt_checkpoint,
+    )
+    if not publish_on_complete and manager.data_root != plan.output_path:
+        raise ConversionError(
+            "in-place resumable conversion requires resume_data_root to equal output_path"
+        )
     succeeded = False
     with exclusive_resume_lock(manager.lock_path):
         position = manager.prepare()
@@ -827,27 +1086,38 @@ def _convert_dataset_resumable(
                 f"resume state records {position.completed_frames} frames, "
                 f"expected {expected_completed_frames} for {completed} episodes"
             )
-        if completed:
-            if completed > len(plan.episodes):
-                raise ConversionError(
-                    f"checkpoint has {completed} episodes, plan has {len(plan.episodes)}"
+        while completed:
+            try:
+                if completed > len(plan.episodes):
+                    raise ConversionError(
+                        f"checkpoint has {completed} episodes, plan has {len(plan.episodes)}"
+                    )
+                if completed < len(plan.episodes) and _checkpoint_unit(
+                    plan.episodes[completed - 1]
+                ) == _checkpoint_unit(plan.episodes[completed]):
+                    raise ConversionError("checkpoint ends in the middle of a conversion unit")
+                validate_written_prefix(plan, manager.data_root, completed)
+                validate_video_files(
+                    plan,
+                    manager.data_root,
+                    expected_frames=expected_completed_frames,
                 )
-            if completed < len(plan.episodes) and _checkpoint_unit(
-                plan.episodes[completed - 1]
-            ) == _checkpoint_unit(plan.episodes[completed]):
-                raise ConversionError("checkpoint ends in the middle of a conversion unit")
-            validate_written_prefix(plan, manager.data_root, completed)
-            validate_video_files(
-                plan,
-                manager.data_root,
-                expected_frames=expected_completed_frames,
-            )
+            except (ConversionError, OSError, RuntimeError, ValueError):
+                if not rebuild_corrupt_checkpoint:
+                    raise
+                position = manager.rollback_latest()
+                completed = position.completed_episodes
+                expected_completed_frames = sum(
+                    episode.num_frames for episode in plan.episodes[:completed]
+                )
+                continue
             print(
                 f"[{plan.dataset_uid}] reused {position.reused_units} verified checkpoint "
                 f"units, {completed} episodes / {expected_completed_frames} frames",
                 file=sys.stderr,
                 flush=True,
             )
+            break
         progress = EtaProgress(
             f"{plan.dataset_uid} convert",
             plan.num_frames,
@@ -874,6 +1144,10 @@ def _convert_dataset_resumable(
                 blocking_streaming_encoding=blocking_streaming_encoding,
                 encoder_queue_maxsize=encoder_queue_maxsize,
                 encoder_threads=encoder_threads,
+                metadata_buffer_size=metadata_buffer_size,
+                batch_metadata_writes=batch_metadata_writes,
+                encoder_temp_root=encoder_temp_root,
+                fragmented_mp4_writes=fragmented_mp4_writes,
                 frame_completed_hook=frame_completed_hook,
                 episode_completed_hook=episode_completed_hook,
             )
@@ -930,9 +1204,17 @@ def _convert_dataset_resumable(
             }
         )
         atomic_write_json(manager.data_root / "conversion_manifest.json", manifest)
-        publish_temporary_output(manager.data_root, plan.output_path, overwrite=False)
-        manager.cleanup_state()
-        progress.finish(context="conversion validated and atomically published")
+        if publish_on_complete:
+            publish_temporary_output(manager.data_root, plan.output_path, overwrite=False)
+        if cleanup_resume_state:
+            manager.cleanup_state()
+        progress.finish(
+            context=(
+                "conversion validated and atomically published"
+                if publish_on_complete
+                else "conversion validated in final-compatible output"
+            )
+        )
         succeeded = True
     if succeeded:
         manager.lock_path.unlink(missing_ok=True)
@@ -973,16 +1255,35 @@ def convert_dataset(
     encoder_threads: int | None = None,
     frame_completed_hook: Callable[[EpisodePlan, int], None] | None = None,
     episode_completed_hook: Callable[[EpisodePlan, int], None] | None = None,
+    metadata_buffer_size: int = 1,
+    resume_data_root: Path | None = None,
+    resume_state_root: Path | None = None,
+    resume_lock_path: Path | None = None,
+    publish_on_complete: bool = True,
+    cleanup_resume_state: bool = True,
+    rebuild_corrupt_checkpoint: bool = False,
+    batch_metadata_writes: bool = False,
+    encoder_temp_root: Path | None = None,
+    fragmented_mp4_writes: bool = False,
 ) -> Path:
     if resume and overwrite:
         raise ConversionError("resume and overwrite are mutually exclusive")
     if resume:
+        if metadata_buffer_size <= 0:
+            raise ConversionError("metadata_buffer_size must be positive")
         options = {
             "streaming_encoding": streaming_encoding,
             "blocking_streaming_encoding": blocking_streaming_encoding,
             "encoder_queue_maxsize": encoder_queue_maxsize,
             "encoder_threads": encoder_threads,
             "rgb_encoder": repr(rgb_encoder),
+            "metadata_buffer_size": metadata_buffer_size,
+            "publish_on_complete": publish_on_complete,
+            "cleanup_resume_state": cleanup_resume_state,
+            "rebuild_corrupt_checkpoint": rebuild_corrupt_checkpoint,
+            "batch_metadata_writes": batch_metadata_writes,
+            "encoder_temp_root": str(encoder_temp_root) if encoder_temp_root else None,
+            "fragmented_mp4_writes": fragmented_mp4_writes,
             **(conversion_options or {}),
         }
         return _convert_dataset_resumable(
@@ -996,6 +1297,16 @@ def convert_dataset(
             blocking_streaming_encoding=blocking_streaming_encoding,
             encoder_queue_maxsize=encoder_queue_maxsize,
             encoder_threads=encoder_threads,
+            metadata_buffer_size=metadata_buffer_size,
+            resume_data_root=resume_data_root,
+            resume_state_root=resume_state_root,
+            resume_lock_path=resume_lock_path,
+            publish_on_complete=publish_on_complete,
+            cleanup_resume_state=cleanup_resume_state,
+            rebuild_corrupt_checkpoint=rebuild_corrupt_checkpoint,
+            batch_metadata_writes=batch_metadata_writes,
+            encoder_temp_root=encoder_temp_root,
+            fragmented_mp4_writes=fragmented_mp4_writes,
             frame_completed_hook=frame_completed_hook,
             episode_completed_hook=episode_completed_hook,
         )
@@ -1014,6 +1325,9 @@ def convert_dataset(
             blocking_streaming_encoding=blocking_streaming_encoding,
             encoder_queue_maxsize=encoder_queue_maxsize,
             encoder_threads=encoder_threads,
+            batch_metadata_writes=batch_metadata_writes,
+            encoder_temp_root=encoder_temp_root,
+            fragmented_mp4_writes=fragmented_mp4_writes,
             frame_completed_hook=frame_completed_hook,
             episode_completed_hook=episode_completed_hook,
         )

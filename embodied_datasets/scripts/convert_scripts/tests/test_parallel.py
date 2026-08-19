@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import os
 from pathlib import Path
 import time
 
@@ -87,6 +88,8 @@ def _process_worker(unit: ParallelWorkUnit) -> str:
     path = Path(unit.target_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("started\n", encoding="utf-8")
+    if payload.get("hard_exit"):
+        os._exit(17)
     time.sleep(float(payload.get("delay", 0)))
     if payload.get("fail"):
         raise RuntimeError("synthetic worker failure")
@@ -161,6 +164,86 @@ def test_worker_failure_stops_new_dispatch(tmp_path: Path):
     )
     with pytest.raises(ParallelWorkError, match="unit-0"):
         run_parallel_work_units(units, _process_worker, workers=2)
+    assert Path(units[0].target_path).exists()
+    assert Path(units[1].target_path).exists()
+    assert not Path(units[2].target_path).exists()
+    assert not Path(units[3].target_path).exists()
+
+
+def test_worker_hard_exit_is_reported_and_stops_new_dispatch(tmp_path: Path):
+    units = _contiguous_units(
+        tmp_path,
+        [4, 3, 2],
+        [
+            {"hard_exit": True},
+            {"delay": 0.5},
+            {},
+        ],
+    )
+    with pytest.raises(ParallelWorkError, match="unit-0"):
+        run_parallel_work_units(units, _process_worker, workers=2)
+    assert Path(units[0].target_path).exists()
+    assert Path(units[1].target_path).exists()
+    assert not Path(units[2].target_path).exists()
+
+
+def test_running_health_failure_stops_new_dispatch(tmp_path: Path):
+    units = _contiguous_units(
+        tmp_path,
+        [4, 3, 2],
+        [
+            {"delay": 0.5},
+            {"delay": 0.5},
+            {},
+        ],
+    )
+
+    def fail_health_check() -> None:
+        raise ConversionError("synthetic periodic capacity failure")
+
+    with pytest.raises(ConversionError, match="periodic capacity failure"):
+        run_parallel_work_units(
+            units,
+            _process_worker,
+            workers=2,
+            health_check=fail_health_check,
+            health_check_interval_seconds=0.01,
+        )
+    assert Path(units[0].target_path).exists()
+    assert Path(units[1].target_path).exists()
+    assert not Path(units[2].target_path).exists()
+
+
+def test_before_dispatch_failure_stops_new_frontier_work(tmp_path: Path):
+    units = _contiguous_units(
+        tmp_path,
+        [4, 3, 2, 1],
+        [
+            {"delay": 0.01},
+            {"delay": 0.5},
+            {},
+            {},
+        ],
+    )
+    checked: list[str] = []
+
+    def reject_third(
+        unit: ParallelWorkUnit, active: tuple[ParallelWorkUnit, ...]
+    ) -> None:
+        checked.append(unit.key)
+        if unit.key == "unit-2":
+            assert [item.key for item in active] == ["unit-1"]
+            raise ConversionError("synthetic dispatch capacity failure")
+
+    with pytest.raises(ConversionError, match="dispatch capacity failure"):
+        run_parallel_work_units(
+            units,
+            _process_worker,
+            workers=2,
+            before_dispatch=reject_third,
+        )
+
+    assert checked == ["unit-0", "unit-1", "unit-2"]
     assert Path(units[0].target_path).exists()
     assert Path(units[1].target_path).exists()
     assert not Path(units[2].target_path).exists()

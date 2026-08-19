@@ -94,6 +94,51 @@ def test_resume_discards_files_from_uncommitted_active_unit(tmp_path: Path):
     assert restored == {"checkpoint": "valid"}
 
 
+def test_corrupt_latest_part_rolls_back_to_newest_valid_prefix(tmp_path: Path):
+    manager = _committed_checkpoint(tmp_path)
+    (manager.data_root / "meta" / "info.json").write_text(
+        json.dumps({"checkpoint": "second"}), encoding="utf-8"
+    )
+    second = manager.data_root / "data" / "second.parquet"
+    second.write_bytes(b"second-part")
+    manager.commit(checkpoint_unit="unit-1", completed_episodes=2, completed_frames=5)
+    second.write_bytes(b"corrupt")
+
+    recovered = CheckpointManager(
+        tmp_path / "dataset",
+        _payload(),
+        allow_corrupt_rebuild=True,
+    )
+    position = recovered.prepare()
+
+    assert position.completed_episodes == 1
+    assert position.completed_frames == 2
+    assert position.checkpoint_unit == "unit-0"
+    assert not second.exists()
+    assert json.loads(
+        (manager.data_root / "meta" / "info.json").read_text(encoding="utf-8")
+    ) == {"checkpoint": "valid"}
+    state = json.loads(recovered.state_path.read_text(encoding="utf-8"))
+    assert len(state["history"]) == 1
+
+
+def test_checkpoint_snapshots_only_mutable_meta_root_files(tmp_path: Path):
+    manager = _committed_checkpoint(tmp_path)
+    nested = manager.data_root / "meta" / "episodes" / "chunk-000"
+    nested.mkdir(parents=True)
+    (nested / "file-000.parquet").write_bytes(b"episode metadata")
+    (manager.data_root / "meta" / "stats.json").write_text("{}", encoding="utf-8")
+    manager.commit(checkpoint_unit="unit-1", completed_episodes=2, completed_frames=4)
+
+    state = json.loads(manager.state_path.read_text(encoding="utf-8"))
+    snapshot_meta = manager.state_root / state["snapshot"] / "meta"
+    assert sorted(path.name for path in snapshot_meta.iterdir()) == [
+        "info.json",
+        "stats.json",
+    ]
+    assert not (snapshot_meta / "episodes").exists()
+
+
 def test_resume_payload_fingerprints_decoder_repository_head_and_weight_file(
     tmp_path: Path,
 ):

@@ -6,6 +6,8 @@ change to ``convert_dataset.py``'s dispatch logic.
 from __future__ import annotations
 
 from readers.base import DatasetReader
+from readers.arcap_hdf5_reader import ARCapHdf5Reader
+from readers.dexmimicgen_hdf5_reader import DexMimicGenHdf5Reader
 from readers.hdf5_reader import Hdf5Reader
 from readers.one_x_world_model_reader import OneXWorldModelReader
 from readers.raw_image_json_reader import RawImageJsonReader
@@ -13,7 +15,9 @@ from readers.rlds_reader import RldsReader
 from readers.robomimic_hdf5_reader import RobomimicHdf5Reader
 
 READER_REGISTRY: dict[str, DatasetReader] = {
+    "arcap_hdf5": ARCapHdf5Reader(),
     "hdf5": Hdf5Reader(),
+    "dexmimicgen_hdf5": DexMimicGenHdf5Reader(),
     "one_x_world_model": OneXWorldModelReader(),
     "robomimic_hdf5": RobomimicHdf5Reader(),
     "rlds": RldsReader(),

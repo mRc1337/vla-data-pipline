@@ -56,7 +56,9 @@ class DatasetConversionConfig(BaseModel):
     dataset_uid: str
     format: Literal[
         "hdf5",
+        "arcap_hdf5",
         "one_x_world_model",
+        "dexmimicgen_hdf5",
         "robomimic_hdf5",
         "rlds",
         "raw_image_json",

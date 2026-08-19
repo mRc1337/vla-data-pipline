@@ -77,6 +77,14 @@ pip install tensorflow-cpu==2.15.0 tensorflow-datasets==4.9.9
 报告，只是不解码成结构化的 shape/dtype，报告里的 `fidelity` 字段会写清楚
 当前处于哪种精度。
 
+## ARCap 原始数据转换为 LeRobot v3.0
+
+ARCap 的五分区、无视频、float64 点云 staging 转换也已实现；它使用 phase-group
+粒度的 persistent-worker direct-commit、可验证恢复和 OSSFS marker 发布；四进程是代表性
+多单元 warm 证据下的正式候选，短冷启动基准会按门禁拒绝无加速配置。调查、字段映射、容量计划、
+正式命令与独立评估见
+[`ARCAP_CONVERSION.md`](embodied_datasets/scripts/convert_scripts/ARCAP_CONVERSION.md)。全量转换未启动。
+
 ## Mobile ALOHA 原始数据转换为 LeRobot v3.0
 
 转换入口只负责把原始 HDF5 搬运为 LeRobot v3.0，不执行清洗、重采样、归一化或
@@ -212,6 +220,57 @@ env HF_HOME=/home/pai/zxw/.cache/huggingface \
 而未真正执行检查的会标注 `[UNVERIFIED]`，避免和真实检查通过混淆。
 
 ## 模块化多格式转换（convert_dataset.py）
+
+MimicGen 的 62 个 robomimic HDF5 容器使用专用集合入口
+`convert_mimicgen_to_lerobot.py`：它复用通用 reader/writer/checkpoint，按真实固定 schema
+一文件一分区，保留原生 dtype、split 和来源追踪，并支持可验证的 `--resume`。先阅读
+[`MIMICGEN_CONVERSION.md`](embodied_datasets/scripts/convert_scripts/MIMICGEN_CONVERSION.md)，
+其中包含完整字段映射、真实 smoke 结果、正式后台命令和只读 OSS dry-run 命令。
+
+```bash
+HF_HOME=/home/pai/zxw/.cache/huggingface .venv/bin/python -u \
+  embodied_datasets/scripts/convert_scripts/convert_mimicgen_to_lerobot.py \
+  --inspect-only --inspect-workers 4
+```
+
+DexMimicGen 使用 `convert_dexmimicgen_to_lerobot.py`。9 个官方 HDF5 的固定 schema
+彼此不同，因此输出 9 个独立 LeRobot partition 和一个 collection manifest；数值字段保持原
+dtype/shape/order，MJCF XML 以 SHA-256 去重 sidecar 保存。正式路径使用已实测加速的 4 个隔离
+partition worker 与 CPU H.264，并拒绝本机真实预检失败的 NVENC。`--resume` 使用默认 64 episode
+的 part 级 checkpoint；所有最终数据、work/cache、resume、
+日志和锁都限制在固定 OSSFS staging 根目录。发布使用 `_INCOMPLETE`/`_SUCCESS`，不复制第二份
+集合也不依赖完整目录 rename；容量由显式 staging/inflight 配额控制。完整证据、映射、
+storage plan 与命令见
+[`DEXMIMICGEN_CONVERSION.md`](embodied_datasets/scripts/convert_scripts/DEXMIMICGEN_CONVERSION.md)。
+
+```bash
+PYTHONPATH=embodied_datasets/scripts/convert_scripts .venv/bin/python \
+  embodied_datasets/scripts/convert_scripts/convert_dexmimicgen_to_lerobot.py \
+  --estimate-storage
+```
+
+RoboVerse v2 的发布文件是无图像、无时间戳且跨机器人/schema 异构的轨迹集合，使用专用入口
+`convert_roboverse_to_lerobot.py`。它不会伪造相机或 FPS；默认因缺少物理时间基准而拒绝写入，
+只有显式选择 `--allow-ordinal-timebase` 或提供有外部依据的 `--fps-override` 才转换。不同固定
+schema、机器人和动作/状态对齐方式写为可追踪的独立 LeRobot part，支持校验后 part 级续传。
+`--inspect-only` 会全量验证每帧 schema/dtype，并为每个动态 feature 汇总逐分量有限值范围和
+NaN/+Inf/-Inf 计数；用 `--inspection-report` 可原子保存完整 JSON。真实 RLBench 对齐 episode、
+ManiSkill 稳定混合 dtype action-only episode，以及保留 `[9,1]` 命名单元素数组轴的 LIBERO-90
+episode 都已转换并通过独立 raw/Parquet/`LeRobotDataset` 首中末帧逐字段核对。2026-08-18
+完整源扫描发现的 52 个截断 CALVIN 文件已从 pinned 官方 revision 恢复，52 文件定向只读
+preflight 以 0 blocker 通过；修复后尚未重跑完整源扫描。仍明确阻止转换的是 1,003 个 episode
+内 dtype 漂移的 ManiSkill 文件，未启动全量转换或 OSS 写入。
+调查证据、字段映射、真实 smoke、风险和正式命令见
+[`ROBOVERSE_CONVERSION.md`](embodied_datasets/scripts/convert_scripts/ROBOVERSE_CONVERSION.md)。
+
+```bash
+HF_HOME=/home/pai/zxw/.cache/huggingface .venv/bin/python -u \
+  embodied_datasets/scripts/convert_scripts/convert_roboverse_to_lerobot.py \
+  --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
+  --source-directory roboverse --dataset-uid roboverse --inspect-only \
+  --inspection-report /home/pai/zxw/roboverse_logs/preflight_summary.json
+```
+
 
 `convert_mobile_aloha_to_lerobot.py` 只覆盖 Mobile ALOHA 一种 HDF5 布局。其他
 数据集（普通单臂 HDF5、RLDS/TFDS、"文件夹+图片+JSON" 三种格式）统一走

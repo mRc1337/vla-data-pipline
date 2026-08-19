@@ -18,6 +18,7 @@ from dataclasses import dataclass
 import json
 import math
 from pathlib import Path
+import re
 from typing import Any, Iterable, Sequence
 
 import numpy as np
@@ -54,6 +55,69 @@ def require_h5py():
     except ImportError as exc:  # pragma: no cover - depends on environment
         raise RuntimeError("h5py is required; install the project's requirements.txt") from exc
     return h5py
+
+
+def decode_hdf5_text(value: Any, *, description: str) -> str:
+    """Decode one scalar HDF5 text attr without accepting lossy coercions."""
+
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ConversionError(f"{description} is not valid UTF-8") from exc
+    if isinstance(value, str):
+        return value
+    raise ConversionError(f"{description} must be a UTF-8 string, got {type(value).__name__}")
+
+
+def robomimic_demo_sort_key(name: str) -> int:
+    """Validate and numerically sort canonical ``data/demo_N`` groups."""
+
+    match = re.fullmatch(r"demo_(\d+)", name)
+    if match is None:
+        raise ConversionError(
+            f"unexpected robomimic episode name {name!r}; expected demo_<integer>"
+        )
+    return int(match.group(1))
+
+
+def hdf5_leaf_schema(group: Any) -> tuple[tuple[str, tuple[int, ...], str], ...]:
+    """Return sorted time-tail shapes and exact dtypes for every dataset leaf."""
+
+    h5py = require_h5py()
+    leaves: list[tuple[str, tuple[int, ...], str]] = []
+
+    def visit(name: str, obj: Any) -> None:
+        if isinstance(obj, h5py.Dataset):
+            if not obj.shape:
+                raise ConversionError(f"HDF5 leaf {name!r} is scalar, expected a time axis")
+            leaves.append(
+                (name, tuple(int(value) for value in obj.shape[1:]), str(obj.dtype))
+            )
+
+    group.visititems(visit)
+    return tuple(sorted(leaves))
+
+
+def validate_time_major_group(
+    group: Any,
+    schema: Sequence[tuple[str, tuple[int, ...], str]],
+    *,
+    expected_frames: int,
+    description: str,
+) -> None:
+    """Require every planned leaf to keep its full schema and first dimension."""
+
+    actual = hdf5_leaf_schema(group)
+    if tuple(schema) != actual:
+        raise ConversionError(f"{description}: schema differs from the partition reference")
+    for key, _shape, _dtype in schema:
+        dataset = group[key]
+        if int(dataset.shape[0]) != expected_frames:
+            raise ConversionError(
+                f"{description}/{key}: first dimension {dataset.shape[0]} does not "
+                f"match num_samples={expected_frames}"
+            )
 
 
 def normalize_hdf5_key(key: str) -> str:

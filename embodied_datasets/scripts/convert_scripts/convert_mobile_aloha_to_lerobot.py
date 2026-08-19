@@ -48,7 +48,6 @@ import argparse
 import contextlib
 from dataclasses import asdict, dataclass, replace
 import fcntl
-import hashlib
 import io
 import json
 import math
@@ -64,6 +63,7 @@ import uuid
 import numpy as np
 
 from convert_core.errors import ConversionError
+from convert_core.checkpoint import atomic_write_json, canonical_fingerprint
 from convert_core.hdf5_common import (
     FPS_RELATIVE_TOLERANCE,
     CameraSpec,
@@ -484,8 +484,7 @@ def _resume_signature(
         **asdict(video_encoding),
         "preset": video_encoding.effective_preset,
     }
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest(), payload
+    return canonical_fingerprint(payload), payload
 
 
 def _prepare_resume_state(
@@ -516,23 +515,14 @@ def _prepare_resume_state(
                 f"resume checkpoint exists but its state file is missing: {state_path}; "
                 "move or remove the checkpoint explicitly before starting over"
             )
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_state = state_path.with_name(f".{state_path.name}.{uuid.uuid4().hex}.tmp")
-    temporary_state.write_text(
-        json.dumps(
-            {
-                "version": RESUME_STATE_VERSION,
-                "signature": signature,
-                "configuration": payload,
-            },
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
+    atomic_write_json(
+        state_path,
+        {
+            "version": RESUME_STATE_VERSION,
+            "signature": signature,
+            "configuration": payload,
+        },
     )
-    temporary_state.replace(state_path)
 
 
 def _cleanup_checkpoint_tempdirs(checkpoint_path: Path) -> None:

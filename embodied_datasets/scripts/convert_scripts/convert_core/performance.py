@@ -21,6 +21,7 @@ class PerformanceMetrics:
     write_chars: int
     peak_temp_bytes: int
     io_counters_available: bool
+    io_wait_seconds: float = 0.0
 
     def as_dict(self) -> dict[str, float | int]:
         return asdict(self)
@@ -52,13 +53,16 @@ def _process_tree(root_pid: int) -> set[int]:
     return found
 
 
-def _proc_counters(pid: int) -> tuple[int, int, dict[str, int]] | None:
+def _proc_counters(pid: int) -> tuple[int, int, dict[str, int], int] | None:
     try:
         stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
         # Everything following the final ')' starts at procfs field 3.
         fields = stat[stat.rfind(")") + 2 :].split()
         cpu_ticks = int(fields[11]) + int(fields[12])
         rss_pages = int(fields[21])
+        # proc(5) field 42, delayacct_blkio_ticks.  ``fields`` begins at
+        # field 3 because the executable name is removed above.
+        blkio_ticks = int(fields[39]) if len(fields) > 39 else 0
     except (OSError, ValueError, IndexError):
         return None
     io_values: dict[str, int] = {}
@@ -70,7 +74,7 @@ def _proc_counters(pid: int) -> tuple[int, int, dict[str, int]] | None:
         # Some containers expose stat/RSS but deny /proc/<pid>/io. Preserve
         # the usable CPU and memory evidence and report I/O availability.
         io_values = {}
-    return cpu_ticks, rss_pages, io_values
+    return cpu_ticks, rss_pages, io_values, blkio_ticks
 
 
 def _tree_size(root: Path) -> int:
@@ -118,8 +122,8 @@ class ProcessTreeSampler:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._started_at = 0.0
-        self._baseline: dict[int, tuple[int, dict[str, int]]] = {}
-        self._latest: dict[int, tuple[int, dict[str, int]]] = {}
+        self._baseline: dict[int, tuple[int, dict[str, int], int]] = {}
+        self._latest: dict[int, tuple[int, dict[str, int], int]] = {}
         self._peak_rss = 0
         self._peak_temp = 0
         self._baseline_temp = 0
@@ -132,8 +136,8 @@ class ProcessTreeSampler:
         for pid in _process_tree(self.root_pid):
             counters = _proc_counters(pid)
             if counters is not None:
-                cpu, _rss, io_values = counters
-                self._baseline[pid] = (cpu, io_values)
+                cpu, _rss, io_values, blkio_ticks = counters
+                self._baseline[pid] = (cpu, io_values, blkio_ticks)
                 self._io_counters_available |= bool(io_values)
         self._started_at = time.monotonic()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -145,8 +149,8 @@ class ProcessTreeSampler:
             counters = _proc_counters(pid)
             if counters is None:
                 continue
-            cpu, rss_pages, io_values = counters
-            self._latest[pid] = (cpu, io_values)
+            cpu, rss_pages, io_values, blkio_ticks = counters
+            self._latest[pid] = (cpu, io_values, blkio_ticks)
             self._io_counters_available |= bool(io_values)
             rss += rss_pages * self._page_size
         self._peak_rss = max(self._peak_rss, rss)
@@ -167,10 +171,14 @@ class ProcessTreeSampler:
         self._thread.join()
         wall = max(0.0, time.monotonic() - self._started_at)
         cpu_ticks = 0
+        blkio_ticks = 0
         io_totals = {"read_bytes": 0, "write_bytes": 0, "rchar": 0, "wchar": 0}
-        for pid, (cpu, io_values) in self._latest.items():
-            baseline_cpu, baseline_io = self._baseline.get(pid, (0, {}))
+        for pid, (cpu, io_values, blkio) in self._latest.items():
+            baseline_cpu, baseline_io, baseline_blkio = self._baseline.get(
+                pid, (0, {}, 0)
+            )
             cpu_ticks += max(0, cpu - baseline_cpu)
+            blkio_ticks += max(0, blkio - baseline_blkio)
             for key in io_totals:
                 io_totals[key] += max(0, io_values.get(key, 0) - baseline_io.get(key, 0))
         cpu_seconds = cpu_ticks / self._clock_ticks
@@ -185,4 +193,5 @@ class ProcessTreeSampler:
             write_chars=io_totals["wchar"],
             peak_temp_bytes=self._peak_temp,
             io_counters_available=self._io_counters_available,
+            io_wait_seconds=blkio_ticks / self._clock_ticks,
         )

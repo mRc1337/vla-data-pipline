@@ -20,6 +20,7 @@ def test_process_tree_sampler_reports_work_and_peak_temp(tmp_path: Path):
     assert metrics.wall_seconds > 0
     assert metrics.cpu_seconds >= 0
     assert metrics.average_cpu_cores >= 0
+    assert metrics.io_wait_seconds >= 0
     assert metrics.peak_rss_bytes > 0
     assert metrics.io_counters_available
     assert metrics.write_chars >= len(payload)

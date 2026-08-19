@@ -80,7 +80,9 @@ def _numbers_close(reference: Any, candidate: Any) -> bool:
     return reference == candidate
 
 
-def _semantic_manifest(path: Path) -> dict[str, Any]:
+def _semantic_manifest(
+    path: Path, *, storage_layout_independent: bool = False
+) -> dict[str, Any]:
     value = _json(path)
     if not isinstance(value, dict):
         raise ConversionError(f"conversion manifest is not an object: {path}")
@@ -88,6 +90,8 @@ def _semantic_manifest(path: Path) -> dict[str, Any]:
     normalized.pop("dataset_uid", None)
     for runtime_key in ("resume", "parallel", "video_validation"):
         normalized.pop(runtime_key, None)
+    if storage_layout_independent:
+        normalized.pop("num_video_files", None)
     return normalized
 
 
@@ -133,6 +137,7 @@ def verify_lerobot_equivalence(
     candidate: Path,
     *,
     compare_video_frames: bool = True,
+    storage_layout_independent: bool = False,
 ) -> EquivalenceReport:
     """Assert schema, values, boundaries, frames, and semantic manifest equality."""
 
@@ -147,6 +152,27 @@ def verify_lerobot_equivalence(
 
     reference_episodes = _concat_parquet(reference, "meta/episodes")
     candidate_episodes = _concat_parquet(candidate, "meta/episodes")
+    if storage_layout_independent:
+        storage_columns = {
+            "data/chunk_index",
+            "data/file_index",
+            "meta/episodes/chunk_index",
+            "meta/episodes/file_index",
+        }
+        storage_columns.update(
+            name
+            for name in reference_episodes.column_names
+            if name.startswith("videos/")
+            and name.rsplit("/", 1)[-1]
+            in {"chunk_index", "file_index", "from_timestamp", "to_timestamp"}
+        )
+        semantic_columns = [
+            name
+            for name in reference_episodes.column_names
+            if name not in storage_columns
+        ]
+        reference_episodes = reference_episodes.select(semantic_columns)
+        candidate_episodes = candidate_episodes.select(semantic_columns)
     _assert_tables_equal("episode metadata", reference_episodes, candidate_episodes)
 
     # Compare the dedicated task tables directly to avoid file-layout dependence.
@@ -168,8 +194,14 @@ def verify_lerobot_equivalence(
             f"meta/stats.json differs between serial and parallel outputs: {differing}"
         )
 
-    reference_manifest = _semantic_manifest(reference / "conversion_manifest.json")
-    candidate_manifest = _semantic_manifest(candidate / "conversion_manifest.json")
+    reference_manifest = _semantic_manifest(
+        reference / "conversion_manifest.json",
+        storage_layout_independent=storage_layout_independent,
+    )
+    candidate_manifest = _semantic_manifest(
+        candidate / "conversion_manifest.json",
+        storage_layout_independent=storage_layout_independent,
+    )
     if not _numbers_close(reference_manifest, candidate_manifest):
         raise ConversionError("semantic conversion manifest differs")
 
