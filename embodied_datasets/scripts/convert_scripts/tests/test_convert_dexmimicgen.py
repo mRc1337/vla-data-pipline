@@ -201,6 +201,26 @@ def test_runtime_layout_and_environment_are_confined_to_staging(
     assert Path(tempfile.gettempdir()).is_relative_to(paths.output_root)
 
 
+def test_runtime_layout_can_use_explicit_local_runtime_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    root = tmp_path / "lerobot_v3_0"
+    local = tmp_path / "local_runtime"
+    root.mkdir()
+    monkeypatch.setattr(converter, "DEFAULT_OUTPUT_ROOT", root)
+    args = converter._parser().parse_args(
+        ["--output-root", str(root), "--local-runtime-root", str(local)]
+    )
+
+    paths = converter._runtime_paths(args)
+
+    assert paths.work_dir == local / "work"
+    assert paths.temp_dir == local / "work" / "temp"
+    assert paths.cache_dir == local / "work" / "cache"
+    assert paths.resume_dir == root / ".conversion_resume" / "dexmimicgen"
+    assert paths.logs_dir == root / ".conversion_logs" / "dexmimicgen"
+
+
 @pytest.mark.parametrize(
     "flag",
     ["--output", "--work-dir", "--resume-dir", "--logs-dir", "--temp-dir"],

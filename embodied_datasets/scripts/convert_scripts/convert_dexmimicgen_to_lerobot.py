@@ -156,9 +156,14 @@ def _runtime_paths(args: argparse.Namespace) -> RuntimePaths:
     output_root = args.output_root
     final_output = args.output or output_root / "dexmimicgen"
     run_id = final_output.name
-    work_dir = args.work_dir or (
-        output_root / ".conversion_work" / "dexmimicgen" / run_id
-    )
+    local_runtime_root = args.local_runtime_root
+    if local_runtime_root is None:
+        work_dir = args.work_dir or (
+            output_root / ".conversion_work" / "dexmimicgen" / run_id
+        )
+    else:
+        local_runtime_root = local_runtime_root.expanduser().absolute()
+        work_dir = args.work_dir or local_runtime_root / "work"
     resume_dir = args.resume_dir or (
         output_root / ".conversion_resume" / "dexmimicgen"
     )
@@ -172,14 +177,22 @@ def _runtime_paths(args: argparse.Namespace) -> RuntimePaths:
         output_root,
         {
             "final output": final_output,
-            "--work-dir": work_dir,
             "--resume-dir": resume_dir,
             "--logs-dir": logs_dir,
-            "--temp-dir": temp_dir,
-            "runtime cache": cache_dir,
             "conversion lock": lock_path,
         },
         required_root=DEFAULT_OUTPUT_ROOT,
+    )
+    runtime_root = local_runtime_root or output_root
+    resolved.update(
+        validate_paths_within_root(
+            runtime_root,
+            {
+                "--work-dir": work_dir,
+                "--temp-dir": temp_dir,
+                "runtime cache": cache_dir,
+            },
+        )
     )
     root = output_root.expanduser().absolute().resolve(strict=False)
     if resolved["final output"] == root or resolved["final output"].name.startswith("."):
@@ -848,6 +861,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--raw-root", type=Path, default=DEFAULT_RAW_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--local-runtime-root",
+        type=Path,
+        help=(
+            "local root for work/temp/cache; final output, resume state, logs, "
+            "and lock remain under --output-root"
+        ),
+    )
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--resume-dir", type=Path)
     parser.add_argument("--logs-dir", type=Path)
