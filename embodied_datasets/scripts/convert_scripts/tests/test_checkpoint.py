@@ -42,6 +42,42 @@ def test_resume_rejects_source_schema_and_codec_fingerprint_changes(
         CheckpointManager(output, _payload(**updates)).prepare()
 
 
+def test_resume_allows_relocating_encoder_runtime_directory(tmp_path: Path):
+    output = tmp_path / "dataset"
+    old_payload = _payload(
+        conversion_options={"codec": "h264", "preset": "p4", "encoder_temp_root": "/old"}
+    )
+    manager = CheckpointManager(output, old_payload)
+    manager.prepare()
+    (manager.data_root / "meta").mkdir(parents=True)
+    (manager.data_root / "meta" / "info.json").write_text("{}", encoding="utf-8")
+    manager.commit(checkpoint_unit="unit-0", completed_episodes=1, completed_frames=2)
+    state = json.loads(manager.state_path.read_text(encoding="utf-8"))
+    legacy_fingerprint = canonical_fingerprint(old_payload)
+    state["fingerprint"] = legacy_fingerprint
+    marker_path = manager.state_root / state["marker"]
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    marker["fingerprint"] = legacy_fingerprint
+    manager.state_path.write_text(json.dumps(state), encoding="utf-8")
+    marker_path.write_text(json.dumps(marker), encoding="utf-8")
+
+    relocated = CheckpointManager(
+        output,
+        _payload(
+            conversion_options={
+                "codec": "h264",
+                "preset": "p4",
+                "encoder_temp_root": "/new",
+            }
+        ),
+    )
+    position = relocated.prepare()
+
+    assert position.completed_episodes == 1
+    state = json.loads(relocated.state_path.read_text(encoding="utf-8"))
+    assert state["configuration"]["conversion_options"]["encoder_temp_root"] == "/new"
+
+
 def _committed_checkpoint(tmp_path: Path) -> CheckpointManager:
     manager = CheckpointManager(tmp_path / "dataset", _payload())
     manager.prepare()

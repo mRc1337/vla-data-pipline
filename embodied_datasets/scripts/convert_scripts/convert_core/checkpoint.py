@@ -22,6 +22,7 @@ from convert_core.errors import ConversionError
 
 
 RESUME_SCHEMA_VERSION = 1
+RUNTIME_ONLY_CONVERSION_OPTIONS = frozenset({"encoder_temp_root"})
 
 
 def canonical_fingerprint(payload: dict[str, Any]) -> str:
@@ -33,6 +34,21 @@ def canonical_fingerprint(payload: dict[str, Any]) -> str:
         allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def resume_fingerprint(payload: dict[str, Any]) -> str:
+    """Fingerprint conversion identity while ignoring relocatable runtime paths."""
+
+    options = payload.get("conversion_options")
+    if not isinstance(options, dict):
+        return canonical_fingerprint(payload)
+    normalized = dict(payload)
+    normalized["conversion_options"] = {
+        key: value
+        for key, value in options.items()
+        if key not in RUNTIME_ONLY_CONVERSION_OPTIONS
+    }
+    return canonical_fingerprint(normalized)
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -288,7 +304,7 @@ class CheckpointManager:
         self.lock_path = lock_path if lock_path is not None else default_lock
         self.allow_corrupt_rebuild = allow_corrupt_rebuild
         self.payload = payload
-        self.fingerprint = canonical_fingerprint(payload)
+        self.fingerprint = resume_fingerprint(payload)
         self.state_path = self.state_root / "state.json"
         self.markers_root = self.state_root / "markers"
         self.snapshots_root = self.state_root / "snapshots"
@@ -312,12 +328,15 @@ class CheckpointManager:
                     f"resume schema changed in {self.state_path}; move the old checkpoint aside"
                 )
             if state.get("fingerprint") != self.fingerprint:
-                changed = _changed_categories(previous_payload, self.payload)
-                raise ConversionError(
-                    "resume checkpoint fingerprint does not match this conversion; changed "
-                    f"categories: {', '.join(changed) or 'unknown'}. Use the original "
-                    f"arguments or move {self.data_root} and {self.state_root} aside"
-                )
+                if resume_fingerprint(previous_payload) == self.fingerprint:
+                    self._migrate_runtime_fingerprint(state)
+                else:
+                    changed = _changed_categories(previous_payload, self.payload)
+                    raise ConversionError(
+                        "resume checkpoint fingerprint does not match this conversion; changed "
+                        f"categories: {', '.join(changed) or 'unknown'}. Use the original "
+                        f"arguments or move {self.data_root} and {self.state_root} aside"
+                    )
             self._state = state
         else:
             if checkpoint_exists:
@@ -364,6 +383,19 @@ class CheckpointManager:
             str(unit),
             int(self._state.get("completed_units", 0)),
         )
+
+    def _migrate_runtime_fingerprint(self, state: dict[str, Any]) -> None:
+        """Rewrite legacy state after only a relocatable runtime path changed."""
+
+        state["fingerprint"] = self.fingerprint
+        state["configuration"] = self.payload
+        marker_value = state.get("marker")
+        if isinstance(marker_value, str):
+            marker_path = self.state_root / marker_value
+            marker = read_json_object(marker_path, "checkpoint marker")
+            marker["fingerprint"] = self.fingerprint
+            atomic_write_json(marker_path, marker)
+        atomic_write_json(self.state_path, state)
 
     def _restore_snapshot(self) -> None:
         assert self._state is not None
