@@ -1018,8 +1018,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if bounded and args.output is None and not args.estimate_storage:
         parser.error("bounded smoke conversion requires an independent --output test UID")
-    if not args.raw_root.is_dir():
-        parser.error(f"raw root does not exist: {args.raw_root}")
+    # The official raw root is on OSSFS; even is_dir() can block in D state.
+    # _build_infos opens each fixed official HDF5 path and reports a precise
+    # error if the source is unavailable, so avoid probing the remote root.
 
     paths: RuntimePaths | None = None
     log_path: Path | None = None
@@ -1029,6 +1030,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # inspection or any lazy dependency import.  The estimate-only path
         # does not create these directories.
         _configure_runtime_environment(paths, create=False)
+        print("startup stage=build_infos", file=sys.stderr, flush=True)
         infos = _build_infos(
             args.raw_root,
             paths.final_output,
@@ -1036,13 +1038,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_episodes=args.max_episodes,
             episodes_per_part=args.episodes_per_checkpoint_part,
         )
+        print("startup stage=resume_accounting", file=sys.stderr, flush=True)
         existing_output_bytes, resume_state_bytes = _resume_accounting(paths.resume_dir)
+        print("startup stage=storage_estimate", file=sys.stderr, flush=True)
         snapshot, estimate = _storage_estimate(
             infos,
             paths.work_dir,
             workers=min(args.workers, args.max_inflight_units),
             existing_output_bytes=existing_output_bytes,
         )
+        print("startup stage=storage_estimate_done", file=sys.stderr, flush=True)
         # The final output is on OSSFS.  Account its committed bytes from the
         # checkpoint inventory rather than recursively stat-ing the remote tree.
         current_scoped_usage = (
