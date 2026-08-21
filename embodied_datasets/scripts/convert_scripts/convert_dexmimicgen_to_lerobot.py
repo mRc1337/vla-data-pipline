@@ -48,7 +48,6 @@ from convert_core.storage import (
     filesystem_snapshot,
     format_staging_quota_check,
     make_storage_estimate,
-    scoped_size,
     validate_paths_within_root,
 )
 from readers.dexmimicgen_hdf5_reader import (
@@ -360,6 +359,7 @@ def _storage_estimate(
     output: Path,
     *,
     workers: int,
+    existing_output_bytes: int = 0,
 ) -> tuple[Any, Any]:
     snapshot = filesystem_snapshot(output)
     numeric = sum(info.selected_numeric_logical_bytes for info in infos)
@@ -378,7 +378,6 @@ def _storage_estimate(
     inflight_upper = active * 2 * GIB
     encoder_temp_upper = active * 512 * MIB
     final_upper = data_upper + video_upper + metadata_upper
-    existing = directory_size(output) if output.exists() else 0
     estimate = make_storage_estimate(
         data_expected_bytes=data_expected,
         data_range_bytes=(data_lower, data_upper),
@@ -389,7 +388,7 @@ def _storage_estimate(
         inflight_upper_bytes=inflight_upper,
         encoder_temp_upper_bytes=encoder_temp_upper,
         final_upper_bytes=final_upper,
-        existing_output_bytes=existing,
+        existing_output_bytes=existing_output_bytes,
         snapshot=snapshot,
         safety_reserve_bytes=0,
         method=(
@@ -402,17 +401,45 @@ def _storage_estimate(
     return snapshot, estimate
 
 
-def _remaining_staging_reservation(estimate: Any, paths: RuntimePaths) -> int:
+def _resume_accounting(resume_dir: Path) -> tuple[int, int]:
+    """Read lightweight checkpoint ledgers without walking remote snapshots."""
+
+    output_bytes = 0
+    state_bytes = 0
+    for state_path in sorted(resume_dir.glob("partitions/*/state.json")):
+        try:
+            state_bytes += state_path.stat().st_size
+            state = read_json_object(state_path, "DexMimicGen resume state")
+        except (ConversionError, OSError):
+            continue
+        records = state.get("inventory", [])
+        if not isinstance(records, list):
+            continue
+        output_bytes += sum(
+            int(record.get("size", 0))
+            for record in records
+            if isinstance(record, dict)
+        )
+    return output_bytes, state_bytes
+
+
+def _remaining_staging_reservation(
+    estimate: Any,
+    paths: RuntimePaths,
+    *,
+    existing_output_bytes: int,
+    resume_state_bytes: int,
+) -> int:
     """Return conservative additional bytes across final, resume, and work roots."""
 
     remaining_final = max(
         0,
         estimate.final_output_conservative_upper_bytes
-        - directory_size(paths.final_output),
+        - existing_output_bytes,
     )
     remaining_checkpoint = max(
         0,
-        estimate.checkpoint_state_upper_bytes - directory_size(paths.resume_dir),
+        estimate.checkpoint_state_upper_bytes - resume_state_bytes,
     )
     remaining_work = max(
         0,
@@ -555,13 +582,10 @@ def _work_units(
             temp_dir=str(paths.temp_dir),
             resume_dir=str(paths.resume_dir),
             log_path=str(paths.logs_dir / f"partition-{info.partition_name}.jsonl"),
-            staging_roots=(
-                str(paths.final_output),
-                str(paths.work_dir),
-                str(paths.resume_dir),
-                str(paths.logs_dir),
-                str(paths.lock_path),
-            ),
+            # Final output and resume snapshots are on OSSFS. Their committed
+            # bytes are accounted from checkpoint inventory; runtime scans
+            # must stay on local work storage to avoid remote tree walks.
+            staging_roots=(str(paths.work_dir),),
             inflight_roots=(str(paths.work_dir),),
             max_staging_bytes=args.max_staging_bytes,
             max_inflight_bytes=args.max_inflight_bytes,
@@ -1004,21 +1028,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             max_episodes=args.max_episodes,
             episodes_per_part=args.episodes_per_checkpoint_part,
         )
+        existing_output_bytes, resume_state_bytes = _resume_accounting(paths.resume_dir)
         snapshot, estimate = _storage_estimate(
             infos,
             paths.final_output,
             workers=min(args.workers, args.max_inflight_units),
+            existing_output_bytes=existing_output_bytes,
         )
-        current_scoped_usage = scoped_size(
-            (
-                paths.final_output,
-                paths.work_dir,
-                paths.resume_dir,
-                paths.logs_dir,
-                paths.lock_path,
-            )
+        # The final output is on OSSFS.  Account its committed bytes from the
+        # checkpoint inventory rather than recursively stat-ing the remote tree.
+        current_scoped_usage = (
+            existing_output_bytes
+            + resume_state_bytes
+            + directory_size(paths.work_dir)
+            + (paths.lock_path.stat().st_size if paths.lock_path.exists() else 0)
         )
-        remaining_staging = _remaining_staging_reservation(estimate, paths)
+        remaining_staging = _remaining_staging_reservation(
+            estimate,
+            paths,
+            existing_output_bytes=existing_output_bytes,
+            resume_state_bytes=resume_state_bytes,
+        )
         report = {
             "filesystem_informational_only": snapshot.as_dict(),
             "paths": {key: str(value) for key, value in paths.__dict__.items()},
@@ -1156,13 +1186,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     require_existing=args.resume,
                 )
                 guard = StagingQuotaGuard(
-                    staging_roots=(
-                        paths.final_output,
-                        paths.work_dir,
-                        paths.resume_dir,
-                        paths.logs_dir,
-                        paths.lock_path,
-                    ),
+                    staging_roots=(paths.work_dir,),
                     inflight_roots=(paths.work_dir,),
                     max_staging_bytes=args.max_staging_bytes,
                     max_inflight_bytes=args.max_inflight_bytes,
