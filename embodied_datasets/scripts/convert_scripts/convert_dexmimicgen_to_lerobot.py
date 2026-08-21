@@ -1060,13 +1060,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "numeric_logical_bytes": sum(info.selected_numeric_logical_bytes for info in infos),
                 "image_logical_bytes": sum(info.selected_image_logical_bytes for info in infos),
                 "camera_frames": sum(info.selected_camera_frames for info in infos),
-                "source_root_files": sum(
-                    1 for path in args.raw_root.rglob("*") if path.is_file()
-                ),
+                # The raw release is on OSSFS.  Do not recursively walk the
+                # remote root here: that scan can block the coordinator in
+                # uninterruptible I/O before any worker starts.  The fixed
+                # partition list has already been inspected by _build_infos,
+                # so report the selected source files directly.
+                "source_root_files": len(infos),
                 "source_root_logical_bytes": sum(
-                    path.stat().st_size
-                    for path in args.raw_root.rglob("*")
-                    if path.is_file()
+                    info.source_path.stat().st_size for info in infos
                 ),
                 "partition_distribution": [
                     {
