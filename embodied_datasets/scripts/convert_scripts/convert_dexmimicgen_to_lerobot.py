@@ -406,7 +406,13 @@ def _resume_accounting(resume_dir: Path) -> tuple[int, int]:
 
     output_bytes = 0
     state_bytes = 0
-    for state_path in sorted(resume_dir.glob("partitions/*/state.json")):
+    # Partition names are fixed by the official release.  Avoid globbing the
+    # remote resume tree: OSSFS directory enumeration can block indefinitely.
+    state_paths = (
+        resume_dir / "partitions" / partition / "state.json"
+        for partition in PARTITION_NAMES
+    )
+    for state_path in state_paths:
         try:
             state_bytes += state_path.stat().st_size
             state = read_json_object(state_path, "DexMimicGen resume state")
@@ -1041,7 +1047,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             existing_output_bytes
             + resume_state_bytes
             + directory_size(paths.work_dir)
-            + (paths.lock_path.stat().st_size if paths.lock_path.exists() else 0)
         )
         remaining_staging = _remaining_staging_reservation(
             estimate,
