@@ -29,6 +29,7 @@ from convert_core.checkpoint import (
     canonical_fingerprint,
     exclusive_resume_lock,
     read_json_object,
+    resume_fingerprint,
 )
 from convert_core.errors import ConversionError
 from convert_core.lerobot_writer import (
@@ -621,7 +622,7 @@ def _work_units(
             ),
             episodes_per_part=args.episodes_per_checkpoint_part,
         )
-        fingerprint = canonical_fingerprint(
+        fingerprint = resume_fingerprint(
             build_resume_payload(
                 plan,
                 reader_format="dexmimicgen_hdf5",
@@ -863,7 +864,7 @@ def _prepare_collection_resume(
     require_existing: bool = False,
 ) -> None:
     state_path = state_root / "collection.json"
-    fingerprint = canonical_fingerprint(payload)
+    fingerprint = resume_fingerprint(payload)
     if state_path.exists():
         if not final_output.is_dir():
             raise ConversionError(
@@ -871,10 +872,15 @@ def _prepare_collection_resume(
             )
         state = read_json_object(state_path, "DexMimicGen collection resume state")
         if state.get("fingerprint") != fingerprint:
-            raise ConversionError(
-                "collection resume fingerprint changed; restore the original source, "
-                "selection, worker, and encoder arguments or move resume paths aside"
-            )
+            previous = state.get("configuration")
+            if not isinstance(previous, dict) or resume_fingerprint(previous) != fingerprint:
+                raise ConversionError(
+                    "collection resume fingerprint changed; restore the original source, "
+                    "selection, worker, and encoder arguments or move resume paths aside"
+                )
+            state["fingerprint"] = fingerprint
+            state["configuration"] = payload
+            atomic_write_json(state_path, state)
         return
     if require_existing:
         raise ConversionError(
@@ -1188,7 +1194,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         incomplete_path,
                         {
                             "status": "incomplete",
-                            "fingerprint": canonical_fingerprint(payload),
+                            "fingerprint": resume_fingerprint(payload),
                             "started_unix": time.time(),
                         },
                     )
@@ -1302,7 +1308,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     success_path,
                     {
                         "status": "success",
-                        "fingerprint": canonical_fingerprint(payload),
+                        "fingerprint": resume_fingerprint(payload),
                         "collection_manifest_sha256": _sha256_file(manifest_path),
                         "partitions": len(infos),
                         "episodes": sum(len(info.plan.episodes) for info in infos),

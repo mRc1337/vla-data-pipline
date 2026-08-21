@@ -23,6 +23,7 @@ from convert_core.errors import ConversionError
 
 RESUME_SCHEMA_VERSION = 1
 RUNTIME_ONLY_CONVERSION_OPTIONS = frozenset({"encoder_temp_root"})
+RELOCATABLE_PAYLOAD_KEYS = frozenset({"source_root"})
 
 
 def canonical_fingerprint(payload: dict[str, Any]) -> str:
@@ -43,6 +44,8 @@ def resume_fingerprint(payload: dict[str, Any]) -> str:
     if not isinstance(options, dict):
         return canonical_fingerprint(payload)
     normalized = dict(payload)
+    for key in RELOCATABLE_PAYLOAD_KEYS:
+        normalized.pop(key, None)
     normalized["conversion_options"] = {
         key: value
         for key, value in options.items()
