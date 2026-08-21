@@ -40,17 +40,25 @@ def canonical_fingerprint(payload: dict[str, Any]) -> str:
 def resume_fingerprint(payload: dict[str, Any]) -> str:
     """Fingerprint conversion identity while ignoring relocatable runtime paths."""
 
-    options = payload.get("conversion_options")
-    if not isinstance(options, dict):
-        return canonical_fingerprint(payload)
-    normalized = dict(payload)
-    for key in RELOCATABLE_PAYLOAD_KEYS:
-        normalized.pop(key, None)
-    normalized["conversion_options"] = {
-        key: value
-        for key, value in options.items()
-        if key not in RUNTIME_ONLY_CONVERSION_OPTIONS
-    }
+    def normalize(value: Any) -> Any:
+        if isinstance(value, dict):
+            result = {}
+            for key, item in value.items():
+                if key in RELOCATABLE_PAYLOAD_KEYS:
+                    continue
+                if key == "conversion_options" and isinstance(item, dict):
+                    item = {
+                        option: option_value
+                        for option, option_value in item.items()
+                        if option not in RUNTIME_ONLY_CONVERSION_OPTIONS
+                    }
+                result[key] = normalize(item)
+            return result
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        return value
+
+    normalized = normalize(payload)
     return canonical_fingerprint(normalized)
 
 
