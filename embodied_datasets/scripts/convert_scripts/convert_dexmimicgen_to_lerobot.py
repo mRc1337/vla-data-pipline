@@ -356,12 +356,14 @@ def _build_infos(
 
 def _storage_estimate(
     infos: Sequence[DexMimicGenPartitionInfo],
-    output: Path,
+    storage_path: Path,
     *,
     workers: int,
     existing_output_bytes: int = 0,
 ) -> tuple[Any, Any]:
-    snapshot = filesystem_snapshot(output)
+    # Capacity checks must use local runtime storage.  statvfs() on the OSSFS
+    # final-output mount can block the coordinator in uninterruptible I/O.
+    snapshot = filesystem_snapshot(storage_path)
     numeric = sum(info.selected_numeric_logical_bytes for info in infos)
     image = sum(info.selected_image_logical_bytes for info in infos)
     # Ratios come from the documented full-source scan and real Transport
@@ -1037,7 +1039,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         existing_output_bytes, resume_state_bytes = _resume_accounting(paths.resume_dir)
         snapshot, estimate = _storage_estimate(
             infos,
-            paths.final_output,
+            paths.work_dir,
             workers=min(args.workers, args.max_inflight_units),
             existing_output_bytes=existing_output_bytes,
         )
