@@ -22,7 +22,9 @@ from convert_core.errors import ConversionError
 
 
 RESUME_SCHEMA_VERSION = 1
-RUNTIME_ONLY_CONVERSION_OPTIONS = frozenset({"encoder_temp_root"})
+RUNTIME_ONLY_CONVERSION_OPTIONS = frozenset(
+    {"encoder_temp_root", "deferred_video_concatenation"}
+)
 RELOCATABLE_PAYLOAD_KEYS = frozenset({"source_root"})
 
 
