@@ -25,6 +25,8 @@ from typing import Any, Callable, Iterator
 import types
 import uuid
 
+import numpy as np
+
 from convert_core.checkpoint import (
     CheckpointManager,
     atomic_write_json,
@@ -44,6 +46,60 @@ LEROBOT_DATA_PATH = "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet"
 LEROBOT_VIDEO_PATH = (
     "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
 )
+
+_GENERATED_INDEX_FEATURES = frozenset(
+    {"frame_index", "episode_index", "index", "task_index"}
+)
+
+
+def normalize_generated_index_stats(
+    episode_stats: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Make generated-index episode-stat schemas stable across episode sizes.
+
+    LeRobot's small-episode statistics path preserves the integer dtype of
+    ``min``/``max``, while the running-statistics path promotes those values to
+    float64. A single metadata Parquet writer cannot append both schemas.
+    Normalize every non-count statistic for LeRobot's generated index fields
+    to float64. ``count`` intentionally remains int64: it is a sample-count
+    metadata field in LeRobot's stats contract.
+    """
+
+    normalized = dict(episode_stats)
+    for feature_key in _GENERATED_INDEX_FEATURES:
+        feature_stats = episode_stats.get(feature_key)
+        if feature_stats is None:
+            continue
+        normalized[feature_key] = {
+            stat_key: np.asarray(
+                value, dtype=np.int64 if stat_key == "count" else np.float64
+            )
+            for stat_key, value in feature_stats.items()
+        }
+    return normalized
+
+
+def _install_generated_index_stats_normalizer(dataset: Any) -> None:
+    """Normalize index stats immediately before LeRobot writes metadata."""
+
+    original_save_episode = dataset.meta.save_episode
+
+    def save_episode(
+        episode_index: int,
+        episode_length: int,
+        episode_tasks: list[str],
+        episode_stats: dict[str, dict[str, Any]],
+        episode_metadata: dict[str, Any],
+    ) -> None:
+        original_save_episode(
+            episode_index,
+            episode_length,
+            episode_tasks,
+            normalize_generated_index_stats(episode_stats),
+            episode_metadata,
+        )
+
+    dataset.meta.save_episode = save_episode
 
 
 def _blocking_streaming_feed_frame(self: Any, video_key: str, image: Any) -> None:
@@ -199,12 +255,13 @@ def _fragmented_mp4_writes(enabled: bool) -> Iterator[None]:
                 "frag_keyframe+empty_moov+default_base_moof+negative_cts_offsets"
             )
             kwargs["options"] = options
+        is_mp4_path = isinstance(file, (str, os.PathLike)) and str(file).lower().endswith(".mp4")
         path_output = sequential_mp4 and isinstance(file, (str, os.PathLike))
         # A path-backed AVIO context advertises seekability because OSSFS/FUSE
         # implements seek(2), but movenc fragment bookkeeping can still fail
         # with EINVAL under concurrent decode/encode traffic. A write-only
         # Python object makes the non-seekable contract explicit.
-        delays = (0.05, 0.1, 0.2, 0.4, 0.8, 1.6) if sequential_mp4 else ()
+        delays = (0.05, 0.1, 0.2, 0.4, 0.8, 1.6) if is_mp4_path else ()
         for attempt in range(len(delays) + 1):
             sink = None
             try:
@@ -224,8 +281,9 @@ def _fragmented_mp4_writes(enabled: bool) -> Iterator[None]:
                 # retry policy. Exceptions without one of the explicitly
                 # transient errnos are still raised immediately.
                 if (
-                    not sequential_mp4
-                    or getattr(exc, "errno", None) not in {errno.EINVAL, errno.ESTALE}
+                    not is_mp4_path
+                    or getattr(exc, "errno", None)
+                    not in {errno.ENOENT, errno.EINVAL, errno.ESTALE}
                     or attempt == len(delays)
                 ):
                     raise
@@ -250,6 +308,146 @@ def _fragmented_mp4_writes(enabled: bool) -> Iterator[None]:
         metadata_module.get_video_info = original_metadata_get_video_info
         video_utils.get_video_info = original_get_video_info
         video_utils.av.open = original_open
+
+
+@contextlib.contextmanager
+def _deferred_video_concatenation(enabled: bool) -> Iterator[None]:
+    """Concatenate episode videos once per chunk instead of once per episode.
+
+    LeRobot's stock writer appends an episode by reading and rewriting the
+    current chunk MP4.  That is quadratic in the number of episodes and is
+    especially expensive on OSSFS/FUSE.  Keep encoded episode files in the
+    local temporary directory, then concatenate the complete chunk exactly
+    once when it rolls over or the writer is finalized.
+    """
+
+    if not enabled:
+        yield
+        return
+
+    import lerobot.datasets.dataset_metadata as metadata_module
+    import lerobot.datasets.dataset_writer as writer_module
+
+    DatasetWriter = writer_module.DatasetWriter
+    original_save = DatasetWriter._save_episode_video
+    original_flush = DatasetWriter.flush_pending_videos
+
+    def flush_video_state(dataset: Any, video_key: str, state: dict[str, Any]) -> None:
+        from lerobot.datasets.dataset_writer import concatenate_video_files
+
+        paths = list(state["paths"])
+        if not paths:
+            return
+        final_path = dataset._root / dataset._meta.video_path.format(
+            video_key=video_key,
+            chunk_index=state["chunk_idx"],
+            file_index=state["file_idx"],
+        )
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        if len(paths) == 1:
+            shutil.move(str(paths[0]), str(final_path))
+        else:
+            concatenate_video_files(paths, final_path)
+        for path in paths:
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+        encoder = (
+            dataset._depth_encoder
+            if video_key in dataset._meta.depth_keys
+            else dataset._rgb_encoder
+        )
+        dataset._meta.update_video_info(video_key, video_encoder=encoder)
+        metadata_module.write_info(dataset._meta.info, dataset._meta.root)
+        state["paths"] = []
+        state["size_in_mb"] = 0.0
+        state["duration"] = 0.0
+
+    def flush_dataset_videos(dataset: Any) -> None:
+        states = getattr(dataset, "_vla_deferred_video_states", {})
+        for video_key, state in list(states.items()):
+            flush_video_state(dataset, video_key, state)
+
+    def save_episode_video(
+        dataset: Any,
+        video_key: str,
+        episode_index: int,
+        temp_path: Path | None = None,
+    ) -> dict:
+        if not hasattr(dataset, "_vla_deferred_resume_existing"):
+            existing_episodes = getattr(dataset._meta, "episodes", None)
+            dataset._vla_deferred_resume_existing = bool(existing_episodes)
+        # A resumed writer already has an open final chunk.  Reusing the
+        # deferred state would restart at chunk zero and could overwrite it;
+        # let LeRobot append to that existing dataset using its safe upstream
+        # path. Fresh partition writers (the MimicGen staged path) start with
+        # an empty episode list and use the optimized path below.
+        if dataset._vla_deferred_resume_existing:
+            return original_save(dataset, video_key, episode_index, temp_path=temp_path)
+        # Non-streaming/batched callers may not provide a temporary path. Keep
+        # their upstream behavior unchanged; MimicGen's streaming path always
+        # supplies one.
+        if temp_path is None:
+            return original_save(dataset, video_key, episode_index, temp_path=None)
+
+        from lerobot.datasets.dataset_writer import (
+            get_file_size_in_mb,
+            get_video_duration_in_s,
+            update_chunk_file_indices,
+        )
+
+        ep_path = Path(temp_path)
+        ep_size_in_mb = get_file_size_in_mb(ep_path)
+        ep_duration_in_s = get_video_duration_in_s(ep_path)
+        states = getattr(dataset, "_vla_deferred_video_states", None)
+        if states is None:
+            states = {}
+            dataset._vla_deferred_video_states = states
+        state = states.get(video_key)
+        if state is None:
+            state = {
+                "chunk_idx": 0,
+                "file_idx": 0,
+                "size_in_mb": 0.0,
+                "duration": 0.0,
+                "paths": [],
+            }
+            states[video_key] = state
+
+        # Roll over before adding the next episode. A single oversized episode
+        # remains a valid one-file chunk instead of causing an empty chunk.
+        threshold = dataset._meta.video_files_size_in_mb
+        if state["paths"] and state["size_in_mb"] + ep_size_in_mb >= threshold:
+            old_chunk, old_file = state["chunk_idx"], state["file_idx"]
+            flush_video_state(dataset, video_key, state)
+            state["chunk_idx"], state["file_idx"] = update_chunk_file_indices(
+                old_chunk, old_file, dataset._meta.chunks_size
+            )
+
+        from_timestamp = state["duration"]
+        state["paths"].append(ep_path)
+        state["size_in_mb"] += ep_size_in_mb
+        state["duration"] += ep_duration_in_s
+        return {
+            "episode_index": episode_index,
+            f"videos/{video_key}/chunk_index": state["chunk_idx"],
+            f"videos/{video_key}/file_index": state["file_idx"],
+            f"videos/{video_key}/from_timestamp": from_timestamp,
+            f"videos/{video_key}/to_timestamp": state["duration"],
+        }
+
+    def flush_pending_videos(dataset: Any) -> None:
+        # Close the streaming encoders first; all completed episode paths have
+        # already been registered by save_episode_video.
+        original_flush(dataset)
+        flush_dataset_videos(dataset)
+
+    DatasetWriter._save_episode_video = save_episode_video
+    DatasetWriter.flush_pending_videos = flush_pending_videos
+    try:
+        yield
+    finally:
+        DatasetWriter._save_episode_video = original_save
+        DatasetWriter.flush_pending_videos = original_flush
 
 
 @contextlib.contextmanager
@@ -333,6 +531,35 @@ def build_manifest(plan: DatasetConversionPlan, *, reader_format: str) -> dict[s
     task_indices: dict[str, int] = {}
     for episode in plan.episodes:
         task_indices.setdefault(episode.instruction, len(task_indices))
+    episodes: list[dict[str, Any]] = []
+    for episode_index, episode in enumerate(plan.episodes):
+        row = {
+            "lerobot_episode_index": episode_index,
+            "lerobot_task_index": task_indices[episode.instruction],
+            "episode_uid": episode.episode_uid,
+            "source": episode.source_relative_path,
+            "source_task": episode.extra.get("source_task"),
+            "source_episode_id": episode.extra.get("source_episode_id"),
+            "source_model_sha256": episode.extra.get("source_model_sha256"),
+            "source_model_uncompressed_bytes": episode.extra.get(
+                "source_model_uncompressed_bytes"
+            ),
+            "instruction": episode.instruction,
+            "num_frames": episode.num_frames,
+            "source_splits": list(episode.extra.get("source_splits", ())),
+            "source_split": episode.extra.get("source_split"),
+            "source_segment_id": episode.extra.get("source_segment_id"),
+            "source_spans": list(episode.extra.get("source_spans", ())),
+            "checkpoint_unit": episode.extra.get("checkpoint_unit"),
+        }
+        # Format-specific readers may provide compact, JSON-safe provenance
+        # that is important to preserve but should not be copied wholesale
+        # from the internal EpisodePlan extras into every manifest.
+        provenance = episode.extra.get("manifest_provenance")
+        if provenance is not None:
+            row["source_provenance"] = provenance
+        episodes.append(row)
+
     manifest = {
         "format": "lerobot_v3_0",
         "converter": plan.extra.get("converter", "convert_dataset.py"),
@@ -345,28 +572,7 @@ def build_manifest(plan: DatasetConversionPlan, *, reader_format: str) -> dict[s
         "num_frames": plan.num_frames,
         "num_video_features": len(plan.camera_features),
         "features": plan.feature_schema(),
-        "episodes": [
-            {
-                "lerobot_episode_index": episode_index,
-                "lerobot_task_index": task_indices[episode.instruction],
-                "episode_uid": episode.episode_uid,
-                "source": episode.source_relative_path,
-                "source_task": episode.extra.get("source_task"),
-                "source_episode_id": episode.extra.get("source_episode_id"),
-                "source_model_sha256": episode.extra.get("source_model_sha256"),
-                "source_model_uncompressed_bytes": episode.extra.get(
-                    "source_model_uncompressed_bytes"
-                ),
-                "instruction": episode.instruction,
-                "num_frames": episode.num_frames,
-                "source_splits": list(episode.extra.get("source_splits", ())),
-                "source_split": episode.extra.get("source_split"),
-                "source_segment_id": episode.extra.get("source_segment_id"),
-                "source_spans": list(episode.extra.get("source_spans", ())),
-                "checkpoint_unit": episode.extra.get("checkpoint_unit"),
-            }
-            for episode_index, episode in enumerate(plan.episodes)
-        ],
+        "episodes": episodes,
     }
     for key in (
         "source_dataset",
@@ -417,6 +623,7 @@ def write_dataset(
     batch_metadata_writes: bool = False,
     encoder_temp_root: Path | None = None,
     fragmented_mp4_writes: bool = False,
+    deferred_video_concatenation: bool = False,
     frame_completed_hook: Callable[[EpisodePlan, int], None] | None = None,
     episode_completed_hook: Callable[[EpisodePlan, int], None] | None = None,
 ) -> None:
@@ -427,7 +634,7 @@ def write_dataset(
 
     with _local_datasets_cache(temporary_path), _fragmented_mp4_writes(
         fragmented_mp4_writes
-    ):
+    ), _deferred_video_concatenation(deferred_video_concatenation):
         dataset = LeRobotDataset.create(
             repo_id=plan.dataset_uid,
             fps=plan.fps,
@@ -440,6 +647,7 @@ def write_dataset(
             encoder_queue_maxsize=encoder_queue_maxsize,
             encoder_threads=encoder_threads,
         )
+        _install_generated_index_stats_normalizer(dataset)
         if blocking_streaming_encoding:
             _enable_blocking_streaming_encoding(
                 dataset, encoder_temp_root=encoder_temp_root
@@ -623,6 +831,16 @@ def validate_parquet_feature_schema(plan: DatasetConversionPlan, root: Path) -> 
     for key, feature in plan.feature_schema().items():
         if feature["dtype"] == "video":
             continue
+        if feature["dtype"] == "string":
+            expected_types[key] = pa.string()
+            continue
+        if feature["dtype"] == "image":
+            # LeRobot v3 stores image payloads as Arrow ``Image`` extension
+            # storage (a ``struct<bytes, path>`` in Parquet).  The physical
+            # representation intentionally differs from numeric tensors, so
+            # validate its structure rather than forcing it through NumPy.
+            expected_types[key] = ("image",)
+            continue
         arrow_type = pa.from_numpy_dtype(np.dtype(feature["dtype"]))
         shape = tuple(feature["shape"])
         # Hugging Face Datasets uses its ArrayND extension types for features
@@ -642,6 +860,19 @@ def validate_parquet_feature_schema(plan: DatasetConversionPlan, root: Path) -> 
             if key not in schema.names:
                 raise ConversionError(f"{path}: missing planned Parquet column {key!r}")
             actual_type = schema.field(key).type
+            if isinstance(expected_type, tuple) and expected_type[0] == "image":
+                import pyarrow as pa
+
+                if not isinstance(actual_type, pa.StructType):
+                    raise ConversionError(
+                        f"{path}: image column {key!r} has physical type {actual_type}, expected struct<bytes, path>"
+                    )
+                fields = {field.name: field.type for field in actual_type}
+                if fields.get("bytes") != pa.binary() or fields.get("path") != pa.string():
+                    raise ConversionError(
+                        f"{path}: image column {key!r} has physical fields {fields}, expected bytes/path"
+                    )
+                continue
             if isinstance(expected_type, tuple) and expected_type[0] == "array_nd":
                 _, expected_shape, expected_value_type = expected_type
                 actual_shape = tuple(getattr(actual_type, "shape", ()))
@@ -909,6 +1140,7 @@ def _open_resumable_writer(
             encoder_queue_maxsize=encoder_queue_maxsize,
             encoder_threads=encoder_threads,
         )
+        _install_generated_index_stats_normalizer(dataset)
         dataset.meta._metadata_buffer_size = metadata_buffer_size
         if blocking_streaming_encoding:
             _enable_blocking_streaming_encoding(
@@ -928,6 +1160,7 @@ def _open_resumable_writer(
         encoder_queue_maxsize=encoder_queue_maxsize,
         encoder_threads=encoder_threads,
     )
+    _install_generated_index_stats_normalizer(dataset)
     if blocking_streaming_encoding:
         _enable_blocking_streaming_encoding(
             dataset, encoder_temp_root=encoder_temp_root
@@ -953,6 +1186,7 @@ def _write_resumable_unit(
     batch_metadata_writes: bool,
     encoder_temp_root: Path | None,
     fragmented_mp4_writes: bool,
+    deferred_video_concatenation: bool,
     frame_completed_hook: Callable[[EpisodePlan, int], None] | None,
     episode_completed_hook: Callable[[EpisodePlan, int], None] | None,
 ) -> None:
@@ -962,6 +1196,8 @@ def _write_resumable_unit(
     current_episode_index = start
     fragmented_context = _fragmented_mp4_writes(fragmented_mp4_writes)
     fragmented_context.__enter__()
+    deferred_context = _deferred_video_concatenation(deferred_video_concatenation)
+    deferred_context.__enter__()
     try:
         dataset = _open_resumable_writer(
             plan,
@@ -1023,6 +1259,7 @@ def _write_resumable_unit(
         if dataset is not None:
             del dataset
         fragmented_context.__exit__(*sys.exc_info())
+        deferred_context.__exit__(*sys.exc_info())
         cache_context.__exit__(*sys.exc_info())
 
 
@@ -1048,6 +1285,7 @@ def _convert_dataset_resumable(
     batch_metadata_writes: bool,
     encoder_temp_root: Path | None,
     fragmented_mp4_writes: bool,
+    deferred_video_concatenation: bool,
     frame_completed_hook: Callable[[EpisodePlan, int], None] | None,
     episode_completed_hook: Callable[[EpisodePlan, int], None] | None,
 ) -> Path:
@@ -1148,6 +1386,7 @@ def _convert_dataset_resumable(
                 batch_metadata_writes=batch_metadata_writes,
                 encoder_temp_root=encoder_temp_root,
                 fragmented_mp4_writes=fragmented_mp4_writes,
+                deferred_video_concatenation=deferred_video_concatenation,
                 frame_completed_hook=frame_completed_hook,
                 episode_completed_hook=episode_completed_hook,
             )
@@ -1265,6 +1504,7 @@ def convert_dataset(
     batch_metadata_writes: bool = False,
     encoder_temp_root: Path | None = None,
     fragmented_mp4_writes: bool = False,
+    deferred_video_concatenation: bool = False,
 ) -> Path:
     if resume and overwrite:
         raise ConversionError("resume and overwrite are mutually exclusive")
@@ -1284,6 +1524,7 @@ def convert_dataset(
             "batch_metadata_writes": batch_metadata_writes,
             "encoder_temp_root": str(encoder_temp_root) if encoder_temp_root else None,
             "fragmented_mp4_writes": fragmented_mp4_writes,
+            "deferred_video_concatenation": deferred_video_concatenation,
             **(conversion_options or {}),
         }
         return _convert_dataset_resumable(
@@ -1307,6 +1548,7 @@ def convert_dataset(
             batch_metadata_writes=batch_metadata_writes,
             encoder_temp_root=encoder_temp_root,
             fragmented_mp4_writes=fragmented_mp4_writes,
+            deferred_video_concatenation=deferred_video_concatenation,
             frame_completed_hook=frame_completed_hook,
             episode_completed_hook=episode_completed_hook,
         )
@@ -1328,6 +1570,7 @@ def convert_dataset(
             batch_metadata_writes=batch_metadata_writes,
             encoder_temp_root=encoder_temp_root,
             fragmented_mp4_writes=fragmented_mp4_writes,
+            deferred_video_concatenation=deferred_video_concatenation,
             frame_completed_hook=frame_completed_hook,
             episode_completed_hook=episode_completed_hook,
         )

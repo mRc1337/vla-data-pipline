@@ -62,6 +62,7 @@ class DatasetConversionConfig(BaseModel):
         "robomimic_hdf5",
         "rlds",
         "raw_image_json",
+        "fmb_npy",
     ]
     robot_type: str
     fps: Optional[float] = None
@@ -110,6 +111,10 @@ class DatasetConversionConfig(BaseModel):
     one_x_cosmos_decoder_path: Optional[str] = None
     """Cosmos-Tokenizer-DV8x8x8 decoder.jit used for v2 token decoding."""
     one_x_decode_batch_size: int = Field(default=8, ge=1)
+    one_x_v1_postprocess_device: Literal["cpu", "gpu"] = "cpu"
+    """Device for v1 clamp/uint8/NHWC output postprocessing."""
+    one_x_decoder_cpu_threads: Optional[int] = Field(default=None, ge=1)
+    """Optional PyTorch intra-op thread limit for v1 conversion workers."""
     one_x_v1_checkpoint_segments: int = Field(default=128, ge=1)
 
     # --- rlds reader only ---

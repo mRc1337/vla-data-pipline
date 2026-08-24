@@ -244,6 +244,45 @@ def test_real_writer_accepts_length_one_ndarray_and_writes_scalar_parquet(
     validate_parquet_feature_schema(plan, output)
 
 
+def test_generated_index_stats_have_one_schema_for_single_and_multi_frame_episodes(
+    tmp_path: Path,
+):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    episodes = (
+        EpisodePlan("source:0", "split/segment:0", "fixture task", 2),
+        EpisodePlan("source:1", "split/segment:1", "fixture task", 1),
+    )
+    plan = DatasetConversionPlan(
+        dataset_uid="stable_generated_index_stats",
+        output_path=tmp_path / "output",
+        fps=30,
+        measured_fps=30.0,
+        robot_type="eve",
+        vector_features=(VectorFeatureSpec("observation.state", 1),),
+        camera_features=(),
+        episodes=episodes,
+    )
+
+    def frames(episode: EpisodePlan):
+        for frame_index in range(episode.num_frames):
+            yield {
+                "observation.state": np.asarray([frame_index], dtype=np.float32),
+                "task": episode.instruction,
+            }
+
+    write_dataset(plan, frames, plan.output_path)
+
+    schema = pq.read_schema(
+        next((plan.output_path / "meta" / "episodes").rglob("*.parquet"))
+    )
+    for feature in ("frame_index", "episode_index", "index", "task_index"):
+        for stat in ("min", "max", "mean", "std", "q01", "q10", "q50", "q90", "q99"):
+            assert schema.field(f"stats/{feature}/{stat}").type == pa.list_(pa.float64())
+        assert schema.field(f"stats/{feature}/count").type == pa.list_(pa.int64())
+
+
 def test_real_writer_preserves_multidimensional_array_shape(tmp_path: Path):
     output = tmp_path / "output"
     episode = EpisodePlan(
@@ -387,6 +426,65 @@ def test_fragmented_mp4_context_forces_sequential_write_movflags(
         "frag_keyframe+empty_moov+default_base_moof+negative_cts_offsets"
     )
     assert "options" not in calls[1][3]
+
+
+def test_deferred_video_concatenation_flushes_one_time_per_chunk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    import types
+    import lerobot.datasets.dataset_writer as dataset_writer
+    import lerobot.datasets.dataset_metadata as metadata_module
+
+    concat_calls: list[tuple[list[Path], Path]] = []
+
+    def fake_concat(inputs, output, *args, **kwargs):
+        del args, kwargs
+        paths = [Path(path) for path in inputs]
+        concat_calls.append((paths, Path(output)))
+        Path(output).write_bytes(b"".join(path.read_bytes() for path in paths))
+
+    monkeypatch.setattr(dataset_writer, "get_file_size_in_mb", lambda _path: 1.0)
+    monkeypatch.setattr(dataset_writer, "get_video_duration_in_s", lambda _path: 0.5)
+    monkeypatch.setattr(dataset_writer, "concatenate_video_files", fake_concat)
+    monkeypatch.setattr(dataset_writer.DatasetWriter, "flush_pending_videos", lambda _self: None)
+    monkeypatch.setattr(metadata_module, "write_info", lambda *_args, **_kwargs: None)
+
+    info_calls = []
+    meta = types.SimpleNamespace(
+        video_files_size_in_mb=100,
+        chunks_size=1000,
+        video_path="videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
+        video_keys=["observation.images.agentview"],
+        depth_keys=set(),
+        info={},
+        root=tmp_path,
+        update_video_info=lambda *args, **kwargs: info_calls.append((args, kwargs)),
+    )
+    dataset = types.SimpleNamespace(
+        _root=tmp_path,
+        _meta=meta,
+        _rgb_encoder=None,
+        _depth_encoder=None,
+    )
+
+    with writer._deferred_video_concatenation(True):
+        for index in range(3):
+            episode_dir = tmp_path / f"episode-{index}"
+            episode_dir.mkdir()
+            episode_path = episode_dir / "episode.mp4"
+            episode_path.write_bytes(bytes([index + 1]))
+            metadata = dataset_writer.DatasetWriter._save_episode_video(
+                dataset, "observation.images.agentview", index, temp_path=episode_path
+            )
+            assert metadata["videos/observation.images.agentview/to_timestamp"] == (index + 1) * 0.5
+        assert not list((tmp_path / "videos").rglob("*.mp4"))
+        dataset_writer.DatasetWriter.flush_pending_videos(dataset)
+
+    assert len(concat_calls) == 1
+    assert len(concat_calls[0][0]) == 3
+    assert concat_calls[0][1].is_file()
+    assert concat_calls[0][1].read_bytes() == b"\x01\x02\x03"
+    assert info_calls
 
 
 def test_fragmented_mp4_context_retries_transient_ossfs_open(

@@ -13,6 +13,7 @@ from readers.one_x_world_model_reader import OneXWorldModelReader
 from readers.raw_image_json_reader import RawImageJsonReader
 from readers.rlds_reader import RldsReader
 from readers.robomimic_hdf5_reader import RobomimicHdf5Reader
+from readers.fmb_npy_reader import FmbNpyReader
 
 READER_REGISTRY: dict[str, DatasetReader] = {
     "arcap_hdf5": ARCapHdf5Reader(),
@@ -22,6 +23,7 @@ READER_REGISTRY: dict[str, DatasetReader] = {
     "robomimic_hdf5": RobomimicHdf5Reader(),
     "rlds": RldsReader(),
     "raw_image_json": RawImageJsonReader(),
+    "fmb_npy": FmbNpyReader(),
 }
 
 

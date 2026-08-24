@@ -783,6 +783,13 @@ class OneXWorldModelReader:
             raise ConversionError("the official MAGVIT2 decoder requires a CUDA GPU")
         model = VQModel(VQConfig(), ckpt_path=str(checkpoint))
         model = model.to(device="cuda", dtype=torch.bfloat16).eval()
+        postprocess_device = plan.extra["decoder"].get(
+            "v1_postprocess_device", "cpu"
+        )
+        if postprocess_device not in {"cpu", "gpu"}:
+            raise ConversionError(
+                "v1_postprocess_device must be either 'cpu' or 'gpu'"
+            )
 
         def decode(tokens: np.ndarray) -> np.ndarray:
             from einops import rearrange
@@ -794,7 +801,15 @@ class OneXWorldModelReader:
                     bhwc=batch.shape + (model.quantize.codebook_dim,),
                 ).flip(1)
                 output = model.decode(quant.to(device="cuda", dtype=torch.bfloat16))
-                output = torch.clamp((output.detach().cpu() + 1) * 127.5, 0, 255)
+                if postprocess_device == "gpu":
+                    output = torch.clamp((output + 1) * 127.5, 0, 255)
+                    output = output.to(dtype=torch.uint8).permute(
+                        0, 2, 3, 1
+                    ).contiguous()
+                    return output.cpu().numpy()
+                output = torch.clamp(
+                    (output.detach().cpu() + 1) * 127.5, 0, 255
+                )
             return output.to(dtype=torch.uint8).permute(0, 2, 3, 1).numpy()
 
         self._v1_decoder = decode
@@ -853,10 +868,13 @@ class OneXWorldModelReader:
         return decode
 
     def preflight_decoder(self, plan: DatasetConversionPlan) -> None:
-        """Decode one real frame and validate every output feature contract."""
+        """Decode one short real sample and validate every output contract."""
 
         episode = plan.episodes[0]
-        frame = next(self.iter_frames(plan, episode))
+        sample_count = min(60, episode.num_frames)
+        frames = self.iter_frames(plan, episode)
+        for _ in range(sample_count):
+            next(frames)
 
     @staticmethod
     def _validate_frame_contract(

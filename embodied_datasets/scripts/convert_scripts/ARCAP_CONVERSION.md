@@ -39,18 +39,18 @@ scan was not run; sampled coverage was 45 frames plus schema checks for every ep
 All source numeric leaves are retained. Scalar source leaves are represented as LeRobot shape
 `[1]`; this is a shape-only container convention, not a cast. There are no image/video fields.
 
-| Source field | Source shape/dtype | Meaning | LeRobot field | Transform | Lossy |
-|---|---|---|---|---|---|
-| `actions` | `[T,A] float64` | following arm+hand joint target; released terminal target retained | `action` | identity | no |
-| `actions2` | `[T,E] float64` | following EEF XYZ + quaternion XYZW + hand target | `action.end_effector` | identity | no |
-| `obs/robot0_arm_joints` | `[T,Aarm] float64` | Panda joint position(s), source order | `observation.arm_joint_position` | identity | no |
-| `obs/robot0_hand_joints` | `[T,H] float64` | Fin-ray command or LEAP joints | `observation.hand_joint_position` | identity | no |
-| `obs/robot0_eef_pos` | `[T,3] float64` | XYZ metres | `observation.end_effector_position` | identity | no |
-| `obs/robot0_eef_quat` | `[T,4] float64` | quaternion XYZW | `observation.end_effector_quaternion_xyzw` | identity | no |
-| `obs/pointcloud` | `[T,10000,6] float64` | XYZ metres + RGB `[0,1]` | `observation.pointcloud` | identity | no |
-| `dones` | `[T] int64` | one terminal flag per phase group | `source.done` | scalar → `[1]` | no |
-| `rewards` | `[T] float64` | released zero field | `source.reward` | scalar → `[1]` | no |
-| `states` | `[T] float64` | released zero field | `source.state` | scalar → `[1]` | no |
+| Source field | Source shape/dtype | Meaning | LeRobot field | Transform | Evidence | Lossy |
+|---|---|---|---|---|---|---|
+| `actions` | `[T,A] float64` | following arm+hand joint target; released terminal target retained | `action` | identity | official builder `gap=3`; all following-state pairs checked | no |
+| `actions2` | `[T,E] float64` | following EEF XYZ + quaternion XYZW + hand target | `action.end_effector` | identity | official builder; all following EEF pairs checked | no |
+| `obs/robot0_arm_joints` | `[T,Aarm] float64` | Panda joint position(s), source order | `observation.arm_joint_position` | identity | official HDF5 schema and robot layout | no |
+| `obs/robot0_hand_joints` | `[T,H] float64` | Fin-ray command or LEAP joints | `observation.hand_joint_position` | identity | official HDF5 schema and robot layout | no |
+| `obs/robot0_eef_pos` | `[T,3] float64` | XYZ metres | `observation.end_effector_position` | identity | official loader/schema | no |
+| `obs/robot0_eef_quat` | `[T,4] float64` | quaternion XYZW | `observation.end_effector_quaternion_xyzw` | identity | official loader/schema | no |
+| `obs/pointcloud` | `[T,10000,6] float64` | XYZ metres + RGB `[0,1]` | `observation.pointcloud` | identity | official loader/builder plus sampled payload validation | no |
+| `dones` | `[T] int64` | one terminal flag per phase group | `source.done` | scalar → `[1]` | released HDF5 and full low-dimensional scan | no |
+| `rewards` | `[T] float64` | released zero field | `source.reward` | scalar → `[1]` | released HDF5 and full low-dimensional scan | no |
+| `states` | `[T] float64` | released zero field | `source.state` | scalar → `[1]` | released HDF5 and full low-dimensional scan | no |
 
 `actions2` and EEF observations are genuinely absent from `open_bottle`, so that partition has
 a different fixed schema rather than fabricated zeros. `open_bottle` ordering is left Panda 7,
@@ -71,33 +71,69 @@ remain separate.
 
 Complete phase groups are greedily combined up to 8,000 frames, yielding about 32 work units.
 Four persistent spawned workers avoid repeated LeRobot imports. Each worker owns one isolated
-mini-dataset and produces final-compatible Parquet. After reopen validation, an atomic marker is
-written and the coordinator moves its bulk file to a preassigned final chunk on the same mount.
-Only compact episode/tasks/stats metadata is aggregated in deterministic plan order; no second
-full dataset copy is produced.
+mini-dataset at `/home/pai/zxw/arcap_staging/work/<run_id>/unit-XXXXXX`. After reopen validation, one or
+two uploader threads sequentially copy each Parquet/MP4 to its preassigned OSS final path. The
+uploader checks exact size, reopens the Parquet footer/physical schema or MP4 stream, and compares
+SHA-256 samples from the first/middle/last byte ranges. Full remote SHA-256 is diagnostic-only.
+Only after validation does it delete local bulk and move compact unit metadata under local
+`resume/unit_metadata`; finalization aggregates small metadata in deterministic plan order and
+never performs a second full bulk copy.
 
 The source/selection/schema/task/FPS/robot/output/conversion fingerprint is stored under
-`.conversion_resume/arcap`. Recovery revalidates data and marker inventories; missing, partial,
-or corrupt units are rebuilt alone. A 250 ms per-worker RSS watchdog enforces 8 GiB. Arrow,
+`/home/pai/zxw/arcap_staging/resume/arcap`. Recovery revalidates remote size, format and sample
+evidence; retained local sources are retransmitted, while missing/corrupt objects without a local
+copy rebuild only that unit. A 250 ms per-worker RSS watchdog enforces 8 GiB. Arrow,
 OpenMP and BLAS nested threading are fixed at one because ARCap has no video encoder. `flock` is
 non-blocking and is only a same-host guarantee. `SIGINT`/`SIGTERM` preserve verified units;
 `kill -9` cannot close a current writer, so its unmarked hidden unit is discarded on recovery.
+On coordinator interruption or any worker/uploader failure, the coordinator removes hidden writer
+directories and targets without a verified marker while preserving verified local upload sources.
 
 Publication is `_INCOMPLETE -> immutable chunks/meta/manifest -> _SUCCESS -> remove
 _INCOMPLETE`; no whole-directory rename is used. Existing valid `_SUCCESS` is never overwritten.
 `--skip-existing` is not a marker-only shortcut: under the collection lock it checks the current
 source/config fingerprint, collection rows, every partition conversion manifest, and reopens all
-five LeRobot datasets before accepting the output. It then removes only crash-left work/resume
-state. Coordinator status is written to `<run_id>.json`, newline events to
+five LeRobot datasets before accepting the output. It then removes only crash-left work/cache
+state. Coordinator status is written locally to `<run_id>.json`, newline events to
 `<run_id>.coordinator.jsonl`, and unit-boundary worker events to
 `<run_id>.worker-XX.jsonl`; failure/interruption records include the recovery hint.
 
 ## Storage and acceleration evidence
 
-Measured output is estimated at 61,390,182,738 bytes (57.2 GiB). The formal limits are 80 GiB
-staging, 16 GiB inflight and four inflight units. OSSFS `df` is informational only; object quota
-could not be proven because `ossutil stat` returned 403. Capacity must therefore be confirmed by
-the operator before the formal run.
+Measured output is estimated at 61,390,182,738 bytes (57.2 GiB). The local hard limit is
+100,000,000,000 bytes across `work`, queued/active uploads, `resume`, `logs` and `cache`, with at
+least 200,000,000,000 local bytes left free. A coordinator-owned ledger reserves each estimated
+unit peak before dispatch and blocks until an uploader deletes verified bulk. Periodic actual-use
+checks provide a second guard; an individually oversized unit is rejected for further splitting.
+Inspect output now states selected logical input bytes, source-container bytes, expected and
+conservative output, planned unit count, maximum estimated unit peak, and a wall-time estimate
+based on the measured W4/U2 end-to-end rate.
+OSSFS `df` is informational only; direct object quota operations returned 403.
+
+The final read-only full preflight reported 111,452,967,384 source-container bytes,
+111,442,756,056 selected logical input bytes, 61,390,182,738 expected output bytes, 32 units, and
+a 3,997,500,000-byte maximum estimated unit peak. Its 6,954.27-second (1.93-hour) estimate is a
+planning projection from the bounded 33.350 frames/s W4/U2 sample, not a completed full-run claim.
+
+The final local→OSS benchmark used the same first four assemble phase groups (12 episodes / 1,548
+frames), forced four work units, and compared every 1/2/4 conversion-worker × 1/2 uploader
+combination. All six outputs were semantically equivalent to W1/U1; failures, retries, encoder
+errors and OSSFS errors were zero, and all benchmark output/runtime paths were removed.
+
+| conversion workers | upload workers | wall s | frames/s | speedup | avg CPU cores | peak sampled local bytes |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 1 | 123.733 | 12.511 | 1.000× | 0.432 | 805,571,270 |
+| 1 | 2 | 122.569 | 12.630 | 1.009× | 0.429 | 630,876,057 |
+| 2 | 1 | 50.743 | 30.507 | 2.438× | 1.407 | 805,569,657 |
+| 2 | 2 | 54.950 | 28.171 | 2.252× | 1.406 | 795,273,113 |
+| 4 | 1 | 49.396 | 31.339 | 2.505× | 2.133 | 718,829,465 |
+| 4 | 2 | 46.417 | 33.350 | 2.666× | 2.275 | 805,569,657 |
+
+This current-code matrix used eight configured encoder threads (unused because ARCap has no
+video), retained no outputs, and recorded unchanged source size/mtime. W4/U2 is the selected
+bounded end-to-end configuration. The historical benchmarks below used
+the predecessor OSS-direct runtime; the 32-unit result remains useful worker-scaling evidence,
+but neither historical run exercised this local upload pipeline.
 
 Earlier warm, multi-unit persistent-worker runs reached 145–147 frames/s at four workers, a
 measured 3.08–3.19× speedup over the one-worker baseline and 77–80% parallel efficiency. The
@@ -120,19 +156,41 @@ FUSE reported zero or incomplete physical `read_bytes`/`write_bytes` for some ru
 also gives procfs userspace character throughput and actual published bytes/s. Different Parquet
 container bytes are reported, not hidden; schema, every non-video value/index, episode/task
 boundary, stats within declared numerical tolerance, and semantic manifests were equivalent.
-The cold result must not be used to claim acceleration. Four persistent workers remain the
-formal candidate based on the representative warm multi-unit evidence, but the formal command
-below remains **provided only** and must not be started unless a representative enhanced
-multi-unit benchmark passes again in the execution environment.
+The cold result must not be used to claim acceleration.
+
+After rate-limiting recursive OSSFS inventory to the configured 120-second storage interval, the
+enhanced representative benchmark used the same first 32 phase groups (96 episodes / 11,271
+frames), 32 work units, and full validation for W1/W2/W4. Token `ec850faab4` passed the gate and
+cleaned every output/runtime path:
+
+| workers | wall s | frames/s | episodes/s | speedup | efficiency | avg CPU cores | peak tree RSS bytes | peak temp bytes | userspace read chars/s | staging bytes/s | I/O wait s | failures/retries/OSS errors | semantic vs W1 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 1 | 883.57 | 12.756 | 0.1087 | 1.000 | 100.0% | 0.284 | 6,446,166,016 | 5,530,019,672 | 98,996,115 | 3,345,151 | 326.17 | 0/0/0 | yes |
+| 2 | 494.27 | 22.803 | 0.1942 | 1.788 | 89.4% | 0.534 | 7,701,004,288 | 5,530,018,200 | 177,849,814 | 5,979,913 | 142.46 | 0/0/0 | yes |
+| 4 | 453.18 | 24.871 | 0.2118 | 1.950 | 48.7% | 0.686 | 27,764,379,648 | 5,868,747,760 | 195,913,862 | 6,522,105 | 126.81 | 0/0/0 | yes |
+
+That predecessor benchmark selected W4 and showed the formal 32-unit shape amortizes worker
+startup. Its 2.59-hour projection is historical because the runtime and publication path have
+since changed; the current formal command uses W4/U2 and the 100GB local ledger above.
 
 The four A800s all failed real 30-frame H.264 NVENC with `OpenEncodeSessionEx failed: unsupported
-device`; ARCap has no video anyway, and no hardware path is claimed.
+device`; ARCap has no video anyway, and no hardware path is claimed. The formal CPU baseline keeps
+the requested eight encoder threads per worker, but the manifest marks them unused because every
+ARCap partition has zero video features.
 
-The final two-unit smoke converted six assemble episodes / 779 frames. It exercised worker
-failure recovery, committed-unit reuse and quota refusal. Independent evaluation sampled nine
-frames and compared 540,306 source scalar values bit-exactly in Parquet; `LeRobotDataset` reopened
-all data, presented point clouds as float32 with max error `2.98e-8`, and synthetic float32
-timestamps had max error `1.91e-7` relative to `frame_index/10`.
+The final current-code local→OSS audit smoke converted one complete assemble phase group:
+3 episodes / 393 frames. With diagnostic full remote SHA-256 enabled, shell wall time was 54 s,
+publication progress elapsed time was 51.19 s, and conversion took 19.96 s (19.69 frames/s).
+The final collection was 104,179,332 bytes and verified upload retained 130,914 bytes of local
+checkpoint metadata before cleanup. `_SUCCESS`, final-path upload evidence, full remote/local SHA
+equality and an independent `LeRobotDataset` reopen all passed. A preceding default-validation
+smoke took 32.69 s and confirmed full remote SHA is disabled unless explicitly requested. All
+named smoke output and local work/resume/cache/log objects were removed afterward. The five raw
+HDF5 size/mtime records still match the inventory captured at task start (all mtimes remain
+`2026-07-24 17:01:12 +0800`); both the current audit and an earlier bounded smoke printed
+`raw inventory unchanged`. Earlier two-unit evaluation additionally compared nine frames / 540,306
+source scalar values bit-exactly in Parquet; presentation-layer point-cloud float32 error was at
+most `2.98e-8`.
 
 ## Commands
 
@@ -143,64 +201,56 @@ Inspect and estimate (does not create output/runtime directories):
   --inspect-only --estimate-storage
 ```
 
-Repeat the exact cold four-unit benchmark above (expected to reject parallel acceleration while
-still cleaning all outputs):
+Repeat the final four-unit conversion/uploader matrix (it cleans all generated outputs):
 
 ```bash
 .venv/bin/python embodied_datasets/scripts/convert_scripts/convert_arcap_to_lerobot.py \
-  --partition assemble --max-phase-groups 4 --max-frames-per-unit 400 \
-  --benchmark-workers 1 2 4
+  --partition assemble --max-phase-groups 4 --max-frames-per-unit 1 \
+  --benchmark-workers 1 2 4 --benchmark-upload-workers 1 2 \
+  --benchmark-report /home/pai/zxw/arcap_staging/logs/benchmark.json
 ```
 
 For a formal-candidate gate, use enough units to amortize persistent-worker initialization and
-optionally retain the complete metric report under staging logs:
+optionally retain the complete metric report under local logs:
 
 ```bash
 .venv/bin/python embodied_datasets/scripts/convert_scripts/convert_arcap_to_lerobot.py \
   --partition assemble --max-phase-groups 32 --max-frames-per-unit 400 \
-  --benchmark-workers 1 2 4 \
-  --benchmark-report /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_logs/arcap/representative-benchmark.json
+  --benchmark-workers 1 2 4 --benchmark-upload-workers 1 2 \
+  --benchmark-report /home/pai/zxw/arcap_staging/logs/representative-benchmark.json
 ```
 
 Formal background command (provided only; **not executed**):
 
 ```bash
-ROOT=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0
-RUN_ID=arcap-production-v1
-WORK="$ROOT/.conversion_work/arcap/$RUN_ID"
-export TMPDIR="$WORK/tmp" TMP="$WORK/tmp" TEMP="$WORK/tmp"
-export XDG_CACHE_HOME="$WORK/runtime_cache/xdg"
-export HF_HOME="$WORK/runtime_cache/huggingface"
-export HF_DATASETS_CACHE="$WORK/runtime_cache/huggingface/datasets"
-export TORCH_HOME="$WORK/runtime_cache/torch"
-export MPLCONFIGDIR="$WORK/runtime_cache/matplotlib"
-export VLA_DATASETS_CACHE_ROOT="$WORK/runtime_cache/datasets"
-export PYTHONPYCACHEPREFIX="$WORK/runtime_cache/pycache"
-export PYTHONDONTWRITEBYTECODE=1
-mkdir -p "$WORK/tmp" "$ROOT/.conversion_logs/arcap"
+LOCAL=/home/pai/zxw/arcap_staging
+mkdir -p "$LOCAL/logs/arcap"
 
 nohup .venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_arcap_to_lerobot.py \
-  --resume --acceleration-mode parallel --workers 4 --max-inflight-units 4 \
-  --encoder-threads-per-worker 1 --worker-memory-limit-bytes 8589934592 \
-  --output-root "$ROOT" --work-dir "$WORK" \
-  --resume-dir "$ROOT/.conversion_resume/arcap" \
-  --logs-dir "$ROOT/.conversion_logs/arcap" --temp-dir "$WORK/tmp" \
-  --max-staging-bytes 85899345920 --max-inflight-bytes 17179869184 \
+  --raw-root /mnt/data/embodied_datasets/public_datasets_raw/arcap \
+  --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
+  --local-work-root "$LOCAL" \
+  --acceleration-mode parallel --workers 4 --upload-workers 2 \
+  --max-inflight-units 4 \
+  --encoder-threads-per-worker 8 --worker-memory-limit-bytes 8589934592 \
+  --max-local-temp-bytes 100000000000 \
+  --min-local-free-bytes 200000000000 \
   --storage-check-interval-seconds 30 --eta-interval-seconds 10 \
-  > "$ROOT/.conversion_logs/arcap/nohup.log" 2>&1 &
-echo $! > "$ROOT/.conversion_logs/arcap/pid"
+  > "$LOCAL/logs/arcap/nohup.log" 2>&1 &
+echo $! > "$LOCAL/logs/arcap/pid"
 ```
 
-The identical command is the recovery command. Observe it with:
+The recovery command is identical with `--resume` added. Observe it with:
 
 ```bash
-tail -f "$ROOT/.conversion_logs/arcap/nohup.log"
-tail -f "$ROOT/.conversion_logs/arcap/"*.coordinator.jsonl
-tail -f "$ROOT/.conversion_logs/arcap/"*.worker-*.jsonl
-ps -fp "$(cat "$ROOT/.conversion_logs/arcap/pid")"
-du -sb "$ROOT/arcap" "$WORK" "$ROOT/.conversion_resume/arcap"
-find "$ROOT/.conversion_resume/arcap" -path '*/committed/*.json' | wc -l
+tail -f /home/pai/zxw/arcap_staging/logs/arcap/nohup.log
+tail -f /home/pai/zxw/arcap_staging/logs/arcap/*.coordinator.jsonl
+tail -f /home/pai/zxw/arcap_staging/logs/arcap/*.worker-*.jsonl
+ps -fp "$(cat /home/pai/zxw/arcap_staging/logs/arcap/pid)"
+du -sb /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/arcap \
+  /home/pai/zxw/arcap_staging/{work,resume,logs,cache}
+find /home/pai/zxw/arcap_staging/resume/arcap -path '*/committed/*.json' | wc -l
 ```
 
 After `_SUCCESS` exists and `_INCOMPLETE` is absent:
@@ -216,17 +266,18 @@ The formal conversion has not been started. Nothing was written to
 
 - The full 110.45 GB point-cloud payload scan was not run; 45 point-cloud frames plus all schemas
   were checked. Object-store quota remains unknown because direct OSS operations returned 403.
-- The enhanced cold four-unit benchmark failed the speedup gate as described above. A fresh
-  representative multi-unit enhanced report is required before authorizing the formal command.
-- All outputs/work/resume/logs/locks from benchmark tokens `aa023c3b22` and `2f30dc76cd` were
-  removed and explicitly absent afterward. One older zero-byte, zero-file OSSFS directory-marker
+- The new local→OSS matrix passed and selected W4/U2. Changes in machine, mount, or library
+  versions require rerunning that gate.
+- All outputs/work/resume/logs/locks from benchmark tokens `aa023c3b22`, `2f30dc76cd`, aborted
+  diagnostic token `81b91e82fe`, and passing token `ec850faab4` were removed. One older zero-byte,
+  zero-file OSSFS directory-marker
   ghost remains at `.conversion_work/arcap-smoke-20260819-codex`; repeated `rmdir` reports
   `Directory not empty` even though its deepest directory contains only `.` and `..`, and direct
   object-store removal is unavailable (403). It is not conversion data, but zero residual cannot
   be claimed until the mount cache/object marker is cleared by an authorized operator.
 
-Latest bounded verification: ARCap/storage/direct-commit focused tests `22 passed`; the complete
-`convert_scripts/tests` suite `283 passed, 1 skipped`; full low-dimensional inspect covered all
+Latest bounded verification: the complete conversion-script suite passed with
+`295 passed, 1 skipped`. Full low-dimensional inspect covered all
 1,975 episodes / 231,923 frames and produced the 32-unit, 61,390,182,738-byte estimate without
 creating its proposed runtime directory; Python compilation and `git diff --check` passed. No
 full conversion or `public_datasets` publication was performed.

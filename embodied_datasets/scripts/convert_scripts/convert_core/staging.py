@@ -1,11 +1,10 @@
-"""OSSFS-safe runtime layout, path isolation, and publication primitives.
+"""Local-work/OSS-final layout, capacity control, and publication primitives.
 
 The 1X converter is unusual among the small dataset converters: its durable
 output is several terabytes and the target filesystem has expensive small-file
-operations.  This module therefore keeps all runtime paths under one declared
-staging root, rejects symlink escapes before creating anything, redirects
-third-party caches explicitly, and uses marker-based publication instead of a
-whole-directory rename.
+operations.  Bulk conversion state therefore lives on bounded local storage;
+only final Parquet/MP4 objects and publication markers live on OSSFS.  Both
+roots are independently contained and protected against symlink escapes.
 """
 from __future__ import annotations
 
@@ -13,11 +12,12 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 import fcntl
 import hashlib
+import errno
 import os
 from pathlib import Path
 import tempfile
 import time
-from typing import Iterator, Mapping, Sequence
+from typing import Callable, Iterator, Mapping, Sequence
 
 from convert_core.checkpoint import atomic_write_json
 from convert_core.errors import ConversionError
@@ -26,6 +26,9 @@ from convert_core.errors import ConversionError
 DEFAULT_OUTPUT_ROOT = Path(
     "/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0"
 )
+DEFAULT_LOCAL_WORK_ROOT = Path("/home/pai/zxw/1x_world_model_dataset_staging")
+DEFAULT_MAX_LOCAL_TEMP_BYTES = 100_000_000_000
+DEFAULT_MIN_LOCAL_FREE_BYTES = 200_000_000_000
 DEFAULT_RAW_DATASET_ROOT = Path(
     "/mnt/data/embodied_datasets/public_datasets_raw/1x_world_model_dataset"
 )
@@ -43,6 +46,9 @@ RUNTIME_ENVIRONMENT_KEYS = (
     "CUDA_CACHE_PATH",
     "TORCH_EXTENSIONS_DIR",
     "NUMBA_CACHE_DIR",
+)
+TRANSIENT_ACCOUNTING_ERRNOS = frozenset(
+    {errno.ENOENT, getattr(errno, "ESTALE", 116)}
 )
 
 
@@ -125,7 +131,10 @@ def validate_source_and_output_roots(source_root: Path, output_root: Path) -> tu
 
 @dataclass(frozen=True)
 class StagingLayout:
+    # ``root`` remains the public output root for compatibility with existing
+    # run records.  All runtime paths are contained by ``local_root``.
     root: Path
+    local_root: Path
     dataset_uid: str
     run_id: str
     final: Path
@@ -140,7 +149,9 @@ class StagingLayout:
 
     @property
     def cache_root(self) -> Path:
-        return self.work / "cache"
+        # Decoder/model caches are immutable and expensive to download.  Keep
+        # one persistent local cache shared by benchmark and production UIDs.
+        return self.local_root / ".conversion_cache"
 
     @property
     def environment(self) -> dict[str, str]:
@@ -169,6 +180,7 @@ class StagingLayout:
 def make_staging_layout(
     *,
     output_root: Path,
+    local_work_root: Path = DEFAULT_LOCAL_WORK_ROOT,
     dataset_uid: str,
     run_id: str,
     work_dir: Path | None = None,
@@ -177,30 +189,53 @@ def make_staging_layout(
     temp_dir: Path | None = None,
 ) -> StagingLayout:
     root = _absolute(output_root)
+    local_root = _absolute(local_work_root)
     if Path(dataset_uid).name != dataset_uid or dataset_uid in {"", ".", ".."}:
         raise ConversionError(f"invalid dataset uid {dataset_uid!r}")
     if Path(run_id).name != run_id or run_id in {"", ".", ".."}:
         raise ConversionError(f"invalid run id {run_id!r}")
-    values = {
+    _reject_existing_symlink_components(local_root)
+    root_resolved = root.resolve(strict=False)
+    local_resolved = local_root.resolve(strict=False)
+    if _relative_to(root_resolved, local_resolved) or _relative_to(
+        local_resolved, root_resolved
+    ):
+        raise ConversionError(
+            f"local work root and OSS output root must be disjoint: {local_root} vs {root}"
+        )
+    remote_values = {
         "final": root / dataset_uid,
-        "work": work_dir
-        or root / ".conversion_work" / dataset_uid / run_id,
-        "resume": resume_dir or root / ".conversion_resume" / dataset_uid,
-        "logs": logs_dir or root / ".conversion_logs" / dataset_uid,
-        "temp": temp_dir
-        or (work_dir or root / ".conversion_work" / dataset_uid / run_id) / "tmp",
         "lock": root / ".conversion_locks" / f"{dataset_uid}.lock",
     }
-    checked = {
-        label: validate_contained_path(Path(path), root, label=label)
-        for label, path in values.items()
+    local_values = {
+        "work": work_dir
+        or local_root / ".conversion_work" / dataset_uid / run_id,
+        "resume": resume_dir or local_root / ".conversion_resume" / dataset_uid,
+        "logs": logs_dir or local_root / ".conversion_logs" / dataset_uid,
+        "temp": temp_dir
+        or (work_dir or local_root / ".conversion_work" / dataset_uid / run_id) / "tmp",
     }
+    checked_remote = {
+        label: validate_contained_path(Path(path), root, label=label)
+        for label, path in remote_values.items()
+    }
+    checked_local = {
+        label: validate_contained_path(Path(path), local_root, label=label)
+        for label, path in local_values.items()
+    }
+    checked = {**checked_remote, **checked_local}
     unique = [checked[key] for key in ("final", "work", "resume", "logs", "temp", "lock")]
     for index, first in enumerate(unique):
         for second in unique[index + 1 :]:
             if first == second:
                 raise ConversionError(f"runtime paths must be distinct: {first}")
-    return StagingLayout(root=root, dataset_uid=dataset_uid, run_id=run_id, **checked)
+    return StagingLayout(
+        root=root,
+        local_root=local_root,
+        dataset_uid=dataset_uid,
+        run_id=run_id,
+        **checked,
+    )
 
 
 def configure_runtime_environment(layout: StagingLayout, *, create: bool) -> Mapping[str, str]:
@@ -219,8 +254,13 @@ def configure_runtime_environment(layout: StagingLayout, *, create: bool) -> Map
 def directory_logical_size(root: Path) -> int:
     """Account regular-file bytes without following symlinks."""
 
-    if not root.exists():
-        return 0
+    try:
+        if not root.exists():
+            return 0
+    except OSError as exc:
+        if exc.errno in TRANSIENT_ACCOUNTING_ERRNOS:
+            return 0
+        raise ConversionError(f"cannot account staging path {root}: {exc}") from exc
     if root.is_symlink():
         raise ConversionError(f"capacity accounting refuses symlink root: {root}")
     total = 0
@@ -230,6 +270,8 @@ def directory_logical_size(root: Path) -> int:
         try:
             entries = list(os.scandir(directory))
         except OSError as exc:
+            if exc.errno in TRANSIENT_ACCOUNTING_ERRNOS:
+                continue
             raise ConversionError(f"cannot account staging path {directory}: {exc}") from exc
         for entry in entries:
             if entry.is_symlink():
@@ -237,7 +279,14 @@ def directory_logical_size(root: Path) -> int:
             if entry.is_dir(follow_symlinks=False):
                 pending.append(Path(entry.path))
             elif entry.is_file(follow_symlinks=False):
-                total += entry.stat(follow_symlinks=False).st_size
+                try:
+                    total += entry.stat(follow_symlinks=False).st_size
+                except OSError as exc:
+                    if exc.errno in TRANSIENT_ACCOUNTING_ERRNOS:
+                        continue
+                    raise ConversionError(
+                        f"cannot account staging path {entry.path}: {exc}"
+                    ) from exc
     return total
 
 
@@ -245,65 +294,122 @@ def directory_logical_size(root: Path) -> int:
 class CapacitySnapshot:
     stage: str
     staging_bytes: int
-    max_staging_bytes: int
+    max_staging_bytes: int | None
     filesystem_available_bytes: int
+    min_filesystem_free_bytes: int
     required_additional_bytes: int
     captured_unix: float
 
 
 class StagingCapacityGuard:
-    """Periodic logical-usage and free-space checks for the shared staging root."""
+    """Bound and backpressure all growing state on one local filesystem."""
 
     def __init__(
         self,
         root: Path,
         *,
-        max_staging_bytes: int,
+        max_staging_bytes: int | None = None,
+        min_free_bytes: int = 0,
         interval_seconds: float,
         usage_roots: Sequence[Path] | None = None,
     ) -> None:
-        if max_staging_bytes <= 0:
+        if max_staging_bytes is not None and max_staging_bytes <= 0:
             raise ValueError("max_staging_bytes must be positive")
         if interval_seconds <= 0:
             raise ValueError("storage check interval must be positive")
+        if min_free_bytes < 0:
+            raise ValueError("min_free_bytes cannot be negative")
         self.root = root
         self.usage_roots = tuple(usage_roots or (root,))
         for path in self.usage_roots:
             validate_contained_path(path, root, label="capacity-accounting")
         self.max_staging_bytes = max_staging_bytes
+        self.min_free_bytes = min_free_bytes
         self.interval_seconds = interval_seconds
         self._last_check = 0.0
         self.last_snapshot: CapacitySnapshot | None = None
+        self.peak_staging_bytes = 0
 
-    def check(self, stage: str, *, required_additional_bytes: int = 0) -> CapacitySnapshot:
+    def _capture(
+        self, stage: str, *, required_additional_bytes: int
+    ) -> CapacitySnapshot:
         if required_additional_bytes < 0:
             raise ValueError("required_additional_bytes cannot be negative")
         usage = sum(directory_logical_size(path) for path in self.usage_roots)
+        self.peak_staging_bytes = max(self.peak_staging_bytes, usage)
         filesystem = os.statvfs(self.root)
         available = filesystem.f_bavail * filesystem.f_frsize
-        projected = usage + required_additional_bytes
-        if projected > self.max_staging_bytes:
-            raise ConversionError(
-                f"staging capacity limit exceeded before {stage}: current={usage}, "
-                f"required_additional={required_additional_bytes}, "
-                f"--max-staging-bytes={self.max_staging_bytes}; verified checkpoints retained"
-            )
-        if required_additional_bytes > available:
-            raise ConversionError(
-                f"staging filesystem has insufficient free space before {stage}: "
-                f"available={available}, required_additional={required_additional_bytes}"
-            )
-        snapshot = CapacitySnapshot(
+        return CapacitySnapshot(
             stage=stage,
             staging_bytes=usage,
             max_staging_bytes=self.max_staging_bytes,
             filesystem_available_bytes=available,
+            min_filesystem_free_bytes=self.min_free_bytes,
             required_additional_bytes=required_additional_bytes,
             captured_unix=time.time(),
         )
+
+    def _violation(self, snapshot: CapacitySnapshot) -> str | None:
+        projected = snapshot.staging_bytes + snapshot.required_additional_bytes
+        if (
+            snapshot.max_staging_bytes is not None
+            and projected > snapshot.max_staging_bytes
+        ):
+            return (
+                f"local capacity limit reached before {snapshot.stage}: "
+                f"current={snapshot.staging_bytes}, "
+                f"required_additional={snapshot.required_additional_bytes}, "
+                f"--max-local-temp-bytes={snapshot.max_staging_bytes}"
+            )
+        remaining = (
+            snapshot.filesystem_available_bytes
+            - snapshot.required_additional_bytes
+        )
+        if remaining < snapshot.min_filesystem_free_bytes:
+            return (
+                f"local free-space reserve reached before {snapshot.stage}: "
+                f"available={snapshot.filesystem_available_bytes}, "
+                f"required_additional={snapshot.required_additional_bytes}, "
+                f"--min-local-free-bytes={snapshot.min_filesystem_free_bytes}"
+            )
+        return None
+
+    def check(self, stage: str, *, required_additional_bytes: int = 0) -> CapacitySnapshot:
+        snapshot = self._capture(
+            stage, required_additional_bytes=required_additional_bytes
+        )
+        violation = self._violation(snapshot)
+        if violation is not None:
+            raise ConversionError(
+                f"{violation}; verified local checkpoints retained"
+            )
         self.last_snapshot = snapshot
         self._last_check = time.monotonic()
         return snapshot
+
+    def wait_for_capacity(
+        self,
+        stage: str,
+        *,
+        required_additional_bytes: int = 0,
+        poll_seconds: float = 1.0,
+        abort_check: Callable[[], None] | None = None,
+    ) -> CapacitySnapshot:
+        """Pause dispatch until upload/deletion releases enough local space."""
+
+        if poll_seconds <= 0:
+            raise ValueError("capacity poll interval must be positive")
+        while True:
+            if abort_check is not None:
+                abort_check()
+            snapshot = self._capture(
+                stage, required_additional_bytes=required_additional_bytes
+            )
+            if self._violation(snapshot) is None:
+                self.last_snapshot = snapshot
+                self._last_check = time.monotonic()
+                return snapshot
+            time.sleep(min(poll_seconds, 5.0))
 
     def periodic_check(
         self, stage: str, *, required_additional_bytes: int = 0
@@ -393,16 +499,19 @@ def validate_no_runtime_paths_outside_root(
 ) -> None:
     for label, path in (
         ("final", layout.final),
+        ("lock", layout.lock),
+    ):
+        validate_contained_path(path, layout.root, label=label)
+    for label, path in (
         ("work", layout.work),
         ("resume", layout.resume),
         ("logs", layout.logs),
         ("temp", layout.temp),
-        ("lock", layout.lock),
         *(("extra", item) for item in extra_paths),
     ):
-        validate_contained_path(path, layout.root, label=label)
+        validate_contained_path(path, layout.local_root, label=label)
     for key in RUNTIME_ENVIRONMENT_KEYS:
         value = os.environ.get(key)
         if value is None:
             raise ConversionError(f"runtime environment {key} is not configured")
-        validate_contained_path(Path(value), layout.root, label=key)
+        validate_contained_path(Path(value), layout.local_root, label=key)

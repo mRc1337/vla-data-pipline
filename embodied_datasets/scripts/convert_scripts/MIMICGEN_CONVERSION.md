@@ -148,6 +148,7 @@ MP4 encoders:
 /home/pai/zxw/mimicgen_runtime/formal/
 ├── temp/
 ├── cache/
+├── partitions/              # local validated partition outputs before upload
 └── workers/
 ```
 
@@ -157,9 +158,14 @@ source and target schemas, FPS, robot, field/task mapping, video codec/CRF/
 preset/pixel format/threads, output UID, and partition rule. A mismatch is
 rejected with the changed section names. The lock is non-blocking.
 
-A marker is atomically written only after a partition is finalized, reopened
-with `LeRobotDataset`, and its videos pass FFprobe. The marker stores that
-validation plus a size/mtime inventory fingerprint. The default
+A marker is atomically written only after a partition is finalized on the
+local POSIX filesystem, reopened with `LeRobotDataset`, its videos pass
+FFprobe, and the complete partition is copied to the durable output tree and
+checked by a remote path/size inventory. The marker stores that remote
+validation plus a size/mtime inventory fingerprint. If the upload fails, the
+local validated partition is retained for the next identical `--resume` run
+instead of being encoded again; the retry must use the same `--work-dir` so
+the retained local partition is visible. The default
 `--resume-validation fast` verifies unchanged checkpoints from this cheap
 fingerprint and does not rescan video frames. `--resume-validation full`
 forces a complete rescan. `--resume-probe-timeout 300` bounds each FFprobe;
@@ -176,12 +182,24 @@ bytes plus the active frontier. A worker, OSSFS, or capacity failure stops new
 dispatch and exits nonzero. The run lock is acquired before any output, work,
 or log mutation, so a competing resume cannot alter the active run.
 
-Workers write final-compatible partition directories directly below
-`mimicgen`; there is no collection-sized copy or directory rename. The root is
-created with `_INCOMPLETE`. After every partition receives a final cheap
-fingerprint check, `_SUCCESS` is written and `_INCOMPLETE` is removed. Resume
-state is then removed; the empty lock inode may remain but is no longer locked.
+Workers write final-compatible partition directories below the local
+`partitions/` tree. Each completed partition is uploaded once to the durable
+`mimicgen` tree; there is no collection-sized copy or directory rename. The
+root is created with `_INCOMPLETE`. After every partition receives a final
+cheap fingerprint check, `_SUCCESS` is written and `_INCOMPLETE` is removed.
+Resume state is then removed; the empty lock inode may remain but is no longer
+locked.
 An existing valid `_SUCCESS` is refused unless explicit overwrite is requested.
+Persistent workers reset Python's cached `tempfile` directory at every
+partition boundary, so per-partition `ffconcat` and MP4 intermediates never
+point at a previously cleaned worker directory.
+
+Streaming episode MP4s are kept on the local filesystem. Instead of reading
+and rewriting the current chunk after every episode, the writer concatenates
+all episode MP4s in a chunk once when that chunk rolls over or a partition is
+finalized. This removes the quadratic video write amplification that is
+particularly costly on OSSFS; the resulting chunk is uploaded only after
+local validation succeeds.
 
 ## Commands
 

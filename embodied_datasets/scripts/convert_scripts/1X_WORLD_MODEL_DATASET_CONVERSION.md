@@ -1,9 +1,10 @@
 # 1X World Model Dataset → LeRobot v3.0
 
-Verified on 2026-08-18 against the local Hugging Face snapshot at
+Verified through a real OSSFS smoke on 2026-08-19 against the local Hugging Face snapshot at
 `/mnt/data/embodied_datasets/public_datasets_raw/1x_world_model_dataset`. The source revision is
 `42e3e12fff6848b511583ba6e8afa7f82ef9014e`; the official 1Xgpt code was inspected at commit
-`0069734`. No full conversion or OSS write has been started.
+`0069734`. The full W1+U2 bounded-local conversion was started on 2026-08-20 after exact real-sample
+equivalence and publication checks passed.
 
 ## Source evidence and partitioning
 
@@ -92,18 +93,28 @@ number and validation evidence for video files.
 - Official [NVIDIA Cosmos-Tokenizer repository at inspected commit](https://github.com/NVIDIA/Cosmos-Tokenizer/tree/3584ae752ce8ebdbe06a420bf60d7513c0e878cc). The local `decoder.jit` SHA-256 is
   `881f1f6317872fad3eeeaa1e595061aa3ee12590d14ce435ac9e9e5c883e797b`.
 
-## Resume and publication
+## Bounded local work and OSS publication
 
-`convert_core/checkpoint.py` is format-independent and is used by the generic CLI and this collection
-converter. v2 checkpoints after the last complete segment associated with each shard; v1 checkpoints
-after deterministic 128-segment batches. This avoids reopening per frame while bounding redo after a
-crash. Paths are siblings of the final output:
+The scalable workflow separates bounded local runtime state from durable OSS output. Its default
+layout is:
 
 ```text
-.<uid>.resume/        # collection worktree; partitions use nested deterministic resume siblings
-.<uid>.resume-state/  # atomic state, markers, and last durable metadata snapshot
-.<uid>.resume.lock    # non-blocking advisory lock
+/mnt/data/.../lerobot_v3_0/1x_world_model_dataset/          # final Parquet/MP4/metadata only
+/mnt/data/.../lerobot_v3_0/.conversion_locks/...            # transient publication lock
+/home/pai/zxw/1x_world_model_dataset_staging/
+  .conversion_work/1x_world_model_dataset/<run_id>/         # unit output and temp
+  .conversion_resume/1x_world_model_dataset/                 # small durable checkpoints
+  .conversion_logs/1x_world_model_dataset/                   # local audit records
+  .conversion_cache/                                         # persistent decoder/model cache
 ```
+
+`--local-work-root` defaults to `/home/pai/zxw/1x_world_model_dataset_staging`. Startup resolves and
+validates the local and OSS roots independently, rejects symlink escapes and root overlap, and rejects
+writes to `public_datasets`. It explicitly redirects `TMPDIR`, `TMP`,
+`TEMP`, `XDG_CACHE_HOME`, `HF_HOME`, `HF_DATASETS_CACHE`, `TORCH_HOME`, `MPLCONFIGDIR`,
+`VLA_DATASETS_CACHE_ROOT`, `CUDA_CACHE_PATH`, `TORCH_EXTENSIONS_DIR`, and `NUMBA_CACHE_DIR` into the
+run directory. v2 checkpoints are reader-defined shard/context units; v1 checkpoints are deterministic
+128-segment batches. There is no per-frame or per-episode checkpoint file.
 
 The fingerprint includes resume schema, source root/revision, every source file path/size/mtime,
 selection, schemas, source spans, field/task mapping, FPS, robot type, partition rules, decoder and
@@ -112,34 +123,59 @@ checks, and MP4 frame/FPS/resolution checks. Restart restores the last metadata 
 not in its inventory, and revalidates it. Source/config/codec changes are rejected with changed
 categories. `--resume`, `--overwrite`, and `--skip-existing` are mutually exclusive. SIGINT/SIGTERM
 retain the last committed unit; kill -9 can corrupt the active unit, which is discarded on restart.
-After complete collection validation, publication is atomic and all resume data/state/locks are removed.
-Rollback-safe overwrite renames the valid old output aside until replacement succeeds.
+Workers write and fully validate units locally, patch global Parquet indices, and generate one final
+SHA-256 inventory. A bounded uploader queue then copies directly to preassigned OSS paths while the
+conversion worker starts the next unit. Remote verification uses object size, first/middle/last range
+hashes, and Parquet/container metadata; it never decodes a complete remote video. Local bulk is deleted
+only after remote verification. No second TB-scale copy is produced. Output is
+created with `_INCOMPLETE`; only full collection validation writes `_SUCCESS`, then removes
+`_INCOMPLETE`. This does not depend on a complete-directory rename. A valid `_SUCCESS` refuses overwrite
+unless `--overwrite` is explicit. Successful publication removes local bulk work and transient unit
+metadata, retains compact local resume/audit markers, and removes the OSS lock.
+
+All growing local state, including conversion, queued/uploading units, resume, logs, temp, and cache,
+is accounted together. `--max-local-temp-bytes` defaults to exactly `100000000000`; dispatch pauses
+until usage is below the bound. `--min-local-free-bytes` defaults to `200000000000`, preserving 200 GB
+of filesystem headroom. The approved formal topology is W1 conversion with one or two upload threads;
+U2 is used only after exact W1+U1/W1+U2 equivalence passes.
+
+Fragmented MP4 writes use
+`frag_keyframe+empty_moov+default_base_moof+negative_cts_offsets`. They are created and validated on
+local storage, then sequentially uploaded to OSS; libav never writes an active MP4 through OSSFS.
 
 The implementation boundary is deliberate: `one_x_world_model_reader.py` owns official-format parsing,
 full source scans, partition planning, and decoder iteration; `convert_1x_world_model_dataset.py` owns
 the heterogeneous collection and real encoder/decoder preflights; `convert_core/checkpoint.py`,
-`lerobot_writer.py`, and `progress.py` own format-neutral fingerprints, snapshots, locks, ETA,
-validation, and atomic publication. The main additions are the reader, YAML config, collection CLI,
+`lerobot_writer.py`, `staging.py`, `direct_commit.py`, and `progress.py` own format-neutral fingerprints,
+snapshots, scoped runtime paths, direct chunk commits, locks, ETA, validation, and marker publication.
+The main additions are the reader, YAML config, collection CLI,
 independent evaluator, checkpoint core, focused tests, and this document; the generic CLI/writer/config/
 registry plus README and pipeline status were extended without removing existing entry points.
 
+Each worker performs one bounded preflight per source version: it decodes up to 60 real frames from the
+first planned episode and encodes a 60-frame in-memory RGB sample. The preflight writes no dataset
+object; its in-memory container is discarded before conversion begins.
+
 ## Parallel benchmark and formal-worker decision
 
-The generic scheduler lives in `convert_core/parallel.py`; process-tree resource sampling lives in
+The persistent `multiprocessing.Pipe` scheduler lives in `convert_core/parallel.py`; it avoids
+`Queue`/`SemLock` and therefore does not depend on `/dev/shm`. Process-tree resource sampling lives in
 `convert_core/performance.py`; exact LeRobot comparison lives in `convert_core/equivalence.py`.
 Work units are reader checkpoint boundaries, not arbitrary episode slices. This is required for v2:
 17-frame Cosmos token blocks can cross episode boundaries, and splitting a decoder-context shard at an
 episode changes reconstructed pixels. The coordinator freezes episode/frame/task indices and output
-paths before dispatch. Each worker has its own writer, temp root, and SHA-256 verified marker; aggregation
-always follows plan order. Dispatch is bounded, stops after the first failure, and resume reuses only
-verified units. The inflight memory/temp estimates include worker count and the aggregation peak.
+paths before dispatch. Each worker has its own writer, temp root, and SHA-256 verified marker. The
+coordinator commits verified chunks in plan order without concatenating or copying a second bulk
+dataset. Dispatch is bounded, stops after the first worker/write/capacity failure, and resume reuses
+only rehashed verified units. The inflight memory/temp estimates include worker count and committed
+chunk staging.
 
 The final real-sample benchmark used the first episode from each of four distinct v2 checkpoint shards:
 4 episodes / 2,765 frames, identical source tokens and selection for W1/W2/W4, CPU libx264 CRF 18 medium,
 8 encoder threads per worker, and at most 32 encoder threads total. Wall time covers source planning,
 decode, encode, write, validation, ordered aggregation, and publication. `/proc` process-tree counters
-cover CPU/RSS/I/O; temp peak is growth above the staging-parent baseline, so random `.incomplete-*` and
-aggregation directories are included.
+cover CPU/RSS/I/O; temp peak is growth across each run's dedicated final/work/resume/log roots. The
+sampler never traverses the shared TB-scale staging parent.
 
 | Workers | Wall | Frames/s | Speedup | CPU seconds / avg cores | Peak RSS | Read chars / physical read | Physical write | Temp peak | Exact vs W1 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
@@ -160,8 +196,29 @@ Therefore `parallel_eligible=false`: formal `--workers 2` and `--workers 4` are 
 instead of silently falling back. The only approved configuration is `--workers 1` with
 `--encoder-threads-per-worker 8`. W1 was separately compared with the legacy serial path on the same real
 806-frame episode: schema, every index/value, episode/task boundary, all 806 decoded video frames, and
-the semantic manifest were exact. The machine-readable final report is
-`/home/pai/zxw/1x_world_model_dataset_staging/benchmarks/1x_world_model_v2_workers.json`.
+the semantic manifest were exact. That historical report predates the OSSFS-only runtime layout. New
+diagnostic reports must be written below `<root>/.conversion_logs/`; the measured conclusion remains
+W1-only.
+
+The 2026-08-20 local-work uploader benchmark used the same four v1 checkpoint samples (1,699 frames),
+H.264 CRF 18 `fast`, W1, and eight encoder threads. U1 completed in 187.58 s (9.06 end-to-end fps);
+U2 completed in 160.38 s (10.59 fps), a 14.5% wall-time improvement. Exact comparison passed schema,
+all Parquet indices/values, episode/task boundaries, semantic manifests, and all 1,699 decoded video
+frames. Both runs submitted and verified four units, used no bulk aggregation copy, and published
+`_SUCCESS`. Formal conversion therefore uses W1+U2; W2/W4 remain prohibited.
+
+The v1 decoder optimization benchmark used the same 1,699 frames. After wiring the CLI options into
+the reader plan, the actual GPU-side output postprocessing (`--v1-postprocess-device gpu`) with batch
+size 8 passed the complete equivalence gate for both 8 and 16 PyTorch CPU threads. Batch sizes 16 and
+32 failed the episode image-statistics equivalence gate for both thread counts, so batch size 8 remains
+mandatory. Batch 8/thread 8 completed in about 63 s with GPU postprocessing and about 61 s with CPU
+postprocessing; the GPU path is retained as an explicit validated option, but does not provide a
+measurable end-to-end speedup on this host. The CPU-thread limit is applied only when a v1 unit starts.
+A corrected bounded v1 GPU W1/W2 benchmark also passed complete equivalence: 61.44 s versus 52.63 s
+(17.4% faster). This does not authorize W2 for the full collection because the v2 W2 benchmark remains
+rejected; the formal collection topology therefore remains W1+U2. The selected conservative v1 settings
+are batch 8, CPU threads 8; GPU postprocessing may be enabled with the same equivalence result when GPU
+utilization is preferred.
 
 ## Commands
 
@@ -171,6 +228,7 @@ Full read-only preflight (loads no decoder and writes no dataset):
 cd /home/pai/zxw/vla-data-pipeline
 /home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python \
   embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
+  --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
   --inspect-only
 ```
 
@@ -179,18 +237,30 @@ shown; both use the approved W1 configuration:
 
 ```bash
 # v1
-.../convert_1x_world_model_dataset.py --version v1.1 \
-  --output-dataset-uid 1x_world_model_dataset_smoke_v1 --max-episodes 1 --resume \
+/home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
+  embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
+  --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
+  --version v1.1 --output-dataset-uid 1x_world_model_dataset_smoke_v1 \
+  --max-episodes 1 --resume \
   --v1-decoder-repo /home/pai/zxw/1x_world_model_dataset_staging/decoders/1Xgpt \
   --video-codec h264 --video-quality 18 --video-preset medium \
-  --workers 1 --encoder-threads-per-worker 8
+  --workers 1 --encoder-threads-per-worker 8 \
+  --max-local-temp-bytes 100000000000 --min-local-free-bytes 200000000000 \
+  --max-inflight-bytes 1073741824 \
+  --max-inflight-units 1 --storage-check-interval-seconds 10
 
 # v2
-.../convert_1x_world_model_dataset.py --version v2.0 \
-  --output-dataset-uid 1x_world_model_dataset_smoke_v2 --max-episodes 1 --resume \
+/home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
+  embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
+  --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
+  --version v2.0 --output-dataset-uid 1x_world_model_dataset_smoke_v2 \
+  --max-episodes 1 --resume \
   --cosmos-decoder-path /home/pai/zxw/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
   --video-codec h264 --video-quality 18 --video-preset medium \
-  --workers 1 --encoder-threads-per-worker 8
+  --workers 1 --encoder-threads-per-worker 8 \
+  --max-local-temp-bytes 100000000000 --min-local-free-bytes 200000000000 \
+  --max-inflight-bytes 1073741824 \
+  --max-inflight-units 1 --storage-check-interval-seconds 10
 ```
 
 Bounded W1/W2/W4 diagnostic benchmark (never use its W2/W4 outputs as formal data):
@@ -198,81 +268,107 @@ Bounded W1/W2/W4 diagnostic benchmark (never use its W2/W4 outputs as formal dat
 ```bash
 /home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
+  --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
   --version v2.0 --max-checkpoint-units 4 \
   --output-dataset-uid 1x_world_model_parallel_benchmark_v2 \
   --cosmos-decoder-path /home/pai/zxw/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
   --benchmark-workers 1 2 4 --encoder-threads-per-worker 8 \
   --video-codec h264 --video-quality 18 --video-preset medium \
-  --benchmark-report /home/pai/zxw/1x_world_model_dataset_staging/benchmarks/1x_world_model_v2_workers.json
+  --max-inflight-units 4 \
+  --benchmark-report /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_logs/1x_world_model_parallel_benchmark_v2/workers.json
 ```
 
-Independent evaluation:
+Independent evaluation must also redirect its caches into the staging root:
 
 ```bash
-.../evaluate_1x_world_model_conversion.py \
-  --collection-root /home/pai/zxw/1x_world_model_dataset_staging/lerobot_v3_0/1x_world_model_dataset_smoke_v2 \
-  --cosmos-decoder-path /home/pai/zxw/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
-  --output /home/pai/zxw/1x_world_model_dataset_staging/smoke_v2_evaluation.json
+mkdir -p /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/tmp
+env \
+  TMPDIR=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/tmp \
+  TMP=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/tmp \
+  TEMP=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/tmp \
+  XDG_CACHE_HOME=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/cache/xdg \
+  HF_HOME=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/cache/huggingface \
+  HF_DATASETS_CACHE=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/cache/huggingface/datasets \
+  TORCH_HOME=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/cache/torch \
+  MPLCONFIGDIR=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/cache/matplotlib \
+  VLA_DATASETS_CACHE_ROOT=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/cache/datasets \
+  CUDA_CACHE_PATH=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/cache/cuda \
+  TORCH_EXTENSIONS_DIR=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/cache/torch-extensions \
+  NUMBA_CACHE_DIR=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/cache/numba \
+  /home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
+  embodied_datasets/scripts/convert_scripts/evaluate_1x_world_model_conversion.py \
+  --collection-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/1x_world_model_dataset_smoke_v1 \
+  --v1-decoder-repo /home/pai/zxw/1x_world_model_dataset_staging/decoders/1Xgpt \
+  --output /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_logs/1x_world_model_dataset_smoke_v1/evaluation.json
 ```
 
-Do not run the following full command without explicit authorization. It is the prepared resumable
-background command, writing only to local staging:
+The authorized resumable GPU3/W1/U2 production command is:
 
 ```bash
-mkdir -p /home/pai/zxw/1x_world_model_dataset_logs
-nohup env CUDA_VISIBLE_DEVICES=0 \
-  MPLCONFIGDIR=/home/pai/zxw/1x_world_model_dataset_staging/matplotlib-cache \
-  VLA_DATASETS_CACHE_ROOT=/home/pai/zxw/1x_world_model_dataset_staging/hf-datasets-cache \
+mkdir -p /home/pai/zxw/1x_world_model_dataset_staging/console_logs
+env CUDA_VISIBLE_DEVICES=3 PYTHONDONTWRITEBYTECODE=1 \
   /home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
+  --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
+  --local-work-root /home/pai/zxw/1x_world_model_dataset_staging \
+  --output-dataset-uid 1x_world_model_dataset \
   --resume \
   --v1-decoder-repo /home/pai/zxw/1x_world_model_dataset_staging/decoders/1Xgpt \
   --cosmos-decoder-path /home/pai/zxw/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
-  --video-codec h264 --video-quality 18 --video-preset medium \
+  --video-codec h264 --video-quality 18 --video-preset fast \
   --workers 1 --encoder-threads-per-worker 8 \
-  --eta-interval-seconds 10 \
-  > /home/pai/zxw/1x_world_model_dataset_logs/convert.log 2>&1 &
-echo $! > /home/pai/zxw/1x_world_model_dataset_logs/convert.pid
+  --decode-batch-size 8 --v1-postprocess-device gpu --decoder-cpu-threads 8 \
+  --upload-workers 2 --max-upload-queue-units 2 \
+  --max-local-temp-bytes 100000000000 \
+  --min-local-free-bytes 200000000000 \
+  --max-inflight-bytes 68719476736 \
+  --max-inflight-units 1 \
+  --storage-check-interval-seconds 10 \
+  --eta-interval-seconds 10 2>&1 | \
+  tee -a /home/pai/zxw/1x_world_model_dataset_staging/console_logs/convert-fast-local.log
 ```
 
 Monitor or resume with the unchanged command:
 
 ```bash
-tail -f /home/pai/zxw/1x_world_model_dataset_logs/convert.log
-ps -fp "$(cat /home/pai/zxw/1x_world_model_dataset_logs/convert.pid)"
-find /home/pai/zxw/1x_world_model_dataset_staging/lerobot_v3_0 -maxdepth 3 -name '*resume*' -print
+tail -f /home/pai/zxw/1x_world_model_dataset_staging/console_logs/convert-fast-local.log
+pgrep -af '[c]onvert_1x_world_model_dataset.py.*--output-dataset-uid 1x_world_model_dataset'
+du -sh /home/pai/zxw/1x_world_model_dataset_staging/.conversion_{work,resume,logs,cache}
+find /home/pai/zxw/1x_world_model_dataset_staging/.conversion_resume/1x_world_model_dataset/committed -type f | wc -l
 ```
 
-The final local output will be
-`/home/pai/zxw/1x_world_model_dataset_staging/lerobot_v3_0/1x_world_model_dataset`.
-After validation, the user may choose to run these dry-runs; the converter never syncs OSS:
-
-```bash
-rsync -rn --info=progress2 \
-  /home/pai/zxw/1x_world_model_dataset_staging/lerobot_v3_0/1x_world_model_dataset/ \
-  /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/1x_world_model_dataset/
-rsync -rcn --itemize-changes \
-  /home/pai/zxw/1x_world_model_dataset_staging/lerobot_v3_0/1x_world_model_dataset/ \
-  /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/1x_world_model_dataset/
-```
+The final output is uploaded directly to preassigned paths below
+`/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/1x_world_model_dataset`. Local work is
+bounded and deleted after remote verification; there is no final rsync or second bulk copy.
 
 ## Verification results and remaining risk
 
-- v1 smoke: 1 episode / 240 frames; all five source fields exact at first/middle/last; H.264
-  240 frames, 30 FPS, 256×256; sampled PSNR 35.90–38.14 dB.
+- OSSFS v1 smoke (2026-08-19, GPU3/W1): 1 episode / 240 frames; six feature schemas, all 240
+  `index/frame_index/episode_index/task_index/timestamp` rows, episode/task metadata, and both manifests
+  passed. All five source fields were exact at first/middle/last; H.264 was 240 frames, 30 FPS,
+  256×256 with a zero first PTS; sampled PSNR was 35.90–38.14 dB. Warm conversion throughput was
+  27.74 frames/s; the separate cold VGG16 download took 4m49s.
 - v2 smoke: 1 episode / 806 frames; state exact at first/middle/last; H.264 806 frames,
   30 FPS, 256×256; sampled PSNR 38.09–38.82 dB.
+- After the append-only sink change, the previously failing v2 worker unit was resumed in place on
+  GPU3 and passed its complete worker validation: 806/806 frames, H.264, 30 FPS, 256×256, first PTS 0,
+  and 69.38 frames/s end-to-end for that bounded unit.
+- The OSSFS smoke produced `_SUCCESS` and no `_INCOMPLETE`; work, resume, and lock paths were removed
+  after publication while the audit log remained. Every recorded runtime/cache path was below the fixed
+  root. `/dev/shm` stayed empty, no 1X runtime artifact appeared in `/home` or `/tmp`, and the raw
+  path/size/mtime manifest remained
+  `92ea28ea861c4a366a7cf834f28e60c2122f332333531cdd7c770f6f6989e544`.
 - The strengthened complete `meta/info.json` contract validator passes against both existing real
   smoke partitions, not only synthetic fixtures.
-- Reports: `/home/pai/zxw/1x_world_model_dataset_staging/smoke_v{1,2}_evaluation.json`.
-- Final worker benchmark report:
-  `/home/pai/zxw/1x_world_model_dataset_staging/benchmarks/1x_world_model_v2_workers.json`;
-  W2/W4 are rejected and only W1 is approved for formal conversion.
+- The OSSFS v1 report was generated at
+  `<root>/.conversion_logs/1x_world_model_dataset_ossfs_smoke_w1/evaluation.json`; the required final
+  cleanup removed that smoke UID and log after the measurements above were recorded.
+- The real W1/W2/W4 v2 benchmark above rejected W2/W4 and only W1 is approved for formal conversion.
 - Full-value scans found no non-finite robot values, out-of-codebook tokens, missing binaries, or
   unreferenced split files. Relevant unit/integration tests cover resume reuse/cleanup, fingerprint
   mismatch, corrupt marker, concurrent lock, and partial active-unit cleanup.
-- Final focused audit: 41 converter/reader/checkpoint/parallel/writer/performance tests passed;
-  `py_compile` and `git diff --check` passed. The repository suite excluding the
+- The focused converter/reader/checkpoint/parallel/writer/performance suite, `py_compile`, and
+  `git diff --check` pass; the focused suite has 60 passing tests. The repository suite excluding the
   nine localhost HTTP-server tests passed with 410 passed / 1 skipped / 4 pre-existing fork warnings.
   The unfiltered suite produced the same 410 passes but those nine unrelated tests could not call
   `socket(AF_INET)` in the managed network sandbox; the requested host-context rerun was rejected when

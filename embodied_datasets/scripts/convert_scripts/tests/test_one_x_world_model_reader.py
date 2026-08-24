@@ -57,6 +57,27 @@ def _write_revision(root: Path) -> None:
     metadata.write_text("42e3e12fff6848b511583ba6e8afa7f82ef9014e\netag\n0\n", encoding="utf-8")
 
 
+def test_decoder_preflight_consumes_at_most_60_real_frames(monkeypatch):
+    reader = OneXWorldModelReader()
+    calls = []
+
+    class Episode:
+        num_frames = 100
+
+    class Plan:
+        episodes = (Episode(),)
+
+    def frames(_plan, _episode):
+        for index in range(100):
+            calls.append(index)
+            yield index
+
+    monkeypatch.setattr(reader, "iter_frames", frames)
+    reader.preflight_decoder(Plan())
+
+    assert calls == list(range(60))
+
+
 def test_v2_plan_merges_segment_across_shards_and_preserves_provenance(tmp_path: Path):
     source = tmp_path / "raw" / "1x_world_model_dataset"
     split = source / "train_v2.0"

@@ -9,6 +9,7 @@ from multiprocessing.connection import wait as wait_connections
 from pathlib import Path
 import shutil
 import time
+import traceback
 from typing import Any, Callable, Sequence
 import uuid
 
@@ -88,9 +89,13 @@ class PreparedUnits:
 class ParallelWorkError(ConversionError):
     """An isolated work unit failed; its key remains available to resume logic."""
 
-    def __init__(self, unit: ParallelWorkUnit):
+    def __init__(self, unit: ParallelWorkUnit, *, detail: str | None = None):
         self.unit = unit
-        super().__init__(f"parallel work unit {unit.key!r} failed")
+        self.detail = detail
+        message = f"parallel work unit {unit.key!r} failed"
+        if detail:
+            message += f": {detail}"
+        super().__init__(message)
 
 
 def _checkpoint_unit(episode: EpisodePlan) -> str:
@@ -270,7 +275,12 @@ def validate_inflight_budget(
     *,
     memory_budget_bytes: int,
     temp_budget_bytes: int,
+    allow_empty: bool = False,
 ) -> InflightEstimate:
+    if not units and allow_empty:
+        if workers <= 0:
+            raise ConversionError("workers must be positive")
+        return InflightEstimate(0, 0, 0)
     estimate = inflight_estimate(units, workers)
     if estimate.memory_bytes > memory_budget_bytes:
         raise ConversionError(
@@ -305,7 +315,8 @@ def _persistent_worker_loop(
             initializer(slot, *initargs)
         connection.send(("ready", slot, None))
     except BaseException as exc:
-        connection.send(("init_error", slot, f"{type(exc).__name__}: {exc}"))
+        detail = "".join(traceback.format_exception(exc))
+        connection.send(("init_error", slot, detail))
         connection.close()
         return
     try:
@@ -313,12 +324,18 @@ def _persistent_worker_loop(
             unit = connection.recv()
             if unit is None:
                 return
+            # A Pipe send only proves that the coordinator handed bytes to the
+            # kernel; it does not prove this worker has accepted the unit.  The
+            # explicit acknowledgement makes the bounded initial frontier
+            # deterministic and prevents a fast failure in one slot from
+            # terminating another slot before its already-dispatched unit has
+            # actually started.
+            connection.send(("started", unit.index, None))
             try:
                 value = worker(unit)
             except BaseException as exc:
-                connection.send(
-                    ("error", unit.index, f"{type(exc).__name__}: {exc}")
-                )
+                detail = "".join(traceback.format_exception(exc))
+                connection.send(("error", unit.index, detail))
                 return
             connection.send(("ok", unit.index, value))
     except (EOFError, BrokenPipeError):
@@ -337,6 +354,7 @@ def run_parallel_work_units(
     initargs: tuple[Any, ...] = (),
     health_check: Callable[[], None] | None = None,
     health_check_interval_seconds: float = 10.0,
+    allow_empty: bool = False,
     before_dispatch: Callable[
         [ParallelWorkUnit, tuple[ParallelWorkUnit, ...]], None
     ]
@@ -344,6 +362,8 @@ def run_parallel_work_units(
 ) -> ParallelRunResult:
     """Run a bounded frontier and stop dispatching new work after a failure."""
 
+    if not units and allow_empty:
+        return ParallelRunResult((), ())
     validate_work_units(units, require_complete_plan=False)
     if workers <= 0:
         raise ConversionError("workers must be positive")
@@ -359,7 +379,9 @@ def run_parallel_work_units(
             try:
                 value = worker(unit)
             except BaseException as exc:
-                raise ParallelWorkError(unit) from exc
+                raise ParallelWorkError(
+                    unit, detail="".join(traceback.format_exception(exc))
+                ) from exc
             result = ParallelWorkResult(unit.index, unit.key, value)
             ordered[unit.index] = result
             completion.append(unit.key)
@@ -426,6 +448,12 @@ def run_parallel_work_units(
             if before_dispatch is not None:
                 before_dispatch(unit, tuple(active.values()))
             connection.send(unit)
+            status, unit_index, detail = connection.recv()
+            if status != "started" or unit_index != unit.index:
+                raise ConversionError(
+                    f"worker did not acknowledge unit {unit.index}: "
+                    f"status={status!r}, index={unit_index!r}, detail={detail!r}"
+                )
         except BaseException as exc:
             coordinator_failure = exc
             return False
@@ -512,7 +540,11 @@ def run_parallel_work_units(
 
     if failed is not None:
         unit, exc = failed
-        raise ParallelWorkError(unit) from exc
+        detail = str(exc)
+        if isinstance(exc, EOFError):
+            exitcodes = [process.exitcode for process in processes]
+            detail = f"worker pipe closed; worker_exitcodes={exitcodes}"
+        raise ParallelWorkError(unit, detail=detail) from exc
     if coordinator_failure is not None:
         raise coordinator_failure
     return ParallelRunResult(
@@ -569,15 +601,31 @@ def write_verified_unit_marker(unit: ParallelWorkUnit) -> Path:
     return path
 
 
-def validate_verified_unit_marker(unit: ParallelWorkUnit) -> dict[str, Any]:
+def read_verified_unit_marker(unit: ParallelWorkUnit) -> dict[str, Any]:
+    """Read marker identity without re-reading bulk files.
+
+    This is safe only for a freshly returned worker result in the same run.
+    Resume paths must call :func:`validate_verified_unit_marker`.
+    """
+
     path = verified_marker_path(unit)
     marker = read_json_object(path, "parallel work unit marker")
     for key, value in _marker_header(unit).items():
         if marker.get(key) != value:
             raise ConversionError(f"parallel marker is stale or corrupt at {path}: {key}")
+    inventory = marker.get("inventory")
+    if not isinstance(inventory, list) or not inventory:
+        raise ConversionError(f"parallel marker has no inventory at {path}")
+    return marker
+
+
+def validate_verified_unit_marker(unit: ParallelWorkUnit) -> dict[str, Any]:
+    marker = read_verified_unit_marker(unit)
     target = Path(unit.target_path)
     if marker.get("inventory") != _inventory(target):
-        raise ConversionError(f"parallel marker inventory is stale or corrupt at {path}")
+        raise ConversionError(
+            f"parallel marker inventory is stale or corrupt at {verified_marker_path(unit)}"
+        )
     return marker
 
 

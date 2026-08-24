@@ -18,7 +18,9 @@ import shutil
 import signal
 import subprocess
 import sys
-from typing import Any, Sequence
+import tempfile
+import time
+from typing import Any, Mapping, Sequence
 import uuid
 
 import numpy as np
@@ -33,6 +35,13 @@ from convert_core.checkpoint import (
     resume_paths,
 )
 from convert_core.dataset_config import load_dataset_config
+from convert_core.direct_commit import (
+    DirectCommitUploader,
+    finalize_direct_partition,
+    globalize_unit_data_files,
+    prepare_direct_commits,
+    read_committed_unit_marker,
+)
 from convert_core.errors import ConversionError
 from convert_core.equivalence import verify_lerobot_equivalence
 from convert_core.lerobot_writer import (
@@ -51,14 +60,32 @@ from convert_core.parallel import (
     split_plan_into_units,
     validate_inflight_budget,
     validate_verified_unit_marker,
+    verified_marker_path,
     write_verified_unit_marker,
 )
 from convert_core.performance import ProcessTreeSampler
+from convert_core.staging import (
+    DEFAULT_LOCAL_WORK_ROOT,
+    DEFAULT_MAX_LOCAL_TEMP_BYTES,
+    DEFAULT_MIN_LOCAL_FREE_BYTES,
+    DEFAULT_OUTPUT_ROOT,
+    RUNTIME_ENVIRONMENT_KEYS,
+    StagingCapacityGuard,
+    StagingLayout,
+    configure_runtime_environment,
+    create_incomplete_output,
+    exclusive_staging_lock,
+    make_staging_layout,
+    publish_success,
+    validate_no_runtime_paths_outside_root,
+    validate_source_and_output_roots,
+)
 from readers.one_x_world_model_reader import OneXWorldModelReader
 
 
 VERSIONS = ("v1.1", "v2.0")
 VIDEO_CODECS = ("libsvtav1", "h264", "hevc", "h264_nvenc", "hevc_nvenc")
+PREFLIGHT_FRAME_COUNT = 60
 NVENC_PRESETS = {
     "default": 0,
     "slow": 1,
@@ -97,6 +124,8 @@ class _OneXWorkerPayload:
     video_preset: str | None
     queue_size: int
     encoder_threads: int
+    decoder_cpu_threads: int | None
+    v1_postprocess_device: str
     eta_interval_seconds: float
     conversion_options: dict[str, Any]
 
@@ -141,7 +170,7 @@ def _rgb_encoder(codec: str, quality: int, preset: str | None) -> Any:
 
 
 def _preflight_encoder(plan, encoder: Any) -> None:
-    """Open a real encoder session and encode one 256x256 RGB frame."""
+    """Open a real encoder session and encode a short 60-frame sample."""
 
     try:
         import av
@@ -159,11 +188,13 @@ def _preflight_encoder(plan, encoder: Any) -> None:
         stream.width = camera.width
         stream.height = camera.height
         stream.pix_fmt = encoder.pix_fmt
-        frame = av.VideoFrame.from_ndarray(
-            np.zeros((camera.height, camera.width, 3), dtype=np.uint8), format="rgb24"
+        sample = np.zeros(
+            (camera.height, camera.width, 3), dtype=np.uint8
         )
-        for packet in stream.encode(frame):
-            container.mux(packet)
+        for _ in range(PREFLIGHT_FRAME_COUNT):
+            frame = av.VideoFrame.from_ndarray(sample, format="rgb24")
+            for packet in stream.encode(frame):
+                container.mux(packet)
         for packet in stream.encode():
             container.mux(packet)
         container.close()
@@ -172,6 +203,37 @@ def _preflight_encoder(plan, encoder: Any) -> None:
             f"{encoder.vcodec} encoder preflight failed at {camera.width}x{camera.height}: {exc}. "
             "FFmpeg listing an encoder does not prove hardware/runtime support."
         ) from exc
+
+
+def _enable_fragmented_streaming_mp4() -> None:
+    """Make LeRobot's streaming MP4 append-only for OSSFS writes.
+
+    A conventional MP4 muxer seeks while finalizing container metadata, but
+    the mounted object filesystem rejects that seek with ``EINVAL``.  A
+    fragmented MP4 writes its initialization metadata first and appends media
+    fragments, without changing the encoded frames or final LeRobot paths.
+    """
+
+    from lerobot.datasets import video_utils
+
+    marker = "_vla_fragmented_streaming_mp4"
+    if getattr(video_utils, marker, False):
+        return
+    original_open = video_utils.av.open
+
+    def open_fragmented_stream(
+        file: Any, mode: str = "r", *open_args: Any, **open_kwargs: Any
+    ) -> Any:
+        if mode == "w" and str(file).endswith("_streaming.mp4"):
+            options = dict(open_kwargs.get("options") or {})
+            options["movflags"] = (
+                "frag_keyframe+empty_moov+default_base_moof+negative_cts_offsets"
+            )
+            open_kwargs["options"] = options
+        return original_open(file, mode, *open_args, **open_kwargs)
+
+    video_utils.av.open = open_fragmented_stream
+    setattr(video_utils, marker, True)
 
 
 def _visible_cuda_devices() -> tuple[str, ...]:
@@ -236,16 +298,31 @@ def _convert_one_x_work_unit(unit: ParallelWorkUnit) -> dict[str, Any]:
         reader = OneXWorldModelReader()
         _WORKER_READER = reader
     version = str(payload.plan.extra["source_version"])
+    if version == "v1.1" and payload.decoder_cpu_threads is not None:
+        import torch
+
+        torch.set_num_threads(payload.decoder_cpu_threads)
+    runtime_decoder = dict(payload.plan.extra.get("decoder", {}))
+    runtime_decoder["v1_postprocess_device"] = payload.v1_postprocess_device
+    runtime_plan = replace(
+        payload.plan,
+        extra={**payload.plan.extra, "decoder": runtime_decoder},
+    )
     encoder = _rgb_encoder(
         payload.video_codec, payload.video_quality, payload.video_preset
     )
+    _enable_fragmented_streaming_mp4()
     if version not in _WORKER_PREFLIGHTED:
-        reader.preflight_decoder(payload.plan)
-        _preflight_encoder(payload.plan, encoder)
+        print(f"[{unit.key} worker] decoder preflight started", flush=True)
+        reader.preflight_decoder(runtime_plan)
+        print(f"[{unit.key} worker] decoder preflight completed", flush=True)
+        _preflight_encoder(runtime_plan, encoder)
+        print(f"[{unit.key} worker] encoder preflight completed", flush=True)
         _WORKER_PREFLIGHTED.add(version)
+    print(f"[{unit.key} worker] conversion started", flush=True)
     convert_dataset(
-        payload.plan,
-        lambda episode: reader.iter_frames(payload.plan, episode),
+        runtime_plan,
+        lambda episode: reader.iter_frames(runtime_plan, episode),
         reader_format="one_x_world_model",
         resume=True,
         eta_interval_seconds=payload.eta_interval_seconds,
@@ -254,6 +331,7 @@ def _convert_one_x_work_unit(unit: ParallelWorkUnit) -> dict[str, Any]:
         blocking_streaming_encoding=True,
         encoder_queue_maxsize=payload.queue_size,
         encoder_threads=payload.encoder_threads,
+        fragmented_mp4_writes=True,
         conversion_options=payload.conversion_options,
     )
     validate_written_dataset(payload.plan, Path(unit.target_path))
@@ -262,6 +340,7 @@ def _convert_one_x_work_unit(unit: ParallelWorkUnit) -> dict[str, Any]:
         Path(unit.target_path),
         expected_frames=unit.weight,
     )
+    globalize_unit_data_files(unit)
     write_verified_unit_marker(unit)
     return {
         "unit_index": unit.index,
@@ -286,7 +365,7 @@ def _parallel_queue_size(args: argparse.Namespace) -> int:
 
 def _build_parallel_work_units(
     plan: Any,
-    state_root: Path,
+    work_root: Path,
     args: argparse.Namespace,
     conversion_options: dict[str, Any],
 ) -> tuple[ParallelWorkUnit, ...]:
@@ -296,7 +375,7 @@ def _build_parallel_work_units(
     slices = split_plan_into_units(plan)
     queue_size = _parallel_queue_size(args)
     threads = _parallel_threads(args)
-    units_root = state_root / "parallel-units" / plan.output_path.name
+    units_root = work_root / "parallel-units" / plan.output_path.name
     units: list[ParallelWorkUnit] = []
     for item in slices:
         target = units_root / f"unit-{item.index:06d}"
@@ -335,6 +414,8 @@ def _build_parallel_work_units(
             video_preset=args.video_preset,
             queue_size=queue_size,
             encoder_threads=threads,
+            decoder_cpu_threads=args.decoder_cpu_threads,
+            v1_postprocess_device=args.v1_postprocess_device,
             eta_interval_seconds=args.eta_interval_seconds,
             conversion_options=unit_options,
         )
@@ -363,52 +444,119 @@ def _validate_parallel_unit_output(unit: ParallelWorkUnit) -> None:
     payload = unit.payload
     if not isinstance(payload, _OneXWorkerPayload):
         raise ConversionError(f"invalid 1X worker payload for {unit.key!r}")
+    if verified_marker_path(unit).is_file():
+        validate_verified_unit_marker(unit)
+        return
     validate_written_dataset(payload.plan, Path(unit.target_path))
     validate_video_files(payload.plan, Path(unit.target_path), expected_frames=unit.weight)
+    globalize_unit_data_files(unit)
 
 
 def _convert_parallel_partition(
     plan: Any,
-    state_root: Path,
+    work_root: Path,
+    resume_root: Path,
     args: argparse.Namespace,
     conversion_options: dict[str, Any],
     devices: tuple[str, ...],
+    capacity_guard: StagingCapacityGuard,
 ) -> None:
     assert args.workers is not None
-    units = _build_parallel_work_units(plan, state_root, args, conversion_options)
+    units = _build_parallel_work_units(plan, work_root, args, conversion_options)
     estimate = validate_inflight_budget(
         units,
         args.workers,
         memory_budget_bytes=int(args.inflight_memory_budget_gb * GIB),
-        temp_budget_bytes=int(args.inflight_temp_budget_gb * GIB),
+        temp_budget_bytes=min(
+            int(args.inflight_temp_budget_gb * GIB),
+            args.max_inflight_bytes,
+        ),
     )
-    projected_peak = 2 * sum(unit.estimated_temp_bytes for unit in units)
-    configured_temp_budget = int(args.inflight_temp_budget_gb * GIB)
-    available_temp_bytes = shutil.disk_usage(state_root.parent).free
-    effective_temp_budget = min(configured_temp_budget, available_temp_bytes)
-    if projected_peak > effective_temp_budget:
-        raise ConversionError(
-            "parallel unit outputs plus ordered aggregation exceed the temporary-space "
-            f"budget: estimated {projected_peak} bytes > "
-            f"{effective_temp_budget} available/budgeted bytes"
+    capacity_guard.wait_for_capacity(
+        f"dispatching {plan.output_path.name}",
+        required_additional_bytes=estimate.temp_bytes,
+    )
+    plan.output_path.mkdir(parents=True, exist_ok=True)
+    direct = prepare_direct_commits(
+        units,
+        partition_name=plan.output_path.name,
+        partition_root=plan.output_path,
+        resume_root=resume_root,
+    )
+    if direct.uncommitted:
+        prepared = prepare_work_units(
+            direct.uncommitted,
+            _validate_parallel_unit_output,
+            require_complete_plan=False,
         )
-    prepared = prepare_work_units(units, _validate_parallel_unit_output)
+    else:
+        prepared = None
+
+    reused_work = prepared.reusable if prepared is not None else ()
+    pending = prepared.pending if prepared is not None else ()
     completion_order: tuple[str, ...] = ()
-    if prepared.pending:
-        result = run_parallel_work_units(
-            prepared.pending,
-            _convert_one_x_work_unit,
-            workers=args.workers,
-            initializer=_initialize_one_x_worker,
-            initargs=(devices,),
-        )
-        completion_order = result.completion_order
+    uploader = DirectCommitUploader(
+        partition_name=plan.output_path.name,
+        partition_root=plan.output_path,
+        resume_root=resume_root,
+        workers=args.upload_workers,
+        max_queue_units=args.max_upload_queue_units,
+    )
+    upload_stats: dict[str, int] = {}
+    try:
+        for unit in reused_work:
+            uploader.submit(unit, trust_verified_marker=False)
+        if pending:
+            by_index = {unit.index: unit for unit in pending}
+
+            def commit_result(result: Any) -> None:
+                uploader.submit(
+                    by_index[result.index], trust_verified_marker=True
+                )
+
+            def before_dispatch(
+                unit: ParallelWorkUnit,
+                _active: tuple[ParallelWorkUnit, ...],
+            ) -> None:
+                capacity_guard.wait_for_capacity(
+                    f"dispatching local unit {unit.key}",
+                    required_additional_bytes=unit.estimated_temp_bytes,
+                    abort_check=uploader.raise_if_failed,
+                )
+
+            def health_check() -> None:
+                uploader.raise_if_failed()
+                capacity_guard.check(
+                    f"workers active for {plan.output_path.name}"
+                )
+
+            result = run_parallel_work_units(
+                pending,
+                _convert_one_x_work_unit,
+                workers=args.workers,
+                on_result=commit_result,
+                initializer=_initialize_one_x_worker,
+                initargs=(devices,),
+                before_dispatch=before_dispatch,
+                health_check=health_check,
+                health_check_interval_seconds=args.storage_check_interval_seconds,
+            )
+            completion_order = result.completion_order
+        upload_stats = uploader.close()
+    except BaseException:
+        uploader.close(raise_on_failure=False)
+        raise
     for unit in units:
-        validate_verified_unit_marker(unit)
-    aggregate_lerobot_work_units(
+        read_committed_unit_marker(
+            unit,
+            partition_name=plan.output_path.name,
+            resume_root=resume_root,
+        )
+    finalize_direct_partition(
         plan,
         units,
         plan.output_path,
+        resume_root=resume_root,
         reader_format="one_x_world_model",
         parallel_evidence={
             "workers": args.workers,
@@ -417,11 +565,23 @@ def _convert_parallel_partition(
             "encoder_queue_maxsize": _parallel_queue_size(args),
             "inflight_memory_estimate_bytes": estimate.memory_bytes,
             "inflight_temp_estimate_bytes": estimate.temp_bytes,
-            "projected_unit_and_aggregation_peak_bytes": projected_peak,
-            "available_temp_bytes_at_start": available_temp_bytes,
-            "reused_units": [unit.key for unit in prepared.reusable],
-            "repaired_markers": list(prepared.repaired_markers),
-            "discarded_corrupt_units": list(prepared.discarded_corrupt),
+            "max_inflight_bytes": args.max_inflight_bytes,
+            "max_inflight_units": args.max_inflight_units,
+            "upload_pipeline": upload_stats,
+            "local_capacity": {
+                "max_local_temp_bytes": capacity_guard.max_staging_bytes,
+                "min_local_free_bytes": capacity_guard.min_free_bytes,
+                "peak_accounted_bytes": capacity_guard.peak_staging_bytes,
+            },
+            "reused_committed_units": [unit.key for unit in direct.committed],
+            "reused_work_units": [unit.key for unit in reused_work],
+            "repaired_markers": (
+                list(prepared.repaired_markers) if prepared is not None else []
+            ),
+            "discarded_corrupt_units": [
+                *direct.discarded_corrupt,
+                *(prepared.discarded_corrupt if prepared is not None else ()),
+            ],
             "worker_completion_order": list(completion_order),
             "cuda_devices": list(devices[: args.workers]),
             "deterministic_cuda": {
@@ -489,6 +649,14 @@ def _run_worker_benchmarks(
     sample_units = min(sample_limits)
     base_argv = _strip_cli_option(base_argv, "--max-episodes")
     base_argv = _strip_cli_option(base_argv, "--max-checkpoint-units")
+    for option in (
+        "--local-work-root",
+        "--work-dir",
+        "--resume-dir",
+        "--logs-dir",
+        "--temp-dir",
+    ):
+        base_argv = _strip_cli_option(base_argv, option)
     base_argv.extend(
         [
             "--max-checkpoint-units",
@@ -501,12 +669,16 @@ def _run_worker_benchmarks(
     baseline_wall: float | None = None
     for workers in args.benchmark_workers:
         uid = f"{args.output_dataset_uid}_benchmark_w{workers}"
-        final = args.staging_root / "lerobot_v3_0" / uid
-        # Non-resume children use random ``.<uid>.incomplete-*`` siblings, so
-        # sample growth of the common parent rather than only the final path.
-        # ProcessTreeSampler subtracts the parent's start size, excluding prior
-        # benchmark outputs while still capturing unit and aggregation peaks.
-        sampler = ProcessTreeSampler(final.parent)
+        final = args.output_root / uid
+        local_root = args.local_work_root / "benchmarks" / uid
+        work = local_root / ".conversion_work" / uid / "benchmark"
+        resume = local_root / ".conversion_resume" / uid
+        logs = local_root / ".conversion_logs" / uid
+        temp = work / "tmp"
+        # Sampling the whole staging root turns every 0.2-second probe into a
+        # TB-scale OSSFS walk. Child paths are explicit, so their complete
+        # final/work/resume/log footprint can be sampled in bounded time.
+        sampler = ProcessTreeSampler((final, work, resume, logs))
         command = [
             sys.executable,
             str(Path(__file__).resolve()),
@@ -514,6 +686,16 @@ def _run_worker_benchmarks(
             "--benchmark-child",
             "--output-dataset-uid",
             uid,
+            "--local-work-root",
+            str(local_root),
+            "--work-dir",
+            str(work),
+            "--resume-dir",
+            str(resume),
+            "--logs-dir",
+            str(logs),
+            "--temp-dir",
+            str(temp),
             "--workers",
             str(workers),
         ]
@@ -579,6 +761,7 @@ def _run_worker_benchmarks(
                     reference / partition,
                     candidate / partition,
                     compare_video_frames=True,
+                    storage_layout_independent=True,
                 )
             except (ConversionError, OSError, RuntimeError, ValueError) as exc:
                 comparison["equivalent"] = False
@@ -671,7 +854,7 @@ def _run_worker_benchmarks(
         },
     }
     report_path = args.benchmark_report or (
-        args.staging_root / "benchmarks" / f"{args.output_dataset_uid}_workers.json"
+        args.output_root / "benchmarks" / f"{args.output_dataset_uid}_workers.json"
     )
     atomic_write_json(report_path, report)
     print(json.dumps(report, indent=2))
@@ -735,6 +918,8 @@ def _plans(args: argparse.Namespace, workspace: Path) -> tuple[OneXWorldModelRea
                     str(args.cosmos_decoder_path) if args.cosmos_decoder_path else None
                 ),
                 "one_x_decode_batch_size": args.decode_batch_size,
+                "one_x_v1_postprocess_device": args.v1_postprocess_device,
+                "one_x_decoder_cpu_threads": args.decoder_cpu_threads,
                 "one_x_v1_checkpoint_segments": args.v1_checkpoint_segments,
             }
         )
@@ -787,10 +972,23 @@ def _collection_payload(plans: list[Any], args: argparse.Namespace) -> dict[str,
             {
                 "encoder_threads_per_worker": _parallel_threads(args),
                 "blocking_streaming_encoding": True,
+                "fragmented_mp4_writes": True,
                 "encoder_queue_maxsize": _parallel_queue_size(args),
                 "parallel_schema_version": 1,
+                "direct_final_chunks": True,
+                "workers": args.workers,
             }
         )
+    options["storage"] = {
+        "local_work_root": str(args.local_work_root),
+        "max_local_temp_bytes": args.max_local_temp_bytes,
+        "min_local_free_bytes": args.min_local_free_bytes,
+        "upload_workers": args.upload_workers,
+        "max_upload_queue_units": args.max_upload_queue_units,
+        "max_inflight_bytes": args.max_inflight_bytes,
+        "max_inflight_units": args.max_inflight_units,
+        "storage_check_interval_seconds": args.storage_check_interval_seconds,
+    }
     return {
         "resume_schema_version": RESUME_SCHEMA_VERSION,
         "kind": "1x_world_model_collection",
@@ -875,6 +1073,427 @@ def _collection_manifest(plans: list[Any], args: argparse.Namespace) -> dict[str
     return manifest
 
 
+def _option_was_explicit(argv: Sequence[str], option: str) -> bool:
+    return any(value == option or value.startswith(f"{option}=") for value in argv)
+
+
+def _uses_legacy_collection_workflow(
+    raw_argv: Sequence[str], args: argparse.Namespace
+) -> bool:
+    """Keep the old serial path only for callers of the deprecated CLI alias.
+
+    Production defaults and every worker-based run use the marker-published
+    direct-commit workflow.  The narrow compatibility branch preserves
+    existing integrations that explicitly pass ``--staging-root`` and rely on
+    the generic serial writer's sibling checkpoint layout.
+    """
+
+    new_options = (
+        "--output-root",
+        "--local-work-root",
+        "--work-dir",
+        "--resume-dir",
+        "--logs-dir",
+        "--temp-dir",
+        "--max-staging-bytes",
+        "--max-local-temp-bytes",
+        "--min-local-free-bytes",
+        "--upload-workers",
+        "--max-inflight-bytes",
+        "--max-inflight-units",
+        "--storage-check-interval-seconds",
+    )
+    return (
+        args.staging_root is not None
+        and args.workers is None
+        and not args.benchmark_child
+        and not any(_option_was_explicit(raw_argv, option) for option in new_options)
+    )
+
+
+def _resolve_output_root(
+    parser: argparse.ArgumentParser,
+    raw_argv: Sequence[str],
+    args: argparse.Namespace,
+) -> Path:
+    if args.staging_root is not None:
+        if _option_was_explicit(raw_argv, "--output-root"):
+            parser.error("--staging-root and --output-root are mutually exclusive")
+        return args.staging_root / "lerobot_v3_0"
+    return args.output_root
+
+
+def _resume_state_path(_output_root: Path, args: argparse.Namespace) -> Path:
+    resume = args.resume_dir or (
+        args.local_work_root / ".conversion_resume" / args.output_dataset_uid
+    )
+    return resume / "collection.json"
+
+
+def _select_run_id(output_root: Path, args: argparse.Namespace) -> str:
+    state_path = _resume_state_path(output_root, args)
+    if state_path.is_file():
+        state = read_json_object(state_path, "direct collection resume state")
+        runtime = state.get("runtime")
+        if not isinstance(runtime, dict) or not isinstance(runtime.get("run_id"), str):
+            raise ConversionError(f"resume state has no run_id: {state_path}")
+        return str(runtime["run_id"])
+    return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + uuid.uuid4().hex[:12]
+
+
+def _prepare_direct_collection_state(
+    layout: StagingLayout,
+    payload: dict[str, Any],
+) -> str:
+    state_path = layout.resume / "collection.json"
+    fingerprint = canonical_fingerprint(payload)
+    expected_runtime = layout.as_dict()
+    if state_path.exists():
+        state = read_json_object(state_path, "direct collection resume state")
+        if state.get("fingerprint") != fingerprint:
+            raise ConversionError(
+                "collection resume fingerprint changed; use the original source/selection/"
+                f"decoder/encoder arguments or move {layout.resume} aside"
+            )
+        if state.get("runtime") != expected_runtime:
+            raise ConversionError(
+                f"runtime layout changed for resume state {state_path}; use the original "
+                "--work-dir/--resume-dir/--logs-dir/--temp-dir arguments"
+            )
+        return fingerprint
+    layout.resume.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(
+        state_path,
+        {
+            "resume_schema_version": RESUME_SCHEMA_VERSION,
+            "fingerprint": fingerprint,
+            "configuration": payload,
+            "runtime": expected_runtime,
+        },
+    )
+    return fingerprint
+
+
+def _write_run_record(
+    layout: StagingLayout,
+    *,
+    status: str,
+    detail: Mapping[str, Any],
+) -> None:
+    atomic_write_json(
+        layout.logs / f"{layout.run_id}.json",
+        {
+            "schema_version": 1,
+            "run_id": layout.run_id,
+            "status": status,
+            "updated_unix": time.time(),
+            "layout": layout.as_dict(),
+            "environment": dict(layout.environment),
+            **dict(detail),
+        },
+    )
+
+
+def _run_legacy_collection(
+    args: argparse.Namespace,
+    *,
+    devices: tuple[str, ...],
+) -> int:
+    """Original small/serial workflow retained for explicit legacy callers."""
+
+    assert args.staging_root is not None
+    final = args.staging_root / "lerobot_v3_0" / args.output_dataset_uid
+    if final.exists():
+        if args.skip_existing:
+            print(f"skipped existing collection: {final}")
+            return 0
+        if not args.overwrite:
+            print(f"error: output already exists: {final}", file=sys.stderr)
+            return 1
+
+    if args.resume:
+        workspace, state_root, lock_path = resume_paths(final)
+    else:
+        workspace = final.with_name(f".{final.name}.incomplete-{uuid.uuid4().hex}")
+        state_root = (
+            workspace.with_name(f"{workspace.name}.parallel-state")
+            if args.workers is not None
+            else None
+        )
+        lock_path = None
+    try:
+        reader, plans = _plans(args, workspace)
+        print(
+            json.dumps(
+                {
+                    "collection": str(final),
+                    "partitions": [plan_summary(plan) for plan in plans],
+                },
+                indent=2,
+            )
+        )
+        if args.dry_run:
+            print("inspect-only complete; no decoder loaded and no output written")
+            return 0
+
+        payload = _collection_payload(plans, args)
+        encoder = _rgb_encoder(args.video_codec, args.video_quality, args.video_preset)
+        for plan in plans:
+            reader.preflight_decoder(plan)
+            _preflight_encoder(plan, encoder)
+        longest = max(episode.num_frames for plan in plans for episode in plan.episodes)
+        queue_size = args.encoder_queue_maxsize or longest + 1
+        if queue_size <= longest:
+            raise ConversionError(
+                f"streaming queue {queue_size} must exceed longest episode ({longest}) "
+                "so frames cannot drop"
+            )
+        lock_context = exclusive_resume_lock(lock_path) if args.resume else _nullcontext()
+        with lock_context:
+            if args.resume:
+                assert state_root is not None
+                _prepare_collection_resume(workspace, state_root, payload)
+            else:
+                workspace.mkdir(parents=True, exist_ok=False)
+            for plan in plans:
+                if plan.output_path.exists():
+                    validate_written_dataset(plan, plan.output_path)
+                    validate_video_files(
+                        plan, plan.output_path, expected_frames=plan.num_frames
+                    )
+                    print(
+                        f"[{plan.dataset_uid}] reused completed collection partition",
+                        flush=True,
+                    )
+                    continue
+                convert_dataset(
+                    plan,
+                    lambda episode, _plan=plan: reader.iter_frames(_plan, episode),
+                    reader_format="one_x_world_model",
+                    resume=args.resume,
+                    eta_interval_seconds=args.eta_interval_seconds,
+                    rgb_encoder=encoder,
+                    streaming_encoding=True,
+                    encoder_queue_maxsize=queue_size,
+                    encoder_threads=args.encoder_threads,
+                    conversion_options=payload["options"],
+                )
+            for plan in plans:
+                validate_written_dataset(plan, plan.output_path)
+                validate_video_files(plan, plan.output_path, expected_frames=plan.num_frames)
+            atomic_write_json(
+                workspace / "collection_manifest.json",
+                _collection_manifest(plans, args),
+            )
+            publish_temporary_output(workspace, final, overwrite=args.overwrite)
+            if state_root is not None:
+                shutil.rmtree(state_root)
+        if args.resume and lock_path is not None:
+            lock_path.unlink(missing_ok=True)
+        print(f"validated and published collection: {final}")
+        return 0
+    except KeyboardInterrupt:
+        print("interrupted; the last verified resume unit was retained", file=sys.stderr)
+        return 130
+    except (ConversionError, FileExistsError, OSError, RuntimeError, ValueError) as exc:
+        if not args.resume and workspace.exists():
+            shutil.rmtree(workspace)
+        if not args.resume and state_root is not None and state_root.exists():
+            shutil.rmtree(state_root)
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _run_staging_collection(
+    args: argparse.Namespace,
+    *,
+    output_root: Path,
+    devices: tuple[str, ...],
+) -> int:
+    assert args.workers is not None
+    previous_environment = {
+        key: os.environ.get(key) for key in RUNTIME_ENVIRONMENT_KEYS
+    }
+    previous_tempdir = tempfile.tempdir
+    try:
+        validate_source_and_output_roots(args.raw_root, output_root)
+        run_id = _select_run_id(output_root, args)
+        layout = make_staging_layout(
+            output_root=output_root,
+            local_work_root=args.local_work_root,
+            dataset_uid=args.output_dataset_uid,
+            run_id=run_id,
+            work_dir=args.work_dir,
+            resume_dir=args.resume_dir,
+            logs_dir=args.logs_dir,
+            temp_dir=args.temp_dir,
+        )
+        configure_runtime_environment(layout, create=False)
+        validate_no_runtime_paths_outside_root(layout)
+        # Reader output paths are replaced immediately by _plans; this keeps
+        # its legacy constructor contract without changing parsing semantics.
+        args.staging_root = output_root.parent
+        reader, plans = _plans(args, layout.final)
+        print(
+            json.dumps(
+                {
+                    "collection": str(layout.final),
+                    "runtime": layout.as_dict(),
+                    "partitions": [plan_summary(plan) for plan in plans],
+                },
+                indent=2,
+            )
+        )
+        if args.dry_run:
+            print("inspect-only complete; no decoder loaded and no output written")
+            return 0
+        if (layout.final / "_SUCCESS").is_file():
+            if args.skip_existing:
+                print(f"skipped valid published collection: {layout.final}")
+                return 0
+            if not args.overwrite:
+                raise FileExistsError(
+                    f"valid published output already exists: {layout.final}"
+                )
+        layout.create_runtime_directories()
+        configure_runtime_environment(layout, create=True)
+        validate_no_runtime_paths_outside_root(layout)
+
+        payload = _collection_payload(plans, args)
+        source_fingerprint = canonical_fingerprint(payload)
+        lock_acquired = False
+        with exclusive_staging_lock(layout.lock):
+            lock_acquired = True
+            if args.overwrite:
+                if layout.final.exists():
+                    shutil.rmtree(layout.final)
+                if layout.resume.exists():
+                    shutil.rmtree(layout.resume)
+                layout.resume.mkdir(parents=True)
+            success = layout.final / "_SUCCESS"
+            incomplete = layout.final / "_INCOMPLETE"
+            if success.is_file():
+                if args.skip_existing:
+                    print(f"skipped valid published collection: {layout.final}")
+                    return 0
+                raise FileExistsError(f"valid published output already exists: {layout.final}")
+            if layout.final.exists() and not incomplete.is_file():
+                raise ConversionError(
+                    f"existing output has neither _SUCCESS nor _INCOMPLETE: {layout.final}"
+                )
+            if incomplete.is_file() and not args.resume and not args.overwrite:
+                raise ConversionError(
+                    f"incomplete output exists: {layout.final}; rerun with --resume"
+                )
+            fingerprint = _prepare_direct_collection_state(layout, payload)
+            create_incomplete_output(
+                layout.final, fingerprint=fingerprint, run_id=layout.run_id
+            )
+            _write_run_record(
+                layout,
+                status="running",
+                detail={"fingerprint": fingerprint, "workers": args.workers},
+            )
+            capacity = StagingCapacityGuard(
+                layout.local_root,
+                max_staging_bytes=args.max_local_temp_bytes,
+                min_free_bytes=args.min_local_free_bytes,
+                interval_seconds=args.storage_check_interval_seconds,
+                usage_roots=(
+                    layout.work,
+                    layout.resume,
+                    layout.logs,
+                    layout.cache_root,
+                ),
+            )
+            capacity.check("conversion startup")
+            for plan in plans:
+                _convert_parallel_partition(
+                    plan,
+                    layout.work,
+                    layout.resume,
+                    args,
+                    payload["options"],
+                    devices,
+                    capacity,
+                )
+            # Each unit was fully validated on local disk before upload.
+            # Finalization validates metadata and consumes the per-object
+            # size/range/container evidence; do not decode all remote videos.
+            if canonical_fingerprint(_collection_payload(plans, args)) != source_fingerprint:
+                raise ConversionError("source files changed during conversion")
+            atomic_write_json(
+                layout.final / "collection_manifest.json",
+                _collection_manifest(plans, args),
+            )
+            validate_no_runtime_paths_outside_root(layout)
+            capacity.check("final publication")
+            publish_success(
+                layout.final,
+                fingerprint=fingerprint,
+                evidence={
+                    "dataset_uid": args.output_dataset_uid,
+                    "partitions": [plan.output_path.name for plan in plans],
+                    "workers": args.workers,
+                },
+            )
+            _write_run_record(
+                layout,
+                status="succeeded",
+                detail={"fingerprint": fingerprint, "workers": args.workers},
+            )
+            if layout.work.exists():
+                shutil.rmtree(layout.work)
+            try:
+                layout.work.parent.rmdir()
+            except OSError:
+                pass
+            unit_metadata = layout.resume / "unit_metadata"
+            if unit_metadata.exists():
+                shutil.rmtree(unit_metadata)
+            atomic_write_json(
+                layout.resume / "completed.json",
+                {
+                    "schema_version": 1,
+                    "fingerprint": fingerprint,
+                    "published_output": str(layout.final),
+                    "published_unix": time.time(),
+                },
+            )
+        layout.lock.unlink(missing_ok=True)
+        print(f"validated and marker-published collection: {layout.final}")
+        return 0
+    except KeyboardInterrupt:
+        if "lock_acquired" in locals() and lock_acquired:
+            layout.lock.unlink(missing_ok=True)
+        if "layout" in locals() and layout.logs.exists():
+            _write_run_record(layout, status="interrupted", detail={})
+        print("interrupted; verified work-unit checkpoints were retained", file=sys.stderr)
+        return 130
+    except (ConversionError, FileExistsError, OSError, RuntimeError, ValueError) as exc:
+        if "lock_acquired" in locals() and lock_acquired:
+            layout.lock.unlink(missing_ok=True)
+        if "layout" in locals() and layout.logs.exists():
+            _write_run_record(
+                layout,
+                status="failed",
+                detail={"error": f"{type(exc).__name__}: {exc}"},
+            )
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        # ``main()`` is also exercised in-process by callers and tests.  Keep
+        # the required staging-only environment for the whole conversion, but
+        # do not leave tempfile or cache variables pointing at a work tree
+        # that successful publication just removed.
+        for key, previous in previous_environment.items():
+            if previous is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = previous
+        tempfile.tempdir = previous_tempdir
+
+
 def _build_parser() -> argparse.ArgumentParser:
     script_root = Path(__file__).resolve().parent
     parser = argparse.ArgumentParser(description=__doc__)
@@ -891,8 +1510,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--staging-root",
         type=Path,
-        default=Path("/home/pai/zxw/1x_world_model_dataset_staging"),
+        help=(
+            "deprecated compatibility alias: output root becomes "
+            "<staging-root>/lerobot_v3_0"
+        ),
     )
+    parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
+    parser.add_argument(
+        "--local-work-root", type=Path, default=DEFAULT_LOCAL_WORK_ROOT
+    )
+    parser.add_argument("--work-dir", type=Path)
+    parser.add_argument("--resume-dir", type=Path)
+    parser.add_argument("--logs-dir", type=Path)
+    parser.add_argument("--temp-dir", type=Path)
     parser.add_argument("--output-dataset-uid", default="1x_world_model_dataset")
     parser.add_argument("--version", action="append", choices=VERSIONS)
     parser.add_argument("--dry-run", "--inspect-only", dest="dry_run", action="store_true")
@@ -909,6 +1539,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--v1-decoder-repo", type=Path)
     parser.add_argument("--cosmos-decoder-path", type=Path)
     parser.add_argument("--decode-batch-size", type=_positive_int, default=8)
+    parser.add_argument(
+        "--v1-postprocess-device",
+        choices=("cpu", "gpu"),
+        default="cpu",
+        help="device for v1 output clamp/uint8/NHWC conversion",
+    )
+    parser.add_argument(
+        "--decoder-cpu-threads",
+        type=_positive_int,
+        help="PyTorch intra-op CPU threads per conversion worker",
+    )
     parser.add_argument("--v1-checkpoint-segments", type=_positive_int, default=128)
     parser.add_argument("--eta-interval-seconds", type=_positive_float, default=10.0)
     parser.add_argument("--video-codec", choices=VIDEO_CODECS, default="libsvtav1")
@@ -922,6 +1563,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="spawn isolated deterministic conversion workers; omitted preserves legacy serial mode",
     )
     parser.add_argument("--encoder-threads-per-worker", type=_positive_int)
+    parser.add_argument("--upload-workers", type=_positive_int, default=1)
+    parser.add_argument("--max-upload-queue-units", type=_positive_int, default=2)
     parser.add_argument(
         "--benchmark-workers",
         type=_positive_int,
@@ -935,6 +1578,29 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--inflight-temp-budget-gb", type=_positive_float, default=800.0
+    )
+    parser.add_argument(
+        "--max-local-temp-bytes",
+        "--max-staging-bytes",
+        dest="max_local_temp_bytes",
+        type=_positive_int,
+        default=DEFAULT_MAX_LOCAL_TEMP_BYTES,
+    )
+    parser.add_argument(
+        "--min-local-free-bytes",
+        type=_positive_int,
+        default=DEFAULT_MIN_LOCAL_FREE_BYTES,
+    )
+    parser.add_argument(
+        "--max-inflight-bytes",
+        type=_positive_int,
+        default=64 * GIB,
+    )
+    parser.add_argument("--max-inflight-units", type=_positive_int, default=4)
+    parser.add_argument(
+        "--storage-check-interval-seconds",
+        type=_positive_float,
+        default=10.0,
     )
     return parser
 
@@ -973,6 +1639,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     subset = args.max_episodes is not None or args.max_checkpoint_units is not None
     if args.benchmark_child and not subset:
         parser.error("internal --benchmark-child requires a bounded subset")
+    legacy_workflow = _uses_legacy_collection_workflow(raw_argv, args)
+    output_root = _resolve_output_root(parser, raw_argv, args)
+    args.output_root = output_root
+    if not legacy_workflow and args.workers is None and not args.benchmark_workers:
+        # The scalable path always uses isolated work units, including W1. It
+        # must never silently fall back to the legacy serial writer.
+        args.workers = 1
     if args.workers is not None and args.workers > 1 and not args.benchmark_child:
         parser.error(
             "--workers > 1 is disabled for formal conversion because real-sample exact "
@@ -990,20 +1663,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("worker counts must be unique")
         threads = _parallel_threads(args)
         for workers in requested_workers:
+            if workers > args.max_inflight_units:
+                parser.error(
+                    f"{workers} workers exceeds --max-inflight-units="
+                    f"{args.max_inflight_units}; increase the explicit bound"
+                )
             if workers * threads > MAX_TOTAL_ENCODER_THREADS:
                 parser.error(
                     f"{workers} workers x {threads} encoder threads exceeds the "
                     f"{MAX_TOTAL_ENCODER_THREADS}-thread limit"
                 )
-        try:
-            devices = _visible_cuda_devices()
-        except ConversionError as exc:
-            parser.error(str(exc))
-        if max(requested_workers) > len(devices):
-            parser.error(
-                f"requested {max(requested_workers)} workers but only "
-                f"{len(devices)} CUDA device(s) are visible"
-            )
+        if args.dry_run:
+            devices = ()
+        else:
+            try:
+                devices = _visible_cuda_devices()
+            except ConversionError as exc:
+                parser.error(str(exc))
+            if max(requested_workers) > len(devices):
+                parser.error(
+                    f"requested {max(requested_workers)} workers but only "
+                    f"{len(devices)} CUDA device(s) are visible"
+                )
     else:
         devices = ()
     if args.benchmark_workers:
@@ -1018,103 +1699,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (ConversionError, FileExistsError, OSError, RuntimeError, ValueError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
-    final = args.staging_root / "lerobot_v3_0" / args.output_dataset_uid
-    if final.exists():
-        if args.skip_existing:
-            print(f"skipped existing collection: {final}")
-            return 0
-        if not args.overwrite:
-            print(f"error: output already exists: {final}", file=sys.stderr)
-            return 1
-
-    if args.resume:
-        workspace, state_root, lock_path = resume_paths(final)
-    else:
-        workspace = final.with_name(f".{final.name}.incomplete-{uuid.uuid4().hex}")
-        state_root = (
-            workspace.with_name(f"{workspace.name}.parallel-state")
-            if args.workers is not None
-            else None
-        )
-        lock_path = None
-    try:
-        reader, plans = _plans(args, workspace)
-        print(json.dumps({"collection": str(final), "partitions": [plan_summary(plan) for plan in plans]}, indent=2))
-        if args.dry_run:
-            print("inspect-only complete; no decoder loaded and no output written")
-            return 0
-
-        payload = _collection_payload(plans, args)
-        if args.workers is None:
-            encoder = _rgb_encoder(args.video_codec, args.video_quality, args.video_preset)
-            for plan in plans:
-                reader.preflight_decoder(plan)
-                _preflight_encoder(plan, encoder)
-            longest = max(episode.num_frames for plan in plans for episode in plan.episodes)
-            queue_size = args.encoder_queue_maxsize or longest + 1
-            if queue_size <= longest:
-                raise ConversionError(
-                    f"streaming queue {queue_size} must exceed longest episode ({longest}) so frames cannot drop"
-                )
-        else:
-            encoder = None
-            queue_size = _parallel_queue_size(args)
-        lock_context = exclusive_resume_lock(lock_path) if args.resume else _nullcontext()
-        with lock_context:
-            if args.resume:
-                assert state_root is not None
-                _prepare_collection_resume(workspace, state_root, payload)
-            else:
-                workspace.mkdir(parents=True, exist_ok=False)
-            for plan in plans:
-                if plan.output_path.exists():
-                    validate_written_dataset(plan, plan.output_path)
-                    validate_video_files(plan, plan.output_path, expected_frames=plan.num_frames)
-                    print(f"[{plan.dataset_uid}] reused completed collection partition", flush=True)
-                    continue
-                if args.workers is not None:
-                    assert state_root is not None
-                    _convert_parallel_partition(
-                        plan,
-                        state_root,
-                        args,
-                        payload["options"],
-                        devices,
-                    )
-                else:
-                    convert_dataset(
-                        plan,
-                        lambda episode, _plan=plan: reader.iter_frames(_plan, episode),
-                        reader_format="one_x_world_model",
-                        resume=args.resume,
-                        eta_interval_seconds=args.eta_interval_seconds,
-                        rgb_encoder=encoder,
-                        streaming_encoding=True,
-                        encoder_queue_maxsize=queue_size,
-                        encoder_threads=args.encoder_threads,
-                        conversion_options=payload["options"],
-                    )
-            for plan in plans:
-                validate_written_dataset(plan, plan.output_path)
-                validate_video_files(plan, plan.output_path, expected_frames=plan.num_frames)
-            atomic_write_json(workspace / "collection_manifest.json", _collection_manifest(plans, args))
-            publish_temporary_output(workspace, final, overwrite=args.overwrite)
-            if state_root is not None:
-                shutil.rmtree(state_root)
-        if args.resume and lock_path is not None:
-            lock_path.unlink(missing_ok=True)
-        print(f"validated and published collection: {final}")
-        return 0
-    except KeyboardInterrupt:
-        print("interrupted; the last verified resume unit was retained", file=sys.stderr)
-        return 130
-    except (ConversionError, FileExistsError, OSError, RuntimeError, ValueError) as exc:
-        if not args.resume and workspace.exists():
-            shutil.rmtree(workspace)
-        if not args.resume and state_root is not None and state_root.exists():
-            shutil.rmtree(state_root)
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
+    if legacy_workflow:
+        return _run_legacy_collection(args, devices=devices)
+    return _run_staging_collection(args, output_root=output_root, devices=devices)
 
 
 class _nullcontext:

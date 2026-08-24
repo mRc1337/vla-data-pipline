@@ -56,6 +56,13 @@ def _vector_result(
     source = np.asarray(source_value)
     expected_shape = tuple(int(value) for value in feature_schema["shape"])
     expected_dtype = np.dtype(feature_schema["dtype"])
+    output_storage_shape = output.shape
+    scalar_storage_normalized = output.shape == () and expected_shape == (1,)
+    if scalar_storage_normalized:
+        # LeRobot 0.6 intentionally stores a one-element vector as an Arrow
+        # scalar while retaining ``shape: [1]`` in info.json.  Normalize that
+        # physical representation before comparing its declared semantics.
+        output = output.reshape(1)
     shape_matches = output.shape == source.shape == expected_shape
     dtype_matches = output.dtype == source.dtype == expected_dtype
     exact = bool(shape_matches and dtype_matches and np.array_equal(output, source))
@@ -76,6 +83,8 @@ def _vector_result(
         "expected_shape": list(expected_shape),
         "source_shape": list(source.shape),
         "output_shape": list(output.shape),
+        "output_storage_shape": list(output_storage_shape),
+        "scalar_storage_normalized": scalar_storage_normalized,
         "max_abs_error": max_abs_error,
     }
 
@@ -115,6 +124,118 @@ def _video_evidence(path: Path) -> dict[str, Any]:
             "height": int(stream.height),
             "codec": stream.codec.canonical_name,
         }
+
+
+def _schema_evidence(dataset: Any, manifest: dict[str, Any]) -> dict[str, Any]:
+    expected = manifest["features"]
+    mismatches: list[str] = []
+    for key, feature in expected.items():
+        actual = dataset.meta.features.get(key)
+        if actual is None:
+            mismatches.append(f"missing {key}")
+            continue
+        for field in ("dtype", "shape", "names"):
+            actual_value = actual.get(field)
+            expected_value = feature.get(field)
+            if field == "shape":
+                actual_value = list(actual_value or [])
+                expected_value = list(expected_value or [])
+            if actual_value != expected_value:
+                mismatches.append(
+                    f"{key}.{field}: {actual_value!r} != {expected_value!r}"
+                )
+    return {
+        "features_checked": len(expected),
+        "mismatches": mismatches,
+        "passed": not mismatches,
+    }
+
+
+def _index_evidence(partition_root: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    columns = [
+        "index",
+        "frame_index",
+        "episode_index",
+        "task_index",
+        "timestamp",
+    ]
+    paths = sorted((partition_root / "data").rglob("*.parquet"))
+    if not paths:
+        raise ValueError(f"no data parquet files below {partition_root}")
+    table = pa.concat_tables([pq.read_table(path, columns=columns) for path in paths])
+    expected_index: list[int] = []
+    expected_frame: list[int] = []
+    expected_episode: list[int] = []
+    expected_task_index: list[int] = []
+    expected_timestamp: list[float] = []
+    for episode in manifest["episodes"]:
+        length = int(episode["num_frames"])
+        episode_index = int(episode["lerobot_episode_index"])
+        task_index = int(episode["lerobot_task_index"])
+        start = len(expected_index)
+        expected_index.extend(range(start, start + length))
+        expected_frame.extend(range(length))
+        expected_episode.extend([episode_index] * length)
+        expected_task_index.extend([task_index] * length)
+        expected_timestamp.extend(index / float(manifest["fps"]) for index in range(length))
+
+    checks = {
+        "index": np.array_equal(
+            table["index"].to_numpy(), np.asarray(expected_index)
+        ),
+        "frame_index": np.array_equal(
+            table["frame_index"].to_numpy(), np.asarray(expected_frame)
+        ),
+        "episode_index": np.array_equal(
+            table["episode_index"].to_numpy(), np.asarray(expected_episode)
+        ),
+        "task_index": np.array_equal(
+            table["task_index"].to_numpy(), np.asarray(expected_task_index)
+        ),
+        "timestamp": bool(
+            np.allclose(
+                table["timestamp"].to_numpy(),
+                np.asarray(expected_timestamp),
+                rtol=0.0,
+                atol=1e-5,
+            )
+        ),
+    }
+    return {
+        "rows_checked": table.num_rows,
+        "files_checked": len(paths),
+        "checks": checks,
+        "passed": table.num_rows == len(expected_index) and all(checks.values()),
+    }
+
+
+def _episode_task_evidence(dataset: Any, manifest: dict[str, Any]) -> dict[str, Any]:
+    expected_tasks = {
+        str(task): int(index)
+        for index, task in manifest["task_index_mapping"].items()
+    }
+    actual_tasks = {
+        str(task): int(index)
+        for task, index in dataset.meta.tasks["task_index"].to_dict().items()
+    }
+    episode_checks: list[bool] = []
+    for expected in manifest["episodes"]:
+        episode_index = int(expected["lerobot_episode_index"])
+        actual = dataset.meta.episodes[episode_index]
+        episode_checks.append(
+            int(actual["episode_index"]) == episode_index
+            and int(actual["length"]) == int(expected["num_frames"])
+            and actual["tasks"] == [expected["instruction"]]
+        )
+    return {
+        "task_mapping": actual_tasks,
+        "expected_task_mapping": expected_tasks,
+        "episodes_checked": len(episode_checks),
+        "passed": actual_tasks == expected_tasks and all(episode_checks),
+    }
 
 
 def _source_vectors(
@@ -158,6 +279,7 @@ def _source_image(
 def evaluate_partition(
     partition_root: Path,
     *,
+    collection_record: dict[str, Any],
     version: str,
     source_root: Path,
     v1_decoder_repo: Path | None,
@@ -174,7 +296,20 @@ def evaluate_partition(
     if dataset.num_episodes != int(manifest["num_episodes"]):
         raise ValueError("LeRobot episode count differs from conversion manifest")
 
-    indices = sorted({0, len(dataset) // 2, len(dataset) - 1})
+    schema = _schema_evidence(dataset, manifest)
+    indices = _index_evidence(partition_root, manifest)
+    episode_tasks = _episode_task_evidence(dataset, manifest)
+    manifest_checks = {
+        "name": partition_root.name == collection_record["name"],
+        "dataset_uid": manifest["dataset_uid"] == collection_record["dataset_uid"],
+        "episodes": int(manifest["num_episodes"]) == int(collection_record["episodes"]),
+        "frames": int(manifest["num_frames"]) == int(collection_record["frames"]),
+        "features": manifest["features"] == collection_record["features"],
+        "source_version": manifest["partition_rules"]["partition_value"] == version,
+    }
+    manifest_pass = all(manifest_checks.values())
+
+    sample_indices = sorted({0, len(dataset) // 2, len(dataset) - 1})
     reader = OneXWorldModelReader()
     decoder_plan = SimpleNamespace(
         extra={
@@ -189,7 +324,7 @@ def evaluate_partition(
     samples = []
     all_exact = True
     pixel_pass = True
-    for index in indices:
+    for index in sample_indices:
         episode, local_index = _episode_at(manifest, index)
         span, source_index = _span_at(episode, local_index)
         output = dataset[index]
@@ -237,13 +372,26 @@ def evaluate_partition(
         "version": version,
         "episodes": dataset.num_episodes,
         "frames": len(dataset),
+        "schema": schema,
+        "indices": indices,
+        "episode_tasks": episode_tasks,
+        "manifest_checks": manifest_checks,
+        "manifest_pass": manifest_pass,
         "samples": samples,
         "vectors_exact": all_exact,
         "pixels_checked": not skip_pixels,
         "pixels_pass": pixel_pass,
         "videos": videos,
         "videos_pass": video_pass,
-        "passed": all_exact and pixel_pass and video_pass,
+        "passed": (
+            schema["passed"]
+            and indices["passed"]
+            and episode_tasks["passed"]
+            and manifest_pass
+            and all_exact
+            and pixel_pass
+            and video_pass
+        ),
     }
 
 
@@ -271,6 +419,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         results.append(
             evaluate_partition(
                 args.collection_root / partition["name"],
+                collection_record=partition,
                 version=partition["source_version"],
                 source_root=args.source_root,
                 v1_decoder_repo=args.v1_decoder_repo,

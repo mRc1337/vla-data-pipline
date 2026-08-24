@@ -79,11 +79,21 @@ pip install tensorflow-cpu==2.15.0 tensorflow-datasets==4.9.9
 
 ## ARCap 原始数据转换为 LeRobot v3.0
 
-ARCap 的五分区、无视频、float64 点云 staging 转换也已实现；它使用 phase-group
-粒度的 persistent-worker direct-commit、可验证恢复和 OSSFS marker 发布；四进程是代表性
-多单元 warm 证据下的正式候选，短冷启动基准会按门禁拒绝无加速配置。调查、字段映射、容量计划、
+ARCap 的五分区、无视频、float64 点云 staging 转换也已实现；它使用本地 100GB 有界 phase-group
+work unit、1–2 个并行 uploader、跨文件系统 copy/format+range verify/delete、可验证恢复和 OSSFS
+marker 发布。最终真实矩阵选择 4 conversion workers + 2 upload workers，OSS 只保存最终
+chunks/metadata。调查、字段映射、容量计划、
 正式命令与独立评估见
 [`ARCAP_CONVERSION.md`](embodied_datasets/scripts/convert_scripts/ARCAP_CONVERSION.md)。全量转换未启动。
+
+## DexCap 原始数据转换为 LeRobot v3.0
+
+DexCap 使用独立的真实 HDF5 reader，保留 46 维 action、63 维 glove、32/6/8 维 EEF、
+16 维 source state、10000×6 点云和 84×84 RGB 相机；采用本地 100GB 有界 unit、CPU H.264
+流式编码、跨文件系统 copy/verify/delete、可恢复 checkpoint 和 `_SUCCESS` marker 发布。
+字段映射、真实 1/2/4 worker × 1/2 uploader 基准和正式命令见
+[`DEXCAP_CONVERSION.md`](embodied_datasets/scripts/convert_scripts/DEXCAP_CONVERSION.md)。
+全量转换未启动。
 
 ## Mobile ALOHA 原始数据转换为 LeRobot v3.0
 
@@ -271,6 +281,30 @@ HF_HOME=/home/pai/zxw/.cache/huggingface .venv/bin/python -u \
   --inspection-report /home/pai/zxw/roboverse_logs/preflight_summary.json
 ```
 
+1X World Model Challenge 数据集使用专用集合入口
+`convert_1x_world_model_dataset.py`：v1.1/MAGVIT2 与 v2.0/Cosmos 因真实 schema 和解码器不同，
+确定性分为 `v1_1`、`v2_0` 两个 LeRobot v3.0 数据集。reader 会全量核对 binary size、segment、
+shard、token range、float finite/range 和未引用文件；转换复用通用 checkpoint/锁/marker 发布。
+真实 v1 240 帧与 v2 806 帧 smoke、LeRobot 重开、数值逐值对比、视频帧数和 PSNR 均已通过。
+当前 A800 不支持 NVENC，使用已预检的软件 H.264。字段证据、resume 设计、完整命令和风险见
+[`1X_WORLD_MODEL_DATASET_CONVERSION.md`](embodied_datasets/scripts/convert_scripts/1X_WORLD_MODEL_DATASET_CONVERSION.md)。
+
+TB 级正式路径直接写
+`/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/1x_world_model_dataset`：worker
+生成最终兼容 chunk，coordinator 验证后直接提交，不做第二份全量聚合复制。work/resume/log/lock、
+临时文件和全部缓存均限制在同一 staging 根；发布使用 `_INCOMPLETE` → 全量验证 → `_SUCCESS`
+marker 协议，不依赖 OSSFS 完整目录 rename。正式转换只允许已通过等价门禁的 W1；W2/W4 不会
+静默回退。2026-08-19 的 GPU3/W1 真实 OSSFS smoke 为 240 帧、27.74 frames/s（冷权重下载另计），
+全部索引、episode/task、manifest、源数值和视频检查通过，且 raw 清单哈希保持不变。
+MP4 使用明确不可 seek 的 fragmented sink 顺序写入 OSSFS；修复后 GPU3 上同一真实 v2 unit
+原地恢复并通过 806/806 帧、30 FPS、首 PTS 0 的完整 worker 校验。
+
+```bash
+/home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python \
+  embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
+  --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
+  --inspect-only
+```
 
 `convert_mobile_aloha_to_lerobot.py` 只覆盖 Mobile ALOHA 一种 HDF5 布局。其他
 数据集（普通单臂 HDF5、RLDS/TFDS、"文件夹+图片+JSON" 三种格式）统一走

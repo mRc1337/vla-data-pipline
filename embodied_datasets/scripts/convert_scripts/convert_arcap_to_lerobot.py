@@ -2,14 +2,15 @@
 
 The coordinator freezes all indices before dispatch, batches complete ARCap
 phase groups into bounded work units, and uses isolated persistent workers.
-Verified Parquet chunks are moved directly into their deterministic final
+Verified Parquet chunks are copied directly into their deterministic final
 paths; only compact metadata is aggregated by the coordinator.
 """
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
 import math
@@ -51,24 +52,22 @@ from convert_core.parallel import (
     prepare_work_units,
     run_parallel_work_units,
     validate_inflight_budget,
+    verified_marker_path,
     write_verified_unit_marker,
 )
 from convert_core.performance import ProcessTreeSampler
 from convert_core.staging import (
-    StagingLayout,
     create_incomplete_output,
     exclusive_staging_lock,
-    make_staging_layout,
     publish_success,
     sha256_file,
-    validate_contained_path,
-    validate_no_runtime_paths_outside_root,
     validate_source_and_output_roots,
 )
 from convert_core.storage import (
-    StagingQuotaGuard,
-    format_staging_quota_check,
+    DiskGuard,
     scoped_size,
+    validate_local_layout,
+    validate_paths_within_root,
 )
 from readers.arcap_hdf5_reader import (
     PARTITION_SPECS,
@@ -84,18 +83,145 @@ DEFAULT_OUTPUT_ROOT = Path(
     "/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0"
 )
 DEFAULT_RAW_ROOT = Path("/mnt/data/embodied_datasets/public_datasets_raw/arcap")
-DEFAULT_MAX_STAGING_BYTES = 80 * GIB
-DEFAULT_MAX_INFLIGHT_BYTES = 16 * GIB
+DEFAULT_LOCAL_WORK_ROOT = Path("/home/pai/zxw/arcap_staging")
+DEFAULT_MAX_LOCAL_TEMP_BYTES = 100_000_000_000
+DEFAULT_MIN_LOCAL_FREE_BYTES = 200_000_000_000
 DEFAULT_WORKER_MEMORY_LIMIT_BYTES = 8 * GIB
 DEFAULT_MAX_FRAMES_PER_UNIT = 8_000
 FULL_EXPECTED_OUTPUT_BYTES = 61_390_182_738
 FULL_TOTAL_FRAMES = 231_923
+PREFLIGHT_REFERENCE_FRAMES_PER_SECOND = 33.349728564039644
 OFFICIAL_PARTITIONS = tuple(spec.name for spec in PARTITION_SPECS)
+# The orchestration below is intentionally reader-agnostic.  The DexCap entry
+# point reuses it with a different validated HDF5 reader and these two values.
+READER_FORMAT = "arcap_hdf5"
+PIPELINE_LABEL = "ARCap"
+SOURCE_DATASET = "Ericcsr/ARCap"
+COLLECTION_KIND = "arcap_collection"
+
+
+@dataclass(frozen=True)
+class ARCapRuntimeLayout:
+    root: Path
+    local_root: Path
+    dataset_uid: str
+    run_id: str
+    final: Path
+    work: Path
+    resume: Path
+    logs: Path
+    cache: Path
+    temp: Path
+    lock: Path
+
+    def as_dict(self) -> dict[str, str]:
+        return {key: str(value) for key, value in asdict(self).items()}
+
+    def create_runtime_directories(self) -> None:
+        for path in (
+            self.work,
+            self.resume,
+            self.logs,
+            self.cache,
+            self.temp,
+            self.lock.parent,
+        ):
+            path.mkdir(parents=True, exist_ok=True)
+
+
+class _LocalReservationLedger:
+    """Reserve peak bytes before conversion and release only after upload."""
+
+    def __init__(
+        self,
+        *,
+        local_root: Path,
+        guard: DiskGuard,
+        max_bytes: int,
+        max_units: int,
+    ) -> None:
+        self.local_root = local_root
+        self.guard = guard
+        self.max_bytes = max_bytes
+        self.max_units = max_units
+        self._condition = threading.Condition()
+        self._reserved: dict[int, tuple[int, Path]] = {}
+        self._failure: BaseException | None = None
+
+    @property
+    def count(self) -> int:
+        with self._condition:
+            return len(self._reserved)
+
+    @property
+    def reserved_bytes(self) -> int:
+        with self._condition:
+            return sum(value[0] for value in self._reserved.values())
+
+    def _raise_failure(self) -> None:
+        if self._failure is not None:
+            raise ConversionError("upload worker failed") from self._failure
+
+    def reserve(self, unit: ParallelWorkUnit) -> Any:
+        required = unit.estimated_temp_bytes
+        if required > self.max_bytes:
+            raise ConversionError(
+                f"unit {unit.key!r} estimated peak {required} exceeds "
+                f"--max-local-temp-bytes={self.max_bytes}; split the unit"
+            )
+        target = Path(unit.target_path)
+        with self._condition:
+            if unit.index in self._reserved:
+                raise ConversionError(f"unit {unit.key!r} already has a local reservation")
+            while True:
+                self._raise_failure()
+                current = scoped_size((self.local_root,))
+                active_actual = sum(
+                    scoped_size((path,)) for _estimate, path in self._reserved.values()
+                )
+                reserved = sum(value[0] for value in self._reserved.values())
+                projected = max(0, current - active_actual) + reserved + required
+                units_fit = len(self._reserved) < self.max_units
+                if projected <= self.max_bytes and units_fit:
+                    check = self.guard.check(
+                        f"reserve {unit.key}",
+                        required_additional_bytes=max(0, projected - current),
+                        inflight_units=len(self._reserved) + 1,
+                    )
+                    self._reserved[unit.index] = (required, target)
+                    return check
+                if not self._reserved:
+                    raise ConversionError(
+                        f"local reservation cannot fit unit {unit.key!r}: "
+                        f"projected={projected}, --max-local-temp-bytes={self.max_bytes}"
+                    )
+                self._condition.wait(timeout=1.0)
+
+    def release(self, unit: ParallelWorkUnit) -> None:
+        with self._condition:
+            if self._reserved.pop(unit.index, None) is None:
+                raise ConversionError(f"unit {unit.key!r} has no local reservation")
+            self._condition.notify_all()
+
+    def fail(self, exc: BaseException) -> None:
+        with self._condition:
+            if self._failure is None:
+                self._failure = exc
+            self._condition.notify_all()
+
+    def check(self) -> Any:
+        with self._condition:
+            self._raise_failure()
+            return self.guard.check(
+                "pipeline active",
+                inflight_units=len(self._reserved),
+            )
 
 
 @dataclass(frozen=True)
 class _WorkerPayload:
     plan: Any
+    partition_name: str
     local_index: int
     local_key: str
     eta_interval_seconds: float
@@ -136,7 +262,7 @@ def _append_jsonl(path: Path, event: dict[str, Any]) -> None:
         stream.flush()
 
 
-def _coordinator_log_path(layout: StagingLayout) -> Path:
+def _coordinator_log_path(layout: ARCapRuntimeLayout) -> Path:
     return layout.logs / f"{layout.run_id}.coordinator.jsonl"
 
 
@@ -271,10 +397,12 @@ def _phase_group_slices(plan: Any, max_frames: int) -> tuple[PlanUnitSlice, ...]
     return tuple(slices)
 
 
-def _configure_runtime_environment(layout: StagingLayout, *, create: bool) -> dict[str, str]:
+def _configure_runtime_environment(
+    layout: ARCapRuntimeLayout, *, create: bool
+) -> dict[str, str]:
     """Use the ARCap-mandated ``runtime_cache`` directory, never $HOME/tmp."""
 
-    cache = layout.work / "runtime_cache"
+    cache = layout.cache
     values = {
         "TMPDIR": layout.temp,
         "TMP": layout.temp,
@@ -310,8 +438,8 @@ def _configure_runtime_environment(layout: StagingLayout, *, create: bool) -> di
     return rendered
 
 
-def _select_run_id(output_root: Path, dataset_uid: str, resume_dir: Path | None) -> str:
-    root = resume_dir or output_root / ".conversion_resume" / dataset_uid
+def _select_run_id(local_root: Path, dataset_uid: str, resume_dir: Path | None) -> str:
+    root = resume_dir or local_root / "resume" / dataset_uid
     state_path = root / "collection.json"
     if state_path.is_file():
         state = read_json_object(state_path, "ARCap collection state")
@@ -321,21 +449,39 @@ def _select_run_id(output_root: Path, dataset_uid: str, resume_dir: Path | None)
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + uuid.uuid4().hex[:12]
 
 
-def _layout(args: argparse.Namespace) -> StagingLayout:
+def _layout(args: argparse.Namespace) -> ARCapRuntimeLayout:
     approved = DEFAULT_OUTPUT_ROOT.resolve(strict=False)
     if args.output_root.resolve(strict=False) != approved:
         raise ConversionError(
             f"--output-root must be the approved staging root {approved}"
         )
-    run_id = _select_run_id(args.output_root, args.output_dataset_uid, args.resume_dir)
-    return make_staging_layout(
-        output_root=args.output_root,
+    local_root = args.local_work_root.expanduser().absolute().resolve(strict=False)
+    approved_local = DEFAULT_LOCAL_WORK_ROOT.resolve(strict=False)
+    if local_root != approved_local:
+        raise ConversionError(
+            f"--local-work-root must be the approved local runtime root {approved_local}"
+        )
+    run_id = _select_run_id(local_root, args.output_dataset_uid, args.resume_dir)
+    paths = validate_paths_within_root(
+        local_root,
+        {
+            "work": args.work_dir or local_root / "work" / run_id,
+            "resume": args.resume_dir or local_root / "resume" / args.output_dataset_uid,
+            "logs": args.logs_dir or local_root / "logs" / args.output_dataset_uid,
+            "cache": local_root / "cache" / run_id,
+            "temp": args.temp_dir or local_root / "work" / run_id / "tmp",
+            "lock": local_root / "resume" / f"{args.output_dataset_uid}.lock",
+        },
+        required_root=DEFAULT_LOCAL_WORK_ROOT,
+    )
+    validate_local_layout(paths["work"], paths["temp"])
+    return ARCapRuntimeLayout(
+        root=approved,
+        local_root=local_root,
         dataset_uid=args.output_dataset_uid,
         run_id=run_id,
-        work_dir=args.work_dir,
-        resume_dir=args.resume_dir,
-        logs_dir=args.logs_dir,
-        temp_dir=args.temp_dir,
+        final=approved / args.output_dataset_uid,
+        **paths,
     )
 
 
@@ -344,7 +490,26 @@ def _selected_specs(names: Sequence[str] | None) -> tuple[Any, ...]:
     return tuple(spec for spec in PARTITION_SPECS if spec.name in requested)
 
 
-def _inspect_infos(args: argparse.Namespace, layout: StagingLayout) -> list[ARCapPartitionInfo]:
+def _raw_source_inventory(raw_root: Path, specs: Sequence[Any]) -> list[dict[str, Any]]:
+    """Return the read-only source identity used to prove a bounded run changed nothing."""
+
+    inventory = []
+    for spec in specs:
+        path = raw_root / spec.filename
+        stat = path.stat()
+        inventory.append(
+            {
+                "relative_path": spec.filename,
+                "size": stat.st_size,
+                "mtime_ns": stat.st_mtime_ns,
+            }
+        )
+    return inventory
+
+
+def _inspect_infos(
+    args: argparse.Namespace, layout: ARCapRuntimeLayout
+) -> list[ARCapPartitionInfo]:
     infos = [
         inspect_partition(
             args.raw_root / spec.filename,
@@ -382,6 +547,7 @@ def _conversion_options(args: argparse.Namespace) -> dict[str, Any]:
         "acceleration_mode": args.acceleration_mode,
         "workers": args.workers,
         "max_inflight_units": args.max_inflight_units,
+        "upload_workers": args.upload_workers,
         "encoder_threads_per_worker": args.encoder_threads_per_worker,
         "worker_memory_limit_bytes": args.worker_memory_limit_bytes,
         "pointcloud_transform": "identity",
@@ -392,7 +558,7 @@ def _conversion_options(args: argparse.Namespace) -> dict[str, Any]:
 
 def _build_units(
     infos: Sequence[ARCapPartitionInfo],
-    layout: StagingLayout,
+    layout: ARCapRuntimeLayout,
     args: argparse.Namespace,
 ) -> tuple[tuple[ParallelWorkUnit, ...], dict[str, tuple[ParallelWorkUnit, ...]]]:
     options = _conversion_options(args)
@@ -401,7 +567,10 @@ def _build_units(
     for info in infos:
         local_units: list[ParallelWorkUnit] = []
         for item in _phase_group_slices(info.plan, args.max_frames_per_unit):
-            target = layout.work / "units" / info.spec.name / f"unit-{item.index:06d}"
+            # Global numbering keeps every worker output at the mandated
+            # work/<run_id>/unit-XXXXXX path while partition-local indices
+            # remain available in the payload and direct-commit marker.
+            target = layout.work / f"unit-{len(global_units):06d}"
             unit_plan = isolated_unit_plan(
                 info.plan,
                 item,
@@ -417,12 +586,13 @@ def _build_units(
             fingerprint = canonical_fingerprint(
                 build_resume_payload(
                     unit_plan,
-                    reader_format="arcap_hdf5",
+                    reader_format=READER_FORMAT,
                     conversion_options=unit_options,
                 )
             )
             payload = _WorkerPayload(
                 plan=unit_plan,
+                partition_name=info.spec.name,
                 local_index=item.index,
                 local_key=item.key,
                 eta_interval_seconds=args.eta_interval_seconds,
@@ -458,6 +628,22 @@ def _local_unit(unit: ParallelWorkUnit) -> ParallelWorkUnit:
     if not isinstance(payload, _WorkerPayload):
         raise ConversionError(f"invalid ARCap worker payload for {unit.key}")
     return replace(unit, index=payload.local_index, key=payload.local_key)
+
+
+def _pending_units_for_partition(
+    units: Sequence[ParallelWorkUnit],
+    partition_name: str,
+    wanted_local_indices: set[int],
+) -> tuple[ParallelWorkUnit, ...]:
+    """Select pending global units without inferring identity from path layout."""
+
+    return tuple(
+        unit
+        for unit in units
+        if isinstance(unit.payload, _WorkerPayload)
+        and unit.payload.partition_name == partition_name
+        and unit.payload.local_index in wanted_local_indices
+    )
 
 
 def _initialize_worker(_slot: int, memory_limit: int) -> None:
@@ -506,7 +692,7 @@ def _convert_unit(unit: ParallelWorkUnit) -> dict[str, Any]:
         "pid": os.getpid(),
         "unit": unit.key,
         "unit_index": unit.index,
-        "partition": payload.plan.output_path.parent.name,
+        "partition": payload.partition_name,
         "local_unit_index": payload.local_index,
         "episodes": len(payload.plan.episodes),
         "frames": payload.plan.num_frames,
@@ -529,19 +715,41 @@ def _convert_unit(unit: ParallelWorkUnit) -> dict[str, Any]:
                 _remove_tree_with_retries(stale)
             else:
                 stale.unlink()
+        rgb_encoder = None
+        if payload.plan.camera_features:
+            from lerobot.configs.video import RGBEncoderConfig
+
+            # A800 NVENC is unavailable on this machine.  Explicitly select
+            # deterministic CPU H.264 and avoid the default AV1 encoder's
+            # dimension padding for 84x84 DexCap frames.
+            rgb_encoder = RGBEncoderConfig(vcodec="h264", crf=18, preset="medium")
         with _bounded_dataset_cache(target.parent / f".{target.name}.datasets-cache"):
             convert_dataset(
                 payload.plan,
                 lambda episode: iter_frames(payload.plan, episode),
-                reader_format="arcap_hdf5",
+                reader_format=READER_FORMAT,
                 resume=False,
                 eta_interval_seconds=payload.eta_interval_seconds,
                 encoder_threads=payload.encoder_threads,
+                rgb_encoder=rgb_encoder,
                 conversion_options=payload.conversion_options,
                 batch_metadata_writes=True,
+                streaming_encoding=bool(payload.plan.camera_features),
+                blocking_streaming_encoding=bool(payload.plan.camera_features),
+                encoder_queue_maxsize=1,
+                encoder_temp_root=target.parent / f".{target.name}.encoder-cache",
             )
         write_verified_unit_marker(local)
     except BaseException as exc:
+        with suppress(Exception):
+            if target.exists():
+                _remove_tree_with_retries(target)
+            for stale in target.parent.glob(f".{target.name}.incomplete-*"):
+                if stale.is_dir():
+                    _remove_tree_with_retries(stale)
+                else:
+                    stale.unlink(missing_ok=True)
+            target.with_name(f"{target.name}.verified.json").unlink(missing_ok=True)
         _append_jsonl(
             log_path,
             {
@@ -613,12 +821,12 @@ def _collection_payload(
 ) -> dict[str, Any]:
     return {
         "resume_schema_version": RESUME_SCHEMA_VERSION,
-        "kind": "arcap_collection",
+        "kind": COLLECTION_KIND,
         "output_dataset_uid": args.output_dataset_uid,
         "partitions": [
             build_resume_payload(
                 info.plan,
-                reader_format="arcap_hdf5",
+                reader_format=READER_FORMAT,
                 conversion_options=_conversion_options(args),
             )
             for info in infos
@@ -628,7 +836,7 @@ def _collection_payload(
 
 
 def _prepare_collection_state(
-    layout: StagingLayout, payload: dict[str, Any], *, require_existing: bool
+    layout: ARCapRuntimeLayout, payload: dict[str, Any], *, require_existing: bool
 ) -> str:
     path = layout.resume / "collection.json"
     fingerprint = canonical_fingerprint(payload)
@@ -663,15 +871,32 @@ def _estimate(infos: Sequence[ARCapPartitionInfo], units: Sequence[ParallelWorkU
     inflight = sum(
         sorted((unit.estimated_temp_bytes for unit in units), reverse=True)[:4]
     )
+    unit_peak = max((unit.estimated_temp_bytes for unit in units), default=0)
+    selected_input = sum(info.selected_logical_bytes for info in infos)
+    source_containers = sum(info.spec.source_bytes for info in infos)
     return {
         "method": (
-            "real ARCap LeRobot benchmark scaled by selected frames; 15% conservative "
+            f"real {PIPELINE_LABEL} LeRobot benchmark scaled by selected frames; 15% conservative "
             "Parquet margin; statvfs/df excluded from quota evidence"
         ),
+        "source_container_bytes": source_containers,
+        "selected_logical_input_bytes": selected_input,
+        "expected_input_bytes": selected_input,
         "expected_output_bytes": expected,
         "conservative_output_bytes": upper,
         "metadata_checkpoint_upper_bytes": 512 * MIB,
+        "planned_work_units": len(units),
+        "maximum_unit_estimated_temp_bytes": unit_peak,
         "four_unit_inflight_upper_bytes": inflight,
+        "reference_end_to_end_frames_per_second": (
+            PREFLIGHT_REFERENCE_FRAMES_PER_SECOND
+        ),
+        "estimated_wall_seconds": (
+            frames / PREFLIGHT_REFERENCE_FRAMES_PER_SECOND if frames else 0.0
+        ),
+        "estimated_wall_time_basis": (
+            "selected real local-to-OSS W4/U2 benchmark; planning estimate only"
+        ),
         "expected_full_output_bytes": FULL_EXPECTED_OUTPUT_BYTES,
         "oss_object_quota_verified": False,
     }
@@ -686,7 +911,7 @@ def _manifest(
         "schema_version": 1,
         "dataset_uid": args.output_dataset_uid,
         "format": "lerobot_v3_0_collection",
-        "source_dataset": "Ericcsr/ARCap",
+        "source_dataset": SOURCE_DATASET,
         "partitions": [
             {
                 "name": info.spec.name,
@@ -708,7 +933,10 @@ def _manifest(
         "video_features": 0,
         "parallel": {
             "persistent_workers": args.workers,
+            "upload_workers": args.upload_workers,
             "max_inflight_units": args.max_inflight_units,
+            "max_local_temp_bytes": args.max_local_temp_bytes,
+            "min_local_free_bytes": args.min_local_free_bytes,
             "deterministic_plan_order": [
                 unit.key for info in infos for unit in local[info.spec.name]
             ],
@@ -777,12 +1005,12 @@ def _validate_published_collection(
         )
         partition_expected = {
             "dataset_uid": info.plan.dataset_uid,
-            "source_format": "arcap_hdf5",
+            "source_format": READER_FORMAT,
             "robot_type": info.plan.robot_type,
             "fps": info.plan.fps,
             "num_episodes": len(info.plan.episodes),
             "num_frames": info.plan.num_frames,
-            "num_video_features": 0,
+            "num_video_features": len(info.plan.camera_features),
         }
         for key, value in partition_expected.items():
             if partition_manifest.get(key) != value:
@@ -792,7 +1020,7 @@ def _validate_published_collection(
     return marker
 
 
-def _write_log(layout: StagingLayout, status: str, **values: Any) -> None:
+def _write_log(layout: ARCapRuntimeLayout, status: str, **values: Any) -> None:
     atomic_write_json(
         layout.logs / f"{layout.run_id}.json",
         {
@@ -805,7 +1033,7 @@ def _write_log(layout: StagingLayout, status: str, **values: Any) -> None:
     )
 
 
-def _write_event(layout: StagingLayout, event: str, **values: Any) -> None:
+def _write_event(layout: ARCapRuntimeLayout, event: str, **values: Any) -> None:
     _append_jsonl(
         _coordinator_log_path(layout),
         {"event": event, "run_id": layout.run_id, "pid": os.getpid(), **values},
@@ -825,13 +1053,53 @@ def _remove_tree_with_retries(path: Path, *, attempts: int = 8) -> None:
     raise OSError(f"could not remove runtime tree after {attempts} attempts: {path}")
 
 
+def _cleanup_incomplete_local_units(
+    units: Sequence[ParallelWorkUnit],
+) -> tuple[str, ...]:
+    """Remove uncheckpointed worker output after interruption or failure.
+
+    A verified unit may still be waiting for, or recovering from, an upload and
+    therefore keeps both its marker and local source. Hidden writer directories
+    and per-unit materialization caches are never checkpoints.
+    """
+
+    removed: list[str] = []
+    failures: list[str] = []
+    for unit in units:
+        target = Path(unit.target_path)
+        marker = verified_marker_path(unit)
+        candidates = [
+            *target.parent.glob(f".{target.name}.incomplete-*"),
+            target.parent / f".{target.name}.datasets-cache",
+            target.parent / f".{target.name}.validation-cache",
+        ]
+        if target.exists() and not marker.is_file():
+            candidates.append(target)
+        for path in candidates:
+            if not path.exists():
+                continue
+            try:
+                if path.is_dir():
+                    _remove_tree_with_retries(path)
+                else:
+                    path.unlink()
+                removed.append(str(path))
+            except OSError as exc:
+                failures.append(f"{path}: {exc}")
+        if not target.exists():
+            marker.unlink(missing_ok=True)
+    if failures:
+        raise OSError("incomplete ARCap unit cleanup failed: " + "; ".join(failures))
+    return tuple(removed)
+
+
 class _RunProgress:
     """Unit-boundary aggregate progress suitable for nohup and JSONL tailing."""
 
     def __init__(
         self,
         *,
-        layout: StagingLayout,
+        layout: ARCapRuntimeLayout,
         args: argparse.Namespace,
         units: Sequence[ParallelWorkUnit],
         pending: Sequence[ParallelWorkUnit],
@@ -897,7 +1165,15 @@ class _RunProgress:
             "worker_current_unit_source": str(
                 self.layout.logs / f"{self.layout.run_id}.worker-*.jsonl"
             ),
-            "encoder": "none (ARCap has no video features)",
+            "encoder": (
+                "CPU H.264 streaming"
+                if any(
+                    isinstance(unit.payload, _WorkerPayload)
+                    and unit.payload.plan.camera_features
+                    for unit in self.units
+                )
+                else f"none ({PIPELINE_LABEL} has no video features)"
+            ),
             "encoder_threads_per_worker": self.args.encoder_threads_per_worker,
             "worker_failures": 0,
             "worker_retries": 0,
@@ -961,7 +1237,6 @@ def _run_conversion(args: argparse.Namespace) -> int:
     validate_source_and_output_roots(args.raw_root, args.output_root)
     layout = _layout(args)
     environment = _configure_runtime_environment(layout, create=False)
-    validate_no_runtime_paths_outside_root(layout)
     infos = _inspect_infos(args, layout)
     units, local = _build_units(infos, layout, args)
     estimate = _estimate(infos, units)
@@ -994,7 +1269,6 @@ def _run_conversion(args: argparse.Namespace) -> int:
             raise FileExistsError(f"published output already exists: {layout.final}")
         layout.create_runtime_directories()
         _configure_runtime_environment(layout, create=True)
-        validate_no_runtime_paths_outside_root(layout)
         try:
             with exclusive_staging_lock(layout.lock):
                 _write_event(layout, "skip_validation_started")
@@ -1005,7 +1279,7 @@ def _run_conversion(args: argparse.Namespace) -> int:
                     cache_root=layout.work / "published-validation-cache",
                 )
                 _remove_tree_with_retries(layout.work)
-                _remove_tree_with_retries(layout.resume)
+                _remove_tree_with_retries(layout.cache)
                 _write_event(layout, "skip_validation_succeeded")
                 _write_log(
                     layout,
@@ -1028,7 +1302,7 @@ def _run_conversion(args: argparse.Namespace) -> int:
                 )
             raise
         layout.lock.unlink(missing_ok=True)
-        print(f"skipped fully revalidated published ARCap collection: {layout.final}")
+        print(f"skipped fully revalidated published {PIPELINE_LABEL} collection: {layout.final}")
         return 0
     if layout.final.exists() and not incomplete.is_file():
         raise ConversionError(f"existing output is neither complete nor resumable: {layout.final}")
@@ -1037,23 +1311,31 @@ def _run_conversion(args: argparse.Namespace) -> int:
 
     layout.create_runtime_directories()
     _configure_runtime_environment(layout, create=True)
-    validate_no_runtime_paths_outside_root(layout)
-    guard = StagingQuotaGuard(
-        staging_roots=(layout.final, layout.work, layout.resume, layout.logs, layout.lock),
-        inflight_roots=(layout.work,),
-        max_staging_bytes=args.max_staging_bytes,
-        max_inflight_bytes=args.max_inflight_bytes,
-        max_inflight_units=args.max_inflight_units,
+    guard = DiskGuard(
+        layout.local_root,
+        usage_roots=(layout.local_root,),
+        min_free_bytes=args.min_local_free_bytes,
+        max_local_bytes=args.max_local_temp_bytes,
         interval_seconds=args.storage_check_interval_seconds,
+        baseline_usage_bytes=0,
+        enforce_policy_floor=False,
+    )
+    ledger = _LocalReservationLedger(
+        local_root=layout.local_root,
+        guard=guard,
+        max_bytes=args.max_local_temp_bytes,
+        max_units=args.max_inflight_units,
     )
     active_workers = min(args.workers, args.max_inflight_units, len(units))
     if not args.benchmark_child and args.max_phase_groups is None and active_workers < 2:
-        raise ConversionError("formal ARCap conversion requires at least two active work units")
+        raise ConversionError(
+            f"formal {PIPELINE_LABEL} conversion requires at least two active work units"
+        )
     validate_inflight_budget(
         units,
         active_workers,
         memory_budget_bytes=active_workers * args.worker_memory_limit_bytes,
-        temp_budget_bytes=args.max_inflight_bytes,
+        temp_budget_bytes=args.max_local_temp_bytes,
     )
 
     lock_acquired = False
@@ -1111,38 +1393,15 @@ def _run_conversion(args: argparse.Namespace) -> int:
                         unit.index for unit in (prepared.pending if prepared else ())
                     }
                     pending_global.extend(
-                        unit
-                        for unit in units
-                        if isinstance(unit.payload, _WorkerPayload)
-                        and unit.payload.plan.output_path.parent.name == partition
-                        and unit.payload.local_index in wanted
+                        _pending_units_for_partition(units, partition, wanted)
                     )
                 print(
                     f"resume reused {reused}/{len(units)} verified work units",
                     file=sys.stderr,
                     flush=True,
                 )
-                pending_frames = sum(unit.weight for unit in pending_global)
-                pending_workers = min(active_workers, len(pending_global))
-                check = guard.check(
-                    "before worker dispatch",
-                    required_staging_bytes=math.ceil(
-                        estimate["conservative_output_bytes"]
-                        * pending_frames
-                        / sum(unit.weight for unit in units)
-                    ),
-                    required_inflight_bytes=sum(
-                        sorted(
-                            (
-                                unit.estimated_temp_bytes
-                                for unit in pending_global
-                            ),
-                            reverse=True,
-                        )[:pending_workers]
-                    ),
-                    inflight_units=pending_workers,
-                )
-                print(format_staging_quota_check(check), file=sys.stderr, flush=True)
+                check = guard.check("before worker dispatch")
+                print(json.dumps({"local_storage": check.as_dict()}), file=sys.stderr, flush=True)
                 progress = _RunProgress(
                     layout=layout,
                     args=args,
@@ -1157,59 +1416,80 @@ def _run_conversion(args: argparse.Namespace) -> int:
                 )
                 by_global_index = {unit.index: unit for unit in pending_global}
 
-                def commit_result(result: Any) -> None:
-                    global_unit = by_global_index[result.index]
+                upload_futures: list[Future[Any]] = []
+                progress_lock = threading.Lock()
+
+                def upload_result(global_unit: ParallelWorkUnit, value: Any) -> dict[str, Any]:
                     local_unit = _local_unit(global_unit)
                     payload_value = global_unit.payload
                     assert isinstance(payload_value, _WorkerPayload)
-                    partition = payload_value.plan.output_path.parent.name
-                    commit_verified_unit(
+                    partition = payload_value.partition_name
+                    marker = commit_verified_unit(
                         local_unit,
                         partition_name=partition,
                         partition_root=layout.final / partition,
                         resume_root=layout.resume,
+                        verify_remote_sha256=args.verify_remote_sha256,
                     )
-                    progress.completed(global_unit, result.value)
-                    quota = guard.check(
-                        f"committed {global_unit.key}",
-                        inflight_units=len(progress.active),
-                    )
-                    progress.emit(
-                        "unit_committed", check=quota, force=True, inventory=True
-                    )
+                    ledger.release(global_unit)
+                    with progress_lock:
+                        progress.completed(global_unit, value)
+                        progress.emit(
+                            "unit_committed",
+                            check=guard.periodic_check(
+                                f"committed {global_unit.key}",
+                                inflight_units=ledger.count,
+                            ),
+                            force=True,
+                            inventory=False,
+                        )
+                    return marker
+
+                def commit_result(result: Any) -> None:
+                    global_unit = by_global_index[result.index]
+                    future = upload_pool.submit(upload_result, global_unit, result.value)
+                    upload_futures.append(future)
+
+                    def upload_finished(completed: Future[Any]) -> None:
+                        failure = completed.exception()
+                        if failure is not None:
+                            ledger.fail(failure)
+
+                    future.add_done_callback(upload_finished)
 
                 def before_dispatch(
                     unit: ParallelWorkUnit, active: tuple[ParallelWorkUnit, ...]
                 ) -> None:
-                    quota = guard.check(
-                        f"dispatch {unit.key}",
-                        required_inflight_bytes=unit.estimated_temp_bytes,
-                        inflight_units=len(active) + 1,
-                    )
+                    del active
+                    quota = ledger.reserve(unit)
                     progress.dispatched(unit, quota)
 
                 def health_check() -> None:
-                    quota = guard.check(
-                        "workers active", inflight_units=len(progress.active)
-                    )
+                    quota = ledger.check()
                     progress.emit(
                         "health_check", check=quota, force=True, inventory=True
                     )
 
                 completion_order: tuple[str, ...] = ()
-                if pending_global:
-                    result = run_parallel_work_units(
-                        pending_global,
-                        _convert_unit,
-                        workers=active_workers,
-                        on_result=commit_result,
-                        initializer=_initialize_worker,
-                        initargs=(args.worker_memory_limit_bytes,),
-                        health_check=health_check,
-                        health_check_interval_seconds=args.storage_check_interval_seconds,
-                        before_dispatch=before_dispatch,
-                    )
-                    completion_order = result.completion_order
+                with ThreadPoolExecutor(
+                    max_workers=args.upload_workers,
+                    thread_name_prefix="arcap-uploader",
+                ) as upload_pool:
+                    if pending_global:
+                        result = run_parallel_work_units(
+                            pending_global,
+                            _convert_unit,
+                            workers=active_workers,
+                            on_result=commit_result,
+                            initializer=_initialize_worker,
+                            initargs=(args.worker_memory_limit_bytes,),
+                            health_check=health_check,
+                            health_check_interval_seconds=args.storage_check_interval_seconds,
+                            before_dispatch=before_dispatch,
+                        )
+                        completion_order = result.completion_order
+                    for future in upload_futures:
+                        future.result()
 
                 for info in infos:
                     partition = info.spec.name
@@ -1231,7 +1511,7 @@ def _run_conversion(args: argparse.Namespace) -> int:
                             local[partition],
                             info.plan.output_path,
                             resume_root=layout.resume,
-                            reader_format="arcap_hdf5",
+                            reader_format=READER_FORMAT,
                             parallel_evidence={
                                 "workers": active_workers,
                                 "persistent_worker_pool": True,
@@ -1270,15 +1550,25 @@ def _run_conversion(args: argparse.Namespace) -> int:
                 _write_event(layout, "run_succeeded", fingerprint=fingerprint)
                 _write_log(layout, "succeeded", fingerprint=fingerprint)
                 _remove_tree_with_retries(layout.work)
-                _remove_tree_with_retries(layout.resume)
+                _remove_tree_with_retries(layout.cache)
             except BaseException as exc:
                 status = "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
+                removed_incomplete: tuple[str, ...] = ()
+                cleanup_failure: OSError | None = None
+                try:
+                    removed_incomplete = _cleanup_incomplete_local_units(units)
+                except OSError as cleanup_exc:
+                    cleanup_failure = cleanup_exc
                 with suppress(Exception):
                     _write_event(
                         layout,
                         f"run_{status}",
                         error_type=type(exc).__name__,
                         error=str(exc),
+                        removed_incomplete_local_paths=list(removed_incomplete),
+                        incomplete_cleanup_error=(
+                            str(cleanup_failure) if cleanup_failure else None
+                        ),
                         resume_hint="rerun the same command with --resume",
                     )
                     _write_log(
@@ -1286,8 +1576,16 @@ def _run_conversion(args: argparse.Namespace) -> int:
                         status,
                         error_type=type(exc).__name__,
                         error=str(exc),
+                        removed_incomplete_local_paths=list(removed_incomplete),
+                        incomplete_cleanup_error=(
+                            str(cleanup_failure) if cleanup_failure else None
+                        ),
                         resume_hint="rerun the same command with --resume",
                     )
+                if cleanup_failure is not None:
+                    raise ConversionError(
+                        f"{status} {PIPELINE_LABEL} run also failed to clear incomplete local units"
+                    ) from cleanup_failure
                 raise
     except BaseException as exc:
         if not lock_acquired:
@@ -1305,7 +1603,7 @@ def _run_conversion(args: argparse.Namespace) -> int:
                 )
         raise
     layout.lock.unlink(missing_ok=True)
-    print(f"validated and marker-published ARCap collection: {layout.final}")
+    print(f"validated and marker-published {PIPELINE_LABEL} collection: {layout.final}")
     return 0
 
 
@@ -1405,7 +1703,7 @@ def _benchmark_output_summary(root: Path) -> dict[str, Any]:
     for record in partitions:
         name = str(record["name"])
         info = read_json_object(root / name / "meta/info.json", f"benchmark {name} info")
-        total_videos += int(info.get("total_videos", 0))
+        total_videos += len(list((root / name / "videos").rglob("*.mp4")))
         checksums[name] = _bulk_checksum(root / name)
     combined = hashlib.sha256(
         json.dumps(checksums, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -1460,7 +1758,9 @@ def _run_benchmarks(raw_argv: list[str], args: argparse.Namespace) -> int:
     if not candidates or candidates[0] != 1 or len(candidates) < 2:
         raise ConversionError("--benchmark-workers must include 1 and at least one parallel candidate")
     base = _strip_option(raw_argv, "--benchmark-workers", many=True)
+    base = _strip_option(base, "--benchmark-upload-workers", many=True)
     base = _strip_option(base, "--workers")
+    base = _strip_option(base, "--upload-workers")
     base = _strip_option(base, "--output-dataset-uid")
     base = _strip_option(base, "--resume-dir")
     base = _strip_option(base, "--work-dir")
@@ -1469,23 +1769,32 @@ def _run_benchmarks(raw_argv: list[str], args: argparse.Namespace) -> int:
     base = _strip_option(base, "--benchmark-report")
     records: list[dict[str, Any]] = []
     token = uuid.uuid4().hex[:10]
-    runtime_paths: list[tuple[Path, Path, Path, Path, Path]] = []
+    runtime_paths: list[tuple[Path, ...]] = []
     baseline_output: Path | None = None
     report: dict[str, Any] | None = None
+    source_inventory_before = _raw_source_inventory(
+        args.raw_root, _selected_specs(args.partition)
+    )
     try:
-        for workers in candidates:
-            uid = f"arcap-benchmark-{token}-w{workers}"
+        configurations = [
+            (workers, upload_workers)
+            for workers in candidates
+            for upload_workers in sorted(set(args.benchmark_upload_workers))
+        ]
+        for workers, upload_workers in configurations:
+            uid = f"{SOURCE_DATASET.lower().replace('/', '-')}-benchmark-{token}-w{workers}-u{upload_workers}"
             output = args.output_root / uid
-            work = args.output_root / ".conversion_work" / "arcap" / uid
-            resume = args.output_root / ".conversion_resume" / "arcap" / uid
-            logs = args.output_root / ".conversion_logs" / "arcap" / uid
-            lock = args.output_root / ".conversion_locks" / f"{uid}.lock"
+            work = args.local_work_root / "work" / uid
+            resume = args.local_work_root / "resume" / uid
+            logs = args.local_work_root / "logs" / uid
+            lock = args.local_work_root / "resume" / f"{uid}.lock"
             runtime_paths.append((output, logs, work, resume, lock))
             command = [
                 sys.executable,
                 str(Path(__file__).resolve()),
                 *base,
                 "--workers", str(workers),
+                "--upload-workers", str(upload_workers),
                 "--max-inflight-units", str(workers),
                 "--output-dataset-uid", uid,
                 "--work-dir", str(work),
@@ -1507,9 +1816,14 @@ def _run_benchmarks(raw_argv: list[str], args: argparse.Namespace) -> int:
                     f"worker_failures={worker_metrics['failures']}"
                 )
             output_summary = _benchmark_output_summary(output)
+            state = read_json_object(resume / "collection.json", "benchmark runtime state")
+            runtime = state.get("runtime")
+            if isinstance(runtime, dict) and isinstance(runtime.get("cache"), str):
+                runtime_paths[-1] = (*runtime_paths[-1], Path(runtime["cache"]))
             wall = metrics.wall_seconds
             row: dict[str, Any] = {
                 "workers": workers,
+                "upload_workers": upload_workers,
                 "wall_seconds": wall,
                 "episodes": output_summary["episodes"],
                 "frames": output_summary["frames"],
@@ -1576,6 +1890,9 @@ def _run_benchmarks(raw_argv: list[str], args: argparse.Namespace) -> int:
             "benchmark": records,
             "parallel_gate_passed": gate_passed,
             "selected_workers": selected["workers"] if gate_passed else None,
+            "selected_upload_workers": (
+                selected["upload_workers"] if gate_passed else None
+            ),
             "selection_rule": (
                 "fastest semantically equivalent candidate with positive speedup over W1"
             ),
@@ -1584,8 +1901,9 @@ def _run_benchmarks(raw_argv: list[str], args: argparse.Namespace) -> int:
         }
     finally:
         cleanup_errors = []
-        for output, logs, work_parent, resume, lock in runtime_paths:
-            for path in (output, logs, work_parent, resume):
+        for paths in runtime_paths:
+            output, logs, work_parent, resume, lock, *extra = paths
+            for path in (output, logs, work_parent, resume, *extra):
                 if path.exists():
                     try:
                         _remove_tree_with_retries(path)
@@ -1598,21 +1916,41 @@ def _run_benchmarks(raw_argv: list[str], args: argparse.Namespace) -> int:
             for path in paths
             if path.exists()
         ]
+        source_inventory_after: list[dict[str, Any]] | None = None
+        source_inventory_error: str | None = None
+        try:
+            source_inventory_after = _raw_source_inventory(
+                args.raw_root, _selected_specs(args.partition)
+            )
+        except OSError as exc:
+            source_inventory_error = str(exc)
+        source_inventory_unchanged = (
+            source_inventory_after == source_inventory_before
+        )
         if report is not None:
             report["outputs_cleaned"] = not cleanup_errors and not residual
             report["cleanup_errors"] = cleanup_errors
             report["cleanup_residual_paths"] = residual
+            report["raw_source_inventory_before"] = source_inventory_before
+            report["raw_source_inventory_after"] = source_inventory_after
+            report["raw_source_inventory_unchanged"] = source_inventory_unchanged
+            report["raw_source_inventory_error"] = source_inventory_error
             if args.benchmark_report is not None:
-                report_path = validate_contained_path(
-                    args.benchmark_report,
-                    args.output_root,
-                    label="benchmark report",
-                )
+                report_path = validate_paths_within_root(
+                    args.local_work_root,
+                    {"benchmark report": args.benchmark_report},
+                    required_root=DEFAULT_LOCAL_WORK_ROOT,
+                )["benchmark report"]
                 atomic_write_json(report_path, report)
         if cleanup_errors or residual:
             raise OSError(
                 "benchmark cleanup left residual paths: "
                 + "; ".join([*cleanup_errors, *residual])
+            )
+        if not source_inventory_unchanged:
+            raise ConversionError(
+                f"raw {PIPELINE_LABEL} source inventory changed during the bounded benchmark: "
+                f"{source_inventory_error or 'size/mtime mismatch'}"
             )
     assert report is not None
     print(json.dumps(report, indent=2))
@@ -1628,6 +1966,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--raw-root", type=Path, default=DEFAULT_RAW_ROOT)
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--output-dataset-uid", default="arcap")
+    parser.add_argument(
+        "--local-work-root", type=Path, default=DEFAULT_LOCAL_WORK_ROOT
+    )
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--resume-dir", type=Path)
     parser.add_argument("--logs-dir", type=Path)
@@ -1637,19 +1978,31 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-work-units", type=_positive_int)
     parser.add_argument("--max-frames-per-unit", type=_positive_int, default=DEFAULT_MAX_FRAMES_PER_UNIT)
     parser.add_argument("--workers", "--partition-workers", type=_positive_int, default=4)
+    parser.add_argument("--upload-workers", type=_positive_int, default=2)
     parser.add_argument("--max-inflight-units", type=_positive_int, default=4)
-    parser.add_argument("--max-staging-bytes", type=_positive_int, default=DEFAULT_MAX_STAGING_BYTES)
-    parser.add_argument("--max-inflight-bytes", type=_positive_int, default=DEFAULT_MAX_INFLIGHT_BYTES)
+    parser.add_argument(
+        "--max-local-temp-bytes",
+        type=_positive_int,
+        default=DEFAULT_MAX_LOCAL_TEMP_BYTES,
+    )
+    parser.add_argument(
+        "--min-local-free-bytes",
+        type=_positive_int,
+        default=DEFAULT_MIN_LOCAL_FREE_BYTES,
+    )
     parser.add_argument("--worker-memory-limit-bytes", type=_positive_int, default=DEFAULT_WORKER_MEMORY_LIMIT_BYTES)
-    parser.add_argument("--encoder-threads-per-worker", type=_positive_int, default=1)
+    parser.add_argument("--encoder-threads-per-worker", type=_positive_int, default=8)
     parser.add_argument("--storage-check-interval-seconds", type=_positive_float, default=30.0)
     parser.add_argument("--eta-interval-seconds", type=_positive_float, default=10.0)
     parser.add_argument("--acceleration-mode", choices=("hardware", "parallel"), default="parallel")
     parser.add_argument("--benchmark-workers", nargs="+", type=_positive_int)
     parser.add_argument(
+        "--benchmark-upload-workers", nargs="+", type=_positive_int, default=(1, 2)
+    )
+    parser.add_argument(
         "--benchmark-report",
         type=Path,
-        help="optional JSON report path below --output-root",
+        help="optional JSON report path below --local-work-root",
     )
     parser.add_argument("--benchmark-child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--dry-run", action="store_true")
@@ -1659,6 +2012,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-existing", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--verify-source-sha256", action="store_true")
+    parser.add_argument("--verify-remote-sha256", action="store_true")
     parser.add_argument("--full-lowdim-scan", action="store_true")
     parser.add_argument("--full-pointcloud-scan", action="store_true")
     return parser

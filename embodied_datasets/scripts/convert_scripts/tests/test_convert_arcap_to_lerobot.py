@@ -2,16 +2,27 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
 
 import convert_arcap_to_lerobot as converter
 from convert_arcap_to_lerobot import (
+    ARCapRuntimeLayout,
+    _LocalReservationLedger,
     _RunProgress,
+    _build_units,
+    _cleanup_incomplete_local_units,
+    _configure_runtime_environment,
+    _estimate,
+    _pending_units_for_partition,
     _phase_group_slices,
     _prepare_collection_state,
+    _raw_source_inventory,
     _validate_published_collection,
 )
 from convert_core.checkpoint import atomic_write_json
@@ -73,6 +84,145 @@ def test_runtime_layout_rejects_home_escape(tmp_path: Path) -> None:
             run_id="run",
             work_dir=Path("/home/arcap-work"),
         )
+
+
+def _unit(tmp_path: Path, index: int, estimate: int) -> ParallelWorkUnit:
+    return ParallelWorkUnit(
+        index=index,
+        key=f"unit-{index}",
+        dataset_uid=f"unit-{index}",
+        target_path=str(tmp_path / f"unit-{index}"),
+        episode_start=index,
+        episode_end=index + 1,
+        frame_start=index,
+        frame_end=index + 1,
+        task_indices=(0,),
+        weight=1,
+        estimated_memory_bytes=1,
+        estimated_temp_bytes=estimate,
+        fingerprint=f"fingerprint-{index}",
+        payload=None,
+    )
+
+
+class _FakeGuard:
+    def check(self, _stage: str, **_values: int):
+        return SimpleNamespace(as_dict=lambda: dict(_values))
+
+
+def test_local_reservation_rejects_single_unit_over_global_limit(tmp_path: Path) -> None:
+    ledger = _LocalReservationLedger(
+        local_root=tmp_path,
+        guard=_FakeGuard(),  # type: ignore[arg-type]
+        max_bytes=10,
+        max_units=2,
+    )
+    with pytest.raises(ConversionError, match="split the unit"):
+        ledger.reserve(_unit(tmp_path, 0, 11))
+
+
+def test_local_reservation_backpressures_until_uploader_releases(tmp_path: Path) -> None:
+    ledger = _LocalReservationLedger(
+        local_root=tmp_path,
+        guard=_FakeGuard(),  # type: ignore[arg-type]
+        max_bytes=10,
+        max_units=1,
+    )
+    first = _unit(tmp_path, 0, 6)
+    second = _unit(tmp_path, 1, 6)
+    ledger.reserve(first)
+    acquired = threading.Event()
+
+    def reserve_second() -> None:
+        ledger.reserve(second)
+        acquired.set()
+
+    thread = threading.Thread(target=reserve_second)
+    thread.start()
+    time.sleep(0.05)
+    assert not acquired.is_set()
+    ledger.release(first)
+    assert acquired.wait(1.0)
+    ledger.release(second)
+    thread.join(timeout=1.0)
+
+
+def test_interruption_cleanup_removes_only_unverified_local_units(tmp_path: Path) -> None:
+    incomplete = _unit(tmp_path, 0, 1)
+    verified = _unit(tmp_path, 1, 1)
+    incomplete_path = Path(incomplete.target_path)
+    verified_path = Path(verified.target_path)
+    incomplete_path.mkdir()
+    verified_path.mkdir()
+    hidden = incomplete_path.with_name(f".{incomplete_path.name}.incomplete-dead")
+    hidden.mkdir()
+    cache = incomplete_path.with_name(f".{incomplete_path.name}.datasets-cache")
+    cache.mkdir()
+    verified_marker = verified_path.with_name(f"{verified_path.name}.verified.json")
+    verified_marker.write_text("{}", encoding="utf-8")
+
+    removed = _cleanup_incomplete_local_units((incomplete, verified))
+
+    assert str(incomplete_path) in removed
+    assert str(hidden) in removed
+    assert str(cache) in removed
+    assert not incomplete_path.exists()
+    assert verified_path.is_dir()
+    assert verified_marker.is_file()
+
+
+def test_raw_source_inventory_records_size_and_mtime(tmp_path: Path) -> None:
+    source = tmp_path / "source.hdf5"
+    source.write_bytes(b"read-only-source")
+    spec = SimpleNamespace(filename=source.name)
+
+    inventory = _raw_source_inventory(tmp_path, (spec,))
+
+    assert inventory == [
+        {
+            "relative_path": source.name,
+            "size": source.stat().st_size,
+            "mtime_ns": source.stat().st_mtime_ns,
+        }
+    ]
+
+
+def test_arcap_runtime_environment_is_entirely_local(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local = tmp_path / "arcap_staging"
+    layout = ARCapRuntimeLayout(
+        root=tmp_path / "oss",
+        local_root=local,
+        dataset_uid="arcap",
+        run_id="run",
+        final=tmp_path / "oss" / "arcap",
+        work=local / "work" / "run",
+        resume=local / "resume" / "arcap",
+        logs=local / "logs" / "arcap",
+        cache=local / "cache" / "run",
+        temp=local / "work" / "run" / "tmp",
+        lock=local / "resume" / "arcap.lock",
+    )
+    for key in (
+        "TMPDIR",
+        "TMP",
+        "TEMP",
+        "XDG_CACHE_HOME",
+        "HF_HOME",
+        "HF_DATASETS_CACHE",
+        "TORCH_HOME",
+        "MPLCONFIGDIR",
+        "VLA_DATASETS_CACHE_ROOT",
+        "CUDA_CACHE_PATH",
+        "TORCH_EXTENSIONS_DIR",
+        "NUMBA_CACHE_DIR",
+        "PYTHONPYCACHEPREFIX",
+    ):
+        monkeypatch.setenv(key, os.environ.get(key, ""))
+    values = _configure_runtime_environment(layout, create=False)
+    assert "CUDA_CACHE_PATH" in values
+    assert all(Path(value).is_relative_to(local) for value in values.values())
 
 
 def test_collection_resume_starts_fresh_and_rejects_changed_fingerprint(
@@ -152,6 +302,72 @@ def _published_info(tmp_path: Path) -> tuple[Path, ARCapPartitionInfo]:
         },
     )
     return final, info
+
+
+def test_build_units_uses_global_flat_work_paths_and_preflight_is_complete(
+    tmp_path: Path,
+) -> None:
+    final, info = _published_info(tmp_path)
+    second_spec = PARTITIONS_BY_NAME["clutter"]
+    second_info = replace(
+        info,
+        spec=second_spec,
+        source_path=tmp_path / second_spec.filename,
+        source_relative_path=second_spec.filename,
+        plan=replace(
+            info.plan,
+            dataset_uid="arcap_clutter",
+            output_path=final / "clutter",
+        ),
+        selected_logical_bytes=2,
+    )
+    local = tmp_path / "arcap_staging"
+    layout = ARCapRuntimeLayout(
+        root=final.parent,
+        local_root=local,
+        dataset_uid="arcap-test",
+        run_id="run",
+        final=final,
+        work=local / "work" / "run",
+        resume=local / "resume" / "arcap-test",
+        logs=local / "logs" / "arcap-test",
+        cache=local / "cache" / "run",
+        temp=local / "work" / "run" / "tmp",
+        lock=local / "resume" / "arcap-test.lock",
+    )
+    args = SimpleNamespace(
+        max_frames_per_unit=22,
+        acceleration_mode="parallel",
+        workers=4,
+        max_inflight_units=4,
+        upload_workers=2,
+        encoder_threads_per_worker=8,
+        worker_memory_limit_bytes=1024,
+        output_dataset_uid="arcap-test",
+        eta_interval_seconds=10.0,
+    )
+
+    units, local = _build_units((info, second_info), layout, args)
+    estimate = _estimate((info, second_info), units)
+
+    assert [Path(unit.target_path) for unit in units] == [
+        layout.work / f"unit-{index:06d}" for index in range(len(units))
+    ]
+    assert len(_pending_units_for_partition(units, "assemble", {0, 1})) == 2
+    assert len(_pending_units_for_partition(units, "clutter", {0, 1})) == 2
+    assert len(local) == 2
+    assert estimate["source_container_bytes"] == (
+        info.spec.source_bytes + second_info.spec.source_bytes
+    )
+    assert estimate["selected_logical_input_bytes"] == (
+        info.selected_logical_bytes + second_info.selected_logical_bytes
+    )
+    assert estimate["planned_work_units"] == len(units)
+    assert estimate["maximum_unit_estimated_temp_bytes"] == max(
+        unit.estimated_temp_bytes for unit in units
+    )
+    assert estimate["estimated_wall_seconds"] > 0
+    assert estimate["reference_end_to_end_frames_per_second"] > 0
 
 
 def test_skip_validation_reopens_every_partition_and_rejects_manifest_corruption(

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 import json
 import math
@@ -345,6 +345,7 @@ def _encoder_preflight(info: RobomimicPartitionInfo, args: argparse.Namespace) -
                 batch_metadata_writes=True,
                 encoder_temp_root=Path(directory) / "encoder-temp",
                 fragmented_mp4_writes=True,
+                deferred_video_concatenation=True,
             )
             _validate_video_streams(plan, output, args.video_codec)
     finally:
@@ -513,6 +514,106 @@ def _validate_checkpoint_fingerprint(root: Path, validation: Any) -> None:
         raise ConversionError("checkpoint file fingerprint changed")
 
 
+def _copy_partition_from_local_stage(source: Path, destination: Path) -> None:
+    """Copy a fully validated local partition to the durable output tree.
+
+    Encoding and video concatenation must never target OSSFS.  This function
+    is deliberately called only after local validation and copies each final
+    file once; a missing/partial remote partition has no checkpoint marker and
+    is safely discarded by the next resume preparation.
+    """
+
+    if not source.is_dir():
+        raise ConversionError(f"local partition stage is missing: {source}")
+    if destination.exists():
+        if not destination.is_dir():
+            destination.unlink()
+        else:
+            shutil.rmtree(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    files = sorted(source.rglob("*"), key=lambda path: path.relative_to(source).as_posix())
+    file_tasks: list[tuple[Path, Path]] = []
+    for path in files:
+        relative = path.relative_to(source)
+        target = destination / relative
+        if path.is_symlink() or (path.exists() and not path.is_file() and not path.is_dir()):
+            raise ConversionError(f"local partition contains an unsupported entry: {path}")
+        if path.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        file_tasks.append((path, target))
+
+    def copy_one(task: tuple[Path, Path]) -> None:
+        path, target = task
+        with path.open("rb") as incoming, target.open("wb") as outgoing:
+            while chunk := incoming.read(64 * 1024 * 1024):
+                outgoing.write(chunk)
+            outgoing.flush()
+
+    # OSSFS has high per-file latency. Upload independent Parquet/video files
+    # concurrently while keeping each individual stream sequential and bounded.
+    if file_tasks:
+        with ThreadPoolExecutor(
+            max_workers=min(4, len(file_tasks)),
+            thread_name_prefix="mimicgen-upload",
+        ) as executor:
+            list(executor.map(copy_one, file_tasks))
+
+
+def _validate_uploaded_partition(
+    local_root: Path,
+    remote_root: Path,
+    local_validation: dict[str, Any],
+) -> dict[str, Any]:
+    """Verify the remote copy by durable path/size inventory."""
+
+    local_files = {
+        row["path"]: int(row["size"])
+        for row in local_validation.get("files", [])
+        if isinstance(row, dict) and isinstance(row.get("path"), str)
+    }
+    remote_inventory = _checkpoint_file_inventory(remote_root)
+    remote_files = {row["path"]: int(row["size"]) for row in remote_inventory}
+    if remote_files != local_files:
+        raise ConversionError(
+            f"remote partition inventory differs after upload: {remote_root}"
+        )
+    return _checkpoint_validation(
+        remote_root,
+        list(local_validation.get("video_streams", [])),
+    )
+
+
+def _commit_local_partition(
+    unit: ParallelWorkUnit,
+    value: PartitionWorkerOutput,
+    *,
+    output: Path,
+    resume_dir: Path,
+    fingerprint: str,
+) -> dict[str, Any]:
+    local_partition = Path(unit.target_path)
+    remote_partition = output / unit.key
+    _copy_partition_from_local_stage(local_partition, remote_partition)
+    remote_validation = _validate_uploaded_partition(
+        local_partition, remote_partition, value.validation
+    )
+    atomic_write_json(
+        resume_dir / "partitions" / f"{unit.key}.json",
+        {
+            "resume_schema_version": RESUME_SCHEMA_VERSION,
+            "fingerprint": fingerprint,
+            "partition": unit.key,
+            "episodes": unit.episode_end - unit.episode_start,
+            "frames": value.frames,
+            "validation": remote_validation,
+        },
+    )
+    shutil.rmtree(local_partition, ignore_errors=True)
+    return remote_validation
+
+
 def _planned_task_indices(plan: Any) -> tuple[int, ...]:
     task_indices: dict[str, int] = {}
     result: list[int] = []
@@ -576,6 +677,8 @@ def _build_parallel_work_units(
     resume_state: Path,
     fingerprint: str,
     args: argparse.Namespace,
+    *,
+    write_markers: bool = True,
 ) -> list[ParallelWorkUnit]:
     plan_indices = {info.partition_name: index for index, info in enumerate(infos)}
     units: list[ParallelWorkUnit] = []
@@ -586,7 +689,7 @@ def _build_parallel_work_units(
         plan_index = plan_indices[info.partition_name]
         marker = (
             resume_state / "partitions" / f"{info.partition_name}.json"
-            if args.resume
+            if args.resume and write_markers
             else None
         )
         payload = PartitionWorkerPayload(
@@ -663,10 +766,16 @@ def _convert_partition_worker(unit: ParallelWorkUnit) -> PartitionWorkerOutput:
     cache_path.mkdir(parents=True, exist_ok=True)
     temp_path.mkdir(parents=True, exist_ok=True)
     previous_cache = os.environ.get("VLA_DATASETS_CACHE_ROOT")
+    # Persistent spawned workers process multiple partitions.  tempfile caches
+    # the first resolved directory globally, so updating only TMPDIR would
+    # leave later partitions creating ffconcat/mp4 intermediates in the prior
+    # partition's directory after that directory has been cleaned up.
+    previous_tempfile_dir = tempfile.tempdir
     previous_temp = {
         key: os.environ.get(key) for key in ("TMPDIR", "TMP", "TEMP")
     }
     os.environ["VLA_DATASETS_CACHE_ROOT"] = str(cache_path)
+    tempfile.tempdir = str(temp_path)
     for key in previous_temp:
         os.environ[key] = str(temp_path)
     unit_guard = StagingCapacityGuard(
@@ -724,6 +833,7 @@ def _convert_partition_worker(unit: ParallelWorkUnit) -> PartitionWorkerOutput:
             batch_metadata_writes=True,
             encoder_temp_root=temp_path,
             fragmented_mp4_writes=True,
+            deferred_video_concatenation=True,
             frame_completed_hook=frame_completed,
         )
         validate_written_dataset(plan, plan.output_path)
@@ -761,6 +871,7 @@ def _convert_partition_worker(unit: ParallelWorkUnit) -> PartitionWorkerOutput:
             validation=validation,
         )
     finally:
+        tempfile.tempdir = previous_tempfile_dir
         if previous_cache is None:
             os.environ.pop("VLA_DATASETS_CACHE_ROOT", None)
         else:
@@ -1444,16 +1555,62 @@ def _convert_collection_staged_locked(
                 force=True,
             )
             cache_root = layout.work_dir / "workers"
+            partition_stage_root = layout.work_dir / "partitions"
+            partition_stage_root.mkdir(parents=True, exist_ok=True)
             if pending:
                 units = _build_parallel_work_units(
                     infos,
                     pending,
-                    output,
+                    partition_stage_root,
                     cache_root,
                     layout.resume_dir,
                     fingerprint,
                     run_args,
+                    write_markers=False,
                 )
+                recovered_units: set[str] = set()
+                for unit in units:
+                    local_root = Path(unit.target_path)
+                    if not local_root.is_dir() or not (local_root / "conversion_manifest.json").is_file():
+                        continue
+                    try:
+                        local_plan = replace(unit.payload.info.plan, output_path=local_root)
+                        validate_written_dataset(local_plan, local_root)
+                        streams = _validate_video_streams(
+                            local_plan,
+                            local_root,
+                            args.video_codec,
+                            probe_timeout_seconds=probe_timeout,
+                        )
+                        local_validation = _checkpoint_validation(local_root, streams)
+                        recovered = PartitionWorkerOutput(
+                            partition_name=unit.key,
+                            plan_index=unit.index,
+                            episodes=unit.episode_end - unit.episode_start,
+                            frames=unit.frame_end - unit.frame_start,
+                            elapsed_seconds=0.0,
+                            validation=local_validation,
+                        )
+                        partition_validations[unit.key] = _commit_local_partition(
+                            unit,
+                            recovered,
+                            output=output,
+                            resume_dir=layout.resume_dir,
+                            fingerprint=fingerprint,
+                        )
+                        recovered_units.add(unit.key)
+                        progress.update(
+                            progress.completed + recovered.frames,
+                            context=f"{unit.key} uploaded from local stage",
+                            force=True,
+                        )
+                    except (ConversionError, OSError, RuntimeError, ValueError):
+                        shutil.rmtree(local_root, ignore_errors=True)
+                units = [unit for unit in units if unit.key not in recovered_units]
+                for unit in units:
+                    stale_root = Path(unit.target_path)
+                    if stale_root.exists():
+                        shutil.rmtree(stale_root)
                 memory_budget, legacy_temp_budget = _resource_budgets(
                     args, layout.work_dir
                 )
@@ -1467,6 +1624,7 @@ def _convert_collection_staged_locked(
                     workers,
                     memory_budget_bytes=memory_budget,
                     temp_budget_bytes=temp_budget,
+                    allow_empty=True,
                 )
                 current_bytes = _direct_runtime_bytes(layout, partition_validations)
                 capacity.check(
@@ -1488,7 +1646,15 @@ def _convert_collection_staged_locked(
                     value = result.value
                     if not isinstance(value, PartitionWorkerOutput):
                         raise ConversionError(f"invalid worker result for {result.key}")
-                    partition_validations[result.key] = value.validation
+                    unit = next(item for item in units if item.key == result.key)
+                    remote_validation = _commit_local_partition(
+                        unit,
+                        value,
+                        output=output,
+                        resume_dir=layout.resume_dir,
+                        fingerprint=fingerprint,
+                    )
+                    partition_validations[result.key] = remote_validation
                     current = _direct_runtime_bytes(layout, partition_validations)
                     capacity.check(
                         f"partition {result.key} completion",
@@ -1532,6 +1698,7 @@ def _convert_collection_staged_locked(
                     workers=workers,
                     on_result=partition_done,
                     before_dispatch=before_partition_dispatch,
+                    allow_empty=True,
                 )
                 log.write(
                     "workers_complete",
@@ -1585,9 +1752,11 @@ def _convert_collection_staged_locked(
         )
         raise
     finally:
-        if layout.work_dir.exists():
+        local_partitions = layout.work_dir / "partitions"
+        preserve_local_stage = local_partitions.is_dir() and any(local_partitions.iterdir())
+        if (completed_successfully or not preserve_local_stage) and layout.work_dir.exists():
             shutil.rmtree(layout.work_dir)
-        if layout.temp_dir != layout.work_dir and layout.temp_dir.exists():
+        if (completed_successfully or not preserve_local_stage) and layout.temp_dir != layout.work_dir and layout.temp_dir.exists():
             shutil.rmtree(layout.temp_dir)
     if not completed_successfully:  # pragma: no cover - defensive
         raise ConversionError("direct staged conversion did not complete")

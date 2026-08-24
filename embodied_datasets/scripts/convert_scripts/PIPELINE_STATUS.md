@@ -38,18 +38,50 @@ ETA 使用单调时钟并有确定性单元测试覆盖。
 
 ## 已验证 vs. 未验证
 
-**ARCap：五个官方 HDF5 分区的 reader、phase-group work units、persistent-worker direct commit、
-可恢复 checkpoint、RSS/存储门禁、marker 发布和独立 evaluator 已实现。** 固定 revision 的
+**DexCap：独立 HDF5 reader、字段语义、本地有界 unit、并行 uploader、跨文件系统提交、resume、
+真实 smoke 和 1/2/4 worker 基准已验证。** 固定原始文件包含 735 episodes / 85,817 frames；
+字段映射、容量估计和未执行的正式命令见 `DEXCAP_CONVERSION.md`。输出目标为
+`public_datasets_staging/lerobot_v3_0/dexcap`，全量转换未启动。
+
+**ARCap：五个官方 HDF5 分区的 reader、本地有界 phase-group work units、并行 uploader、
+跨文件系统 copy/verify/delete、可恢复 checkpoint、RSS/100GB 存储门禁、marker 发布和独立
+evaluator 已实现。** 固定 revision 的
 1975 episodes / 231923 frames 已完成全量 metadata/schema/episode/phase reference 扫描，点云为
 `[10000,6] float64` XYZ 米 + RGB `[0,1]`，无视频；open_bottle 因真实字段缺失保持独立 schema，
-没有补零或 cast。最终真实两 work-unit smoke 覆盖 assemble 6 episodes / 779 frames，恢复精确复用
-2/2 committed units；Parquet 九帧 540306 个值与 HDF5 bit-exact，真实 LeRobotDataset 重开后展示层
-float32 最大误差 `2.98e-8`。四张 A800 的 NVENC 均不可用且本数据无视频；正式配置选择实测
-145–147 frames/s、3.08–3.19× speedup 的四个持久 worker。估计全量输出 61,390,182,738 bytes，
-正式上限为 staging 80 GiB / inflight 16 GiB，但 OSS 对象配额仍未获授权查询，因此全量正式转换
-未启动。增强后的四 work-unit 冷启动 W1/W2/W4 端到端门禁为 11.30/10.81/7.71 frames/s，正确拒绝
-把短样本回退称为加速；正式启动前仍须让代表性多单元增强基准再次通过。完整资源、I/O、语义
-等价、checksum、清理证据和风险见 `ARCAP_CONVERSION.md`。
+没有补零或 cast。此前的两 work-unit OSS-direct smoke 覆盖 assemble 6 episodes / 779 frames，恢复
+精确复用 2/2 committed units；Parquet 九帧 540306 个值与 HDF5 bit-exact，真实 LeRobotDataset
+重开后展示层 float32 最大误差 `2.98e-8`。历史代表性测试中四个持久 worker 达到
+145–147 frames/s、3.08–3.19× speedup。四张 A800 的 NVENC 均不可用且本数据无视频。
+估计全量输出 61,390,182,738 bytes，
+正式本地上限为 100,000,000,000 bytes，并保留至少 200,000,000,000 bytes 可用空间；OSS 对象
+配额仍未获授权查询，因此全量正式转换未启动。最终本地→OSS 真实矩阵覆盖同一 12 episodes /
+1548 frames 的 4 个 unit：W1/U1、W1/U2、W2/U1、W2/U2、W4/U1、W4/U2 分别为
+12.51/12.63/30.51/28.17/31.34/33.35 frames/s，全部语义等价且零失败重试，选择 W4/U2；
+当前代码矩阵的 W4/U2 端到端 speedup 为 2.666×，raw size/mtime 前后不变且全部输出已清理。
+最终 3 episodes / 393 frames smoke 通过 `_SUCCESS`、上传证据与 LeRobotDataset 重开，测试输出已
+清理。完整资源、I/O、语义等价、checksum、清理证据和风险见 `ARCAP_CONVERSION.md`。
+
+**1X World Model Challenge：完整 reader、异构集合转换、全量只读检查、TB 级 OSSFS 直写、真实
+双版本 smoke 和 reader-unit resume 已实现。** 官方数据 revision 固定为
+`42e3e12fff6848b511583ba6e8afa7f82ef9014e`。v1.1 是 MAGVIT2 token + 5 个独立 float32 字段，
+共 16895 episodes / 10887502 frames；v2.0 是 Cosmos token + 25 维 float32 state，共 39339
+episodes / 11304461 frames。两版按固定 schema 分为 `v1_1`/`v2_0`，不填零。全量检查覆盖所有
+token 范围、float finite/range、binary size、segment/shard 和未引用文件。真实 v1 1 episode /
+240 frames 与 v2 1 episode / 806 frames 已用官方 GPU decoder、软件 H.264 完成；2026-08-19
+v1 smoke 直接写固定 OSSFS 根并通过 `_INCOMPLETE`/`_SUCCESS` marker 发布。LeRobot 重开、全部
+240 行 index/episode/task/timestamp、首中末数值逐值相等、manifest、30 FPS/256×256/视频帧数和
+最低 PSNR 35.90 dB 均通过，warm throughput 为 27.74 frames/s。
+四张 A800 的真实 NVENC preflight 均以 `unsupported device` 失败，因此未冒充硬件编码。
+`test_v2.0` 因 17 视频帧对 64 state 且无官方对齐而明确拒绝。正式全量转换尚未启动。worker
+直接生成最终兼容 chunk；coordinator 验证后提交到预分配 final chunk，不再产生第二份 TB 级聚合
+副本。work/resume/log/lock/temp/cache 全部限制在 staging 根，成功后 work/resume/lock 清理而日志
+保留；`/dev/shm` 为空，raw path/size/mtime 清单哈希前后均为
+`92ea28ea861c4a366a7cf834f28e60c2122f332333531cdd7c770f6f6989e544`。严格交付审计还覆盖容量门禁、
+worker 失败停止派发、并发锁、损坏 chunk 重验、marker 协议和 collection 恢复。真实 W1/W2/W4
+门禁因 W2/W4 像素不精确而只批准 W1，不会静默串行。完整证据与正式 GPU3 命令见
+`1X_WORLD_MODEL_DATASET_CONVERSION.md`。
+OSSFS MP4 现通过不可 seek fragmented sink 顺序写入；修复后同一 GPU3/v2 worker 原地恢复，
+806/806 帧、30 FPS、首 PTS 0 和完整 worker 校验均通过。相关 focused suite 为 60 passed。
 
 ### 2026-08-18 GR00T Teleop Sim 恢复转换故障记录
 

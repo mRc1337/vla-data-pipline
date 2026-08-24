@@ -521,6 +521,39 @@ def test_parallel_collection_is_semantically_equivalent_and_plan_ordered(tmp_pat
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required")
+def test_persistent_worker_resets_partition_tempdir_for_ffconcat(tmp_path: Path):
+    source_root = tmp_path / "raw" / "minicgen"
+    sources = [
+        source_root / "core" / "square_d0.hdf5",
+        source_root / "core" / "square_d1.hdf5",
+        source_root / "core" / "square_d2.hdf5",
+    ]
+    for source in sources:
+        _write_source(source, lengths=(2,))
+    output = tmp_path / "staging" / "mimicgen_persistent_tempdir"
+    infos = [
+        inspect_partition(
+            source,
+            raw_dataset_root=source_root,
+            collection_output=output,
+        )
+        for source in sources
+    ]
+
+    cm.convert_collection(
+        infos,
+        output,
+        _collection_args(resume=True, workers=2),
+        source_root,
+    )
+
+    assert output.is_dir()
+    assert not (output / "_INCOMPLETE").exists()
+    assert not (output / "_SUCCESS").exists()
+    assert not list(output.parent.glob(f".{output.name}.incomplete-*"))
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required")
 def test_parallel_worker_failure_preserves_validated_marker_and_resume_rebuilds_only_failure(
     tmp_path: Path,
 ):
@@ -726,3 +759,56 @@ def test_direct_staged_worker_failure_resumes_only_invalid_partition(tmp_path: P
     assert (resume_layout.output_path / cm.SUCCESS_SENTINEL).is_file()
     assert not (resume_layout.output_path / cm.INCOMPLETE_SENTINEL).exists()
     assert not resume_layout.resume_dir.exists()
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required")
+def test_direct_staged_upload_failure_reuses_local_partition_without_reencoding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    source_root = tmp_path / "raw" / "minicgen"
+    source = source_root / "core" / "square_d0.hdf5"
+    _write_source(source, lengths=(2,))
+    root = tmp_path / "staging" / "lerobot_v3_0"
+    first_layout = cm.build_runtime_layout(
+        output_root=root,
+        dataset_uid="mimicgen",
+        run_id="upload-failed-run",
+    )
+    info = inspect_partition(
+        source,
+        raw_dataset_root=source_root,
+        collection_output=first_layout.output_path,
+    )
+    original_copy = cm._copy_partition_from_local_stage
+    failed = {"value": False}
+
+    def fail_once(source_path: Path, destination: Path) -> None:
+        if not failed["value"]:
+            failed["value"] = True
+            raise ConversionError("simulated upload failure")
+        original_copy(source_path, destination)
+
+    monkeypatch.setattr(cm, "_copy_partition_from_local_stage", fail_once)
+    with pytest.raises(ConversionError, match="simulated upload failure"):
+        cm.convert_collection_staged(
+            [info], first_layout, _staged_args(resume=False, workers=1), source_root
+        )
+
+    local_partition = (
+        first_layout.work_dir / "partitions" / info.partition_name
+    )
+    assert local_partition.is_dir()
+    assert (local_partition / "conversion_manifest.json").is_file()
+
+    resume_layout = cm.build_runtime_layout(
+        output_root=root,
+        dataset_uid="mimicgen",
+        run_id="upload-retry-run",
+        work_dir=first_layout.work_dir,
+        temp_dir=first_layout.temp_dir,
+    )
+    cm.convert_collection_staged(
+        [info], resume_layout, _staged_args(resume=True, workers=1), source_root
+    )
+    assert (resume_layout.output_path / cm.SUCCESS_SENTINEL).is_file()
+    assert not first_layout.work_dir.exists()
