@@ -5,6 +5,10 @@ v3.0 格式数据集 + 一份清洗/对齐参数文件，输出清洗对齐后�
 数据集。不做数据下载、格式转换、下载完整性校验——只做"已经是 LeRobot
 v3.0 格式的数据"到"清洗对齐后的 LeRobot v3.0 数据"这一步。
 
+项目从初始化到多数据集、TB 级转换过程中遇到的问题、根因、修复方案、专项案例和
+验收清单，统一整理在
+[`docs/PROJECT_BUILD_RETROSPECTIVE.md`](docs/PROJECT_BUILD_RETROSPECTIVE.md)。
+
 ## 项目结构
 
 ```
