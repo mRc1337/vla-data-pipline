@@ -1,8 +1,9 @@
 """Inspection and streaming reader for the Functional Manipulation Benchmark.
 
 The public FMB release is not an RLDS dataset: each trajectory is a compressed
-NumPy object array inside a ZIP archive.  The object array contains a dict of
-complete per-frame arrays.  This reader therefore uses a lazy pickle
+NumPy object array inside a ZIP archive, or the same member as an extracted
+``.npy`` file.  The object array contains a dict of complete per-frame arrays.
+This reader therefore uses a lazy pickle
 unpickler during preflight.  It consumes compressed bytes to reach each
 pickle's array metadata, but never materialises the array payload; only the
 first, middle, and last selected trajectories are fully decoded for payload
@@ -10,14 +11,16 @@ evidence.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 from pathlib import Path
 import pickle
 import re
+import shutil
 import struct
-from typing import Any, Iterator
+import time
+from typing import Any, Callable, Iterator
 import zipfile
 
 import numpy as np
@@ -80,6 +83,224 @@ _BOARD_OBJECT_NAMES = {
     3: {1: "green", 2: "blue", 3: "purple", 4: "red"},
 }
 
+# The extracted release keeps the archive member paths below a directory
+# named after each original shard.  Keep the archive names as the logical
+# provenance/checkpoint unit while resolving them to either a ZIP file or an
+# extracted directory at read time.
+_EXTRACTED_DIRS = {
+    "multi_object_manipulation_assembly_1.zip": "assembly_1",
+    "multi_object_manipulation_assembly_2.zip": "assembly_2",
+    "multi_object_manipulation_assembly_3.zip": "assembly_3",
+    "single_object_manipulation.zip": "single_object",
+}
+
+
+def validate_extracted_fmb_root(raw_root: Path) -> Path:
+    """Require the complete extracted FMB layout for the production CLI."""
+
+    if not raw_root.is_dir():
+        raise ConversionError(f"FMB extracted raw root is missing: {raw_root}")
+    unexpected_archives = sorted(path.name for path in raw_root.glob("*.zip"))
+    if unexpected_archives:
+        raise ConversionError(
+            "production FMB conversion accepts extracted shards only; remove or "
+            f"relocate ZIP files from {raw_root}: {unexpected_archives}"
+        )
+    missing: list[str] = []
+    for shard_name in _EXTRACTED_DIRS.values():
+        shard = raw_root / shard_name
+        if not shard.is_dir() or not (shard / ".EXTRACTED_OK").is_file():
+            missing.append(f"{shard} (including .EXTRACTED_OK)")
+    if missing:
+        raise ConversionError(
+            "incomplete FMB extracted raw root; missing completed shards: "
+            + ", ".join(missing)
+        )
+    return raw_root
+
+
+@dataclass(frozen=True)
+class _DirectoryMember:
+    filename: str
+    file_size: int
+    compress_size: int = 0
+    CRC: int = 0
+
+
+def _source_for_archive(raw_root: Path, archive_name: str) -> tuple[Path, str]:
+    """Return the physical ZIP or extracted directory for a logical shard."""
+
+    archive = raw_root / archive_name
+    if archive.is_file():
+        return archive, "zip"
+    extracted_name = _EXTRACTED_DIRS.get(archive_name)
+    if extracted_name is not None:
+        extracted = raw_root / extracted_name
+        if extracted.is_dir():
+            return extracted, "extracted_directory"
+    raise ConversionError(
+        f"FMB source shard is missing: expected {archive} or "
+        f"{raw_root / _EXTRACTED_DIRS.get(archive_name, '<extracted-dir>')}"
+    )
+
+
+def _copy_source_stream(
+    source: Any,
+    destination: Any,
+    *,
+    expected_bytes: int,
+    progress: Callable[[str], None] | None,
+    label: str,
+) -> int:
+    """Copy one source member to POSIX storage with bounded memory and progress."""
+
+    started = time.monotonic()
+    copied = 0
+    last_report = started
+    while chunk := source.read(16 * 1024 * 1024):
+        destination.write(chunk)
+        copied += len(chunk)
+        now = time.monotonic()
+        if progress is not None and (now - last_report >= 5.0 or copied == expected_bytes):
+            rate = copied / max(now - started, 1e-9)
+            progress(
+                f"{label}: {copied}/{expected_bytes} bytes "
+                f"({rate / 1024 / 1024:.1f} MiB/s)"
+            )
+            last_report = now
+    destination.flush()
+    if copied != expected_bytes:
+        raise ConversionError(
+            f"staged FMB source size differs for {label}: {copied} != {expected_bytes}"
+        )
+    return copied
+
+
+def _stage_source_member(
+    source_path: Path,
+    source_mode: str,
+    member: str,
+    destination: Path,
+    *,
+    expected_bytes: int,
+    progress: Callable[[str], None] | None = None,
+    label: str,
+) -> Path:
+    """Copy one ZIP member or extracted NPY to a local POSIX file."""
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with destination.open("wb") as outgoing:
+            if source_mode == "zip":
+                with zipfile.ZipFile(source_path) as source:
+                    with source.open(member) as incoming:
+                        _copy_source_stream(
+                            incoming,
+                            outgoing,
+                            expected_bytes=expected_bytes,
+                            progress=progress,
+                            label=label,
+                        )
+            else:
+                member_path = (source_path / member).resolve()
+                if not member_path.is_relative_to(source_path.resolve()) or not member_path.is_file():
+                    raise FileNotFoundError(member_path)
+                with member_path.open("rb") as incoming:
+                    _copy_source_stream(
+                        incoming,
+                        outgoing,
+                        expected_bytes=expected_bytes,
+                        progress=progress,
+                        label=label,
+                    )
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+    return destination
+
+
+def stage_fmb_unit_sources(
+    plan: DatasetConversionPlan,
+    raw_root: Path,
+    destination_root: Path,
+    *,
+    progress: Callable[[str], None] | None = None,
+) -> Path:
+    """Copy only a unit's NPY members to a local POSIX source tree.
+
+    The conversion worker must not repeatedly decode large NPY payloads over
+    OSSFS.  The staged tree deliberately uses the extracted-directory layout,
+    even when the source is still a ZIP, so the existing reader can consume it
+    without changing the logical episode provenance or run fingerprint.
+    """
+
+    if destination_root.exists():
+        shutil.rmtree(destination_root)
+    destination_root.mkdir(parents=True, exist_ok=True)
+    episodes = plan.episodes
+    seen: set[tuple[str, str]] = set()
+    for index, episode in enumerate(episodes, start=1):
+        archive = str(episode.extra["archive"])
+        member = str(episode.extra["member"])
+        identity = (archive, member)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        source_path, source_mode = _source_for_archive(raw_root, archive)
+        shard_name = _EXTRACTED_DIRS.get(archive, Path(archive).stem)
+        target = destination_root / shard_name / member
+        target.parent.mkdir(parents=True, exist_ok=True)
+        expected_bytes = int(episode.extra["source_uncompressed_bytes"])
+        label = f"{index}/{len(episodes)} {archive}:{member}"
+        if progress is not None:
+            progress(f"staging {label}")
+        try:
+            _stage_source_member(
+                source_path,
+                source_mode,
+                member,
+                target,
+                expected_bytes=expected_bytes,
+                progress=progress,
+                label=label,
+            )
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
+        if progress is not None:
+            progress(f"staged {label} -> {target}")
+    return destination_root
+
+
+def _source_shards(raw_root: Path) -> list[tuple[str, Path, str]]:
+    """Discover the four known FMB shards in either supported layout."""
+
+    shards: list[tuple[str, Path, str]] = []
+    for archive_name in sorted(_EXTRACTED_DIRS, key=str.casefold):
+        try:
+            source, mode = _source_for_archive(raw_root, archive_name)
+        except ConversionError:
+            continue
+        shards.append((archive_name, source, mode))
+    known_names = {name for name, _source, _mode in shards}
+    for archive in sorted(raw_root.glob("*.zip"), key=lambda path: path.name.casefold()):
+        if archive.name not in known_names:
+            shards.append((archive.name, archive, "zip"))
+    return shards
+
+
+def _directory_members(source: Path) -> list[tuple[_DirectoryMember, Path]]:
+    members: list[tuple[_DirectoryMember, Path]] = []
+    for path in sorted(source.rglob("*"), key=lambda item: item.as_posix().casefold()):
+        if not path.is_file() or path.name == ".EXTRACTED_OK":
+            continue
+        member = path.relative_to(source).as_posix()
+        if not member.endswith(".npy"):
+            raise ConversionError(f"unexpected non-NPY FMB extracted member: {path}")
+        stat = path.stat()
+        members.append((_DirectoryMember(member, stat.st_size), path))
+    return members
+
 
 def _normalize_object_info(value: Any, source: str) -> dict[str, Any]:
     if not isinstance(value, dict):
@@ -109,6 +330,8 @@ class FmbEntry:
     fields: dict[str, dict[str, Any]]
     instruction: str
     object_info: dict[str, Any] | None = None
+    source_mode: str = "zip"
+    source_mtime_ns: int = 0
 
 
 @dataclass(frozen=True)
@@ -245,13 +468,28 @@ def _canonicalize_action_field(fields: dict[str, Any]) -> dict[str, Any]:
     return canonical
 
 
-def _load_payload(entry: FmbEntry, raw_root: Path) -> dict[str, np.ndarray]:
-    archive = raw_root / entry.archive
+def _load_payload(
+    entry: FmbEntry,
+    raw_root: Path,
+    *,
+    local_member_path: Path | None = None,
+) -> dict[str, np.ndarray]:
+    source_path, source_mode = _source_for_archive(raw_root, entry.archive) if local_member_path is None else (local_member_path, "local")
     try:
-        with zipfile.ZipFile(archive) as source, source.open(entry.member) as stream:
-            value = np.load(stream, allow_pickle=True).item()
+        if local_member_path is not None:
+            with local_member_path.open("rb") as stream:
+                value = np.load(stream, allow_pickle=True).item()
+        elif source_mode == "zip":
+            with zipfile.ZipFile(source_path) as source, source.open(entry.member) as stream:
+                value = np.load(stream, allow_pickle=True).item()
+        else:
+            member_path = (source_path / entry.member).resolve()
+            if not member_path.is_relative_to(source_path.resolve()) or not member_path.is_file():
+                raise FileNotFoundError(member_path)
+            with member_path.open("rb") as stream:
+                value = np.load(stream, allow_pickle=True).item()
     except (OSError, ValueError, zipfile.BadZipFile, KeyError, EOFError) as exc:
-        raise ConversionError(f"cannot decode FMB trajectory {archive}:{entry.member}: {exc}") from exc
+        raise ConversionError(f"cannot decode FMB trajectory {source_path}:{entry.member}: {exc}") from exc
     if not isinstance(value, dict) or not all(isinstance(k, str) for k in value):
         raise ConversionError(f"FMB trajectory is not a string-keyed dictionary: {entry.member}")
     canonical = _canonicalize_action_field(value)
@@ -309,7 +547,15 @@ def _multi_object_instruction(member: str, board: str, object_id: int) -> str:
     return f"Pick up the {object_name} object and insert it."
 
 
-def _parse_entry(info: zipfile.ZipInfo, archive: Path, raw_root: Path, fields: dict[str, dict[str, Any]]) -> FmbEntry:
+def _parse_entry(
+    info: zipfile.ZipInfo | _DirectoryMember,
+    archive: Path,
+    raw_root: Path,
+    fields: dict[str, dict[str, Any]],
+    *,
+    source_mode: str,
+    source_mtime_ns: int,
+) -> FmbEntry:
     member = info.filename
     if not member.endswith(".npy"):
         raise ConversionError(f"unexpected non-NPY FMB archive member: {archive}:{member}")
@@ -357,6 +603,8 @@ def _parse_entry(info: zipfile.ZipInfo, archive: Path, raw_root: Path, fields: d
         fields=fields,
         instruction=instruction,
         object_info=object_info,
+        source_mode=source_mode,
+        source_mtime_ns=source_mtime_ns,
     )
 
 
@@ -499,6 +747,8 @@ def _plan_for_partition(
                 "source_uncompressed_bytes": entry.size,
                 "source_compressed_bytes": entry.compressed_size,
                 "source_crc32": entry.crc,
+                "source_mode": entry.source_mode,
+                "source_mtime_ns": entry.source_mtime_ns,
                 "checkpoint_unit": entry.archive,
                 "manifest_provenance": {
                     "archive": entry.archive,
@@ -565,39 +815,99 @@ def inspect_fmb(
     *,
     max_episodes: int | None = None,
     max_shards: int | None = None,
+    local_preflight_root: Path | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> FmbCatalog:
     """Perform the one archive-index/schema scan used by conversion and resume."""
     if not raw_root.is_dir():
         raise ConversionError(f"FMB raw root is missing: {raw_root}")
-    archives = sorted(raw_root.glob("*.zip"), key=lambda path: path.name.casefold())
-    if not archives:
-        raise ConversionError(f"FMB raw root contains no ZIP archives: {raw_root}")
+    shards = _source_shards(raw_root)
+    if not shards:
+        raise ConversionError(f"FMB raw root contains no FMB ZIP archives or extracted shards: {raw_root}")
     if max_shards is not None:
         if max_shards <= 0:
             raise ConversionError("max_shards must be positive")
-        archives = archives[:max_shards]
+        shards = shards[:max_shards]
     entries: list[FmbEntry] = []
     source_files: list[dict[str, Any]] = []
-    for archive in archives:
-        stat = archive.stat()
-        source_files.append({"path": archive.name, "size": stat.st_size, "mtime_ns": stat.st_mtime_ns})
-        try:
-            with zipfile.ZipFile(archive) as source:
-                members = [info for info in source.infolist() if not info.is_dir()]
-                for info in members:
+    preflight_root = local_preflight_root.resolve() if local_preflight_root is not None else None
+    if preflight_root is not None:
+        preflight_root.mkdir(parents=True, exist_ok=True)
+    processed_members = 0
+    last_progress = time.monotonic()
+    try:
+        for archive_name, source_path, source_mode in shards:
+            stat = source_path.stat()
+            source_files.append({
+                "path": archive_name if source_mode == "zip" else _EXTRACTED_DIRS.get(archive_name, source_path.name),
+                "size": stat.st_size,
+                "mtime_ns": stat.st_mtime_ns,
+                "mode": source_mode,
+            })
+            # Use the logical archive path in provenance even when its physical
+            # source is an extracted directory.  This keeps manifests and unit
+            # boundaries stable across the two layouts.
+            logical_archive = raw_root / archive_name
+            try:
+                if source_mode == "zip":
+                    with zipfile.ZipFile(source_path) as source:
+                        members = [item for item in source.infolist() if not item.is_dir()]
+                else:
+                    members = _directory_members(source_path)
+                for raw_info in members:
+                    info = raw_info if source_mode == "zip" else raw_info[0]
+                    member_path = raw_info[1] if source_mode != "zip" else None
                     if not info.filename.endswith(".npy"):
-                        raise ConversionError(f"unexpected FMB member {archive}:{info.filename}")
-                    with source.open(info) as stream:
-                        fields = _read_lazy_metadata(stream)
-                    entry = _parse_entry(info, archive, raw_root, fields)
+                        raise ConversionError(f"unexpected FMB member {source_path}:{info.filename}")
+                    if preflight_root is None:
+                        if source_mode == "zip":
+                            with zipfile.ZipFile(source_path) as source, source.open(info) as stream:
+                                fields = _read_lazy_metadata(stream)
+                        else:
+                            assert member_path is not None
+                            with member_path.open("rb") as stream:
+                                fields = _read_lazy_metadata(stream)
+                    else:
+                        staged = preflight_root / "current.npy"
+                        staged.unlink(missing_ok=True)
+                        _stage_source_member(
+                            source_path,
+                            source_mode,
+                            info.filename,
+                            staged,
+                            expected_bytes=int(info.file_size),
+                            progress=progress,
+                            label=f"preflight {archive_name}:{info.filename}",
+                        )
+                        try:
+                            with staged.open("rb") as stream:
+                                fields = _read_lazy_metadata(stream)
+                        finally:
+                            staged.unlink(missing_ok=True)
+                    entry = _parse_entry(
+                        info,
+                        logical_archive,
+                        raw_root,
+                        fields,
+                        source_mode=source_mode,
+                        source_mtime_ns=stat.st_mtime_ns if source_mode == "zip" else member_path.stat().st_mtime_ns,
+                    )
                     _validate_fields(
                         fields,
-                        source=f"{archive.name}:{info.filename}",
+                        source=f"{archive_name}:{info.filename}",
                         require_object_id=entry.kind == "multi_object",
                     )
                     entries.append(entry)
-        except zipfile.BadZipFile as exc:
-            raise ConversionError(f"FMB archive is incomplete or invalid: {archive}: {exc}") from exc
+                    processed_members += 1
+                    now = time.monotonic()
+                    if progress is not None and (processed_members == 1 or now - last_progress >= 5.0):
+                        progress(f"preflight scanned {processed_members} NPY members")
+                        last_progress = now
+            except zipfile.BadZipFile as exc:
+                raise ConversionError(f"FMB archive is incomplete or invalid: {source_path}: {exc}") from exc
+    finally:
+        if preflight_root is not None:
+            (preflight_root / "current.npy").unlink(missing_ok=True)
     if not entries:
         raise ConversionError("FMB archive inventory contains no trajectories")
     # Keep every archive contiguous inside a partition: the archive is the
@@ -628,7 +938,25 @@ def inspect_fmb(
             sample_entries.append(candidate)
     sample_evidence: list[dict[str, Any]] = []
     for entry in sample_entries:
-        payload = _load_payload(entry, raw_root)
+        if preflight_root is None:
+            payload = _load_payload(entry, raw_root)
+        else:
+            source_path, source_mode = _source_for_archive(raw_root, entry.archive)
+            staged = preflight_root / "sample.npy"
+            staged.unlink(missing_ok=True)
+            _stage_source_member(
+                source_path,
+                source_mode,
+                entry.member,
+                staged,
+                expected_bytes=entry.size,
+                progress=progress,
+                label=f"preflight sample {entry.archive}:{entry.member}",
+            )
+            try:
+                payload = _load_payload(entry, raw_root, local_member_path=staged)
+            finally:
+                staged.unlink(missing_ok=True)
         _validate_fields(
             {key: {"shape": list(value.shape), "dtype": str(value.dtype)} for key, value in payload.items()},
             source=f"sample {entry.member}",
@@ -646,6 +974,9 @@ def inspect_fmb(
                 "source": f"{entry.archive}:{entry.member}",
                 "task": entry.instruction,
                 "frames": entry.num_frames,
+                "bytes": entry.size,
+                "source_mode": entry.source_mode,
+                "source_mtime_ns": entry.source_mtime_ns,
             }
             for partition in partitions
             for entry in partition.entries
@@ -658,7 +989,7 @@ def inspect_fmb(
 
 def catalog_to_payload(catalog: FmbCatalog) -> dict[str, Any]:
     def entry_payload(entry: FmbEntry) -> dict[str, Any]:
-        return {"archive": entry.archive, "member": entry.member, "kind": entry.kind, "board": entry.board, "object_id": entry.object_id, "trajectory_id": entry.trajectory_id, "size": entry.size, "compressed_size": entry.compressed_size, "crc": entry.crc, "num_frames": entry.num_frames, "fields": entry.fields, "instruction": entry.instruction, "object_info": entry.object_info}
+        return {"archive": entry.archive, "member": entry.member, "kind": entry.kind, "board": entry.board, "object_id": entry.object_id, "trajectory_id": entry.trajectory_id, "size": entry.size, "compressed_size": entry.compressed_size, "crc": entry.crc, "num_frames": entry.num_frames, "fields": entry.fields, "instruction": entry.instruction, "object_info": entry.object_info, "source_mode": entry.source_mode, "source_mtime_ns": entry.source_mtime_ns}
     return {"schema_version": 1, "fingerprint_payload": catalog.fingerprint_payload, "mapping_table": list(catalog.mapping_table), "sample_evidence": list(catalog.sample_evidence), "partitions": [{"name": p.name, "schema_fingerprint": p.schema_fingerprint, "entries": [entry_payload(e) for e in p.entries]} for p in catalog.partitions]}
 
 
@@ -689,12 +1020,121 @@ def catalog_from_payload(payload: dict[str, Any], config: DatasetConversionConfi
     return FmbCatalog(tuple(partitions), fingerprint, tuple(dict(row) for row in mapping), tuple(dict(row) for row in samples))
 
 
+def remap_catalog_to_extracted_root(
+    catalog: FmbCatalog,
+    config: DatasetConversionConfig,
+    raw_root: Path,
+) -> FmbCatalog | None:
+    """Reuse a complete ZIP preflight after the same shards were extracted.
+
+    The old catalog contains all NPY metadata and archive member names.  The
+    migration only stats each extracted member and changes the physical
+    source mode; it never trusts a missing or differently sized file.  Return
+    ``None`` when *raw_root* is not the supported extracted layout.
+    """
+
+    shards = _source_shards(raw_root)
+    if not shards or not any(mode == "extracted_directory" for _name, _path, mode in shards):
+        return None
+    if {name for name, _path, _mode in shards} != set(_EXTRACTED_DIRS):
+        raise ConversionError(f"incomplete FMB extracted root; expected shards {sorted(_EXTRACTED_DIRS)}")
+    source_files = [
+        {
+            "path": _EXTRACTED_DIRS[archive_name],
+            "size": source.stat().st_size,
+            "mtime_ns": source.stat().st_mtime_ns,
+            "mode": mode,
+        }
+        for archive_name, source, mode in shards
+    ]
+    partitions: list[FmbPartition] = []
+    for partition in catalog.partitions:
+        entries: list[FmbEntry] = []
+        for entry in partition.entries:
+            source, mode = _source_for_archive(raw_root, entry.archive)
+            if mode != "extracted_directory":
+                raise ConversionError(f"FMB catalog shard is not extracted: {entry.archive}")
+            member_path = (source / entry.member).resolve()
+            if not member_path.is_relative_to(source.resolve()) or not member_path.is_file():
+                raise ConversionError(f"FMB extracted member is missing: {member_path}")
+            stat = member_path.stat()
+            if stat.st_size != entry.size:
+                raise ConversionError(
+                    f"FMB extracted member size differs from ZIP preflight for {member_path}: "
+                    f"{stat.st_size} != {entry.size}"
+                )
+            entries.append(replace(entry, source_mode=mode, source_mtime_ns=stat.st_mtime_ns))
+        entry_tuple = tuple(entries)
+        plan = _plan_for_partition(config, raw_root, partition.name, entry_tuple, partition.schema_fingerprint)
+        plan = DatasetConversionPlan(
+            **{
+                **plan.__dict__,
+                "extra": {**plan.extra, "source_files": source_files},
+                "output_path": Path(partition.name),
+            }
+        )
+        partitions.append(FmbPartition(partition.name, plan, entry_tuple, partition.schema_fingerprint))
+    fingerprint_payload = dict(catalog.fingerprint_payload)
+    fingerprint_payload["source_root"] = str(raw_root)
+    fingerprint_payload["source_files"] = source_files
+    fingerprint_payload["task_mapping"] = [
+        {
+            "partition": partition.name,
+            "source": f"{entry.archive}:{entry.member}",
+            "task": entry.instruction,
+            "frames": entry.num_frames,
+            "bytes": entry.size,
+            "source_mode": entry.source_mode,
+            "source_mtime_ns": entry.source_mtime_ns,
+        }
+        for partition in partitions
+        for entry in partition.entries
+    ]
+    fingerprint_payload["partition_rules"] = [
+        "kind",
+        "schema fingerprint",
+        "archive/member lexical order",
+        "ZIP or extracted-directory source mode",
+    ]
+    return FmbCatalog(
+        tuple(partitions),
+        fingerprint_payload,
+        catalog.mapping_table,
+        catalog.sample_evidence,
+    )
+
+
 def validate_catalog_sources(catalog: FmbCatalog, raw_root: Path) -> None:
     for record in catalog.fingerprint_payload.get("source_files", []):
         path = raw_root / str(record["path"])
         stat = path.stat()
-        if stat.st_size != int(record["size"]) or stat.st_mtime_ns != int(record["mtime_ns"]):
-            raise ConversionError(f"FMB source archive changed since preflight: {path}")
+        # OSSFS may refresh a directory inode mtime while listing or reading
+        # its children.  For extracted sources, the per-NPY checks below are
+        # the authoritative content validation; directory mtime is not.
+        if str(record.get("mode", "zip")) == "extracted_directory":
+            if not path.is_dir():
+                raise ConversionError(f"FMB extracted source directory is missing: {path}")
+            continue
+        if (
+            stat.st_size != int(record["size"])
+            or stat.st_mtime_ns != int(record["mtime_ns"])
+            or str(record.get("mode", "zip")) != ("extracted_directory" if path.is_dir() else "zip")
+        ):
+            raise ConversionError(f"FMB source shard changed since preflight: {path}")
+    # A directory's own mtime does not change when a file is modified in
+    # place.  Validate extracted members individually so a cached preflight
+    # cannot silently feed a changed trajectory to a resumed conversion.
+    for partition in catalog.partitions:
+        for entry in partition.entries:
+            if entry.source_mode != "extracted_directory":
+                continue
+            source_path, _mode = _source_for_archive(raw_root, entry.archive)
+            member_path = (source_path / entry.member).resolve()
+            if not member_path.is_relative_to(source_path.resolve()) or not member_path.is_file():
+                raise ConversionError(f"FMB extracted member is missing since preflight: {member_path}")
+            stat = member_path.stat()
+            if stat.st_size != entry.size or stat.st_mtime_ns != entry.source_mtime_ns:
+                raise ConversionError(f"FMB extracted member changed since preflight: {member_path}")
 
 
 def iter_fmb_frames(plan: DatasetConversionPlan, episode: EpisodePlan, raw_root: Path) -> Iterator[dict[str, Any]]:
@@ -723,7 +1163,9 @@ def iter_fmb_frames(plan: DatasetConversionPlan, episode: EpisodePlan, raw_root:
         require_object_id=episode.extra["kind"] == "multi_object",
     )
     actual_frames = next(iter(fields.values())).shape[0]
-    if actual_frames != episode.num_frames:
+    if actual_frames != episode.num_frames and not (
+        episode.extra.get("allow_frame_prefix") and actual_frames >= episode.num_frames
+    ):
         raise ConversionError(
             f"{episode.source_relative_path}: payload has {actual_frames} frames, "
             f"preflight recorded {episode.num_frames}"

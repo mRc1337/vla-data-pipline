@@ -197,6 +197,13 @@ def test_direct_commit_index_stats_keep_one_schema_with_single_frame_unit(
         for stat in ("min", "max", "mean", "std", "q01", "q10", "q50", "q90", "q99"):
             assert schema.field(f"stats/{feature}/{stat}").type == pa.list_(pa.float64())
         assert schema.field(f"stats/{feature}/count").type == pa.list_(pa.int64())
+    for stat in ("min", "max", "mean", "std", "q01", "q10", "q50", "q90", "q99"):
+        assert schema.field(f"stats/observation.images.head/{stat}").type == pa.list_(
+            pa.list_(pa.list_(pa.float64()))
+        )
+    assert schema.field("stats/observation.images.head/count").type == pa.list_(
+        pa.int64()
+    )
 
 
 def test_resume_revalidates_committed_files_and_rebuilds_only_corrupt_unit(tmp_path: Path):
@@ -471,3 +478,45 @@ def test_uploader_enqueues_next_unit_while_upload_is_active(
     stats = uploader.close()
     assert completed == ["unit-0", "unit-1"]
     assert stats["submitted_units"] == stats["completed_units"] == 2
+
+
+def test_uploader_runs_post_commit_hook_only_after_commit_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import convert_core.direct_commit as direct_commit
+
+    events: list[tuple[str, str]] = []
+
+    def fake_commit(unit, **_kwargs):
+        events.append(("commit", unit.key))
+        return {}
+
+    monkeypatch.setattr(direct_commit, "commit_verified_unit", fake_commit)
+    unit = ParallelWorkUnit(
+        index=0,
+        key="unit-0",
+        dataset_uid="dataset-0",
+        target_path=str(tmp_path / "unit-0"),
+        episode_start=0,
+        episode_end=1,
+        frame_start=0,
+        frame_end=1,
+        task_indices=(0,),
+        weight=1,
+        estimated_memory_bytes=1,
+        estimated_temp_bytes=1,
+        fingerprint="fingerprint-0",
+        payload=None,
+    )
+    uploader = DirectCommitUploader(
+        partition_name="v1_1",
+        partition_root=tmp_path / "remote",
+        resume_root=tmp_path / "resume",
+        workers=1,
+        max_queue_units=1,
+        on_committed=lambda value: events.append(("cleanup", value.key)),
+    )
+    uploader.submit(unit, trust_verified_marker=True)
+    uploader.close()
+
+    assert events == [("commit", "unit-0"), ("cleanup", "unit-0")]

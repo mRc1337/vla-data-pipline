@@ -399,6 +399,16 @@ class StagingCapacityGuard:
 
         if poll_seconds <= 0:
             raise ValueError("capacity poll interval must be positive")
+        if (
+            self.max_staging_bytes is not None
+            and required_additional_bytes > self.max_staging_bytes
+        ):
+            raise ConversionError(
+                f"local capacity limit cannot admit {stage}: one unit requires "
+                f"{required_additional_bytes} bytes but "
+                f"--max-local-temp-bytes is {self.max_staging_bytes}"
+            )
+        last_report = 0.0
         while True:
             if abort_check is not None:
                 abort_check()
@@ -409,6 +419,16 @@ class StagingCapacityGuard:
                 self.last_snapshot = snapshot
                 self._last_check = time.monotonic()
                 return snapshot
+            now = time.monotonic()
+            if now - last_report >= 30.0:
+                print(
+                    f"[capacity] waiting before {stage}: "
+                    f"staging={snapshot.staging_bytes} bytes, "
+                    f"required={required_additional_bytes} bytes, "
+                    f"available={snapshot.filesystem_available_bytes} bytes",
+                    flush=True,
+                )
+                last_report = now
             time.sleep(min(poll_seconds, 5.0))
 
     def periodic_check(

@@ -91,6 +91,14 @@ def _install_generated_index_stats_normalizer(dataset: Any) -> None:
         episode_stats: dict[str, dict[str, Any]],
         episode_metadata: dict[str, Any],
     ) -> None:
+        missing_video_stats = [
+            key for key in dataset.meta.video_keys if key not in episode_stats
+        ]
+        if missing_video_stats:
+            raise RuntimeError(
+                "episode statistics are missing video feature(s): "
+                + ", ".join(sorted(missing_video_stats))
+            )
         original_save_episode(
             episode_index,
             episode_length,
@@ -100,6 +108,33 @@ def _install_generated_index_stats_normalizer(dataset: Any) -> None:
         )
 
     dataset.meta.save_episode = save_episode
+
+
+def _single_frame_video_stats(image: Any) -> dict[str, np.ndarray]:
+    """Compute the same per-channel stats as LeRobot's streaming encoder.
+
+    LeRobot 0.6 returns ``None`` for a streaming episode containing one frame,
+    even though its statistics tracker has already consumed every pixel in
+    that frame.  Omitting the video feature makes the next metadata row use a
+    different Arrow schema.  Recompute that one-frame result from the exact
+    frame accepted by the encoder instead of fabricating null statistics.
+    """
+
+    from lerobot.datasets.compute_stats import (
+        auto_downsample_height_width,
+        get_feature_stats,
+    )
+
+    array = np.asarray(image)
+    if array.ndim != 3:
+        raise RuntimeError(
+            f"streaming video frame must be HWC, got shape {array.shape}"
+        )
+    image_chw = array.transpose(2, 0, 1)
+    downsampled = auto_downsample_height_width(image_chw)
+    channels = downsampled.shape[0]
+    pixels = downsampled.transpose(1, 2, 0).reshape(-1, channels)
+    return get_feature_stats(pixels, axis=0, keepdims=False)
 
 
 def _blocking_streaming_feed_frame(self: Any, video_key: str, image: Any) -> None:
@@ -128,6 +163,14 @@ def _blocking_streaming_feed_frame(self: Any, video_key: str, image: Any) -> Non
             raise RuntimeError(f"Encoder thread for {video_key} is not alive")
         try:
             self._frame_queues[video_key].put(copied, timeout=0.1)
+            counts = self._vla_episode_frame_counts
+            samples = self._vla_single_frame_samples
+            count = counts.get(video_key, 0) + 1
+            counts[video_key] = count
+            if count == 1:
+                samples[video_key] = copied
+            elif count == 2:
+                samples.pop(video_key, None)
             return
         except queue.Full:
             continue
@@ -138,28 +181,51 @@ def _enable_blocking_streaming_encoding(
 ) -> None:
     encoder = getattr(getattr(dataset, "writer", None), "_streaming_encoder", None)
     if encoder is not None:
+        original_start_episode = encoder.start_episode
+        original_finish_episode = encoder.finish_episode
         encoder.feed_frame = types.MethodType(_blocking_streaming_feed_frame, encoder)
-        if encoder_temp_root is not None:
-            configured_root = Path(encoder_temp_root)
+        configured_root = Path(encoder_temp_root) if encoder_temp_root is not None else None
+        if configured_root is not None:
             configured_root.mkdir(parents=True, exist_ok=True)
-            original_start_episode = encoder.start_episode
 
-            def start_episode_in_work_root(
-                _self: Any,
-                video_keys: list[str],
-                temp_dir: Path,
-                depth_video_keys: list[str] | None = None,
-            ) -> None:
-                del temp_dir
-                original_start_episode(
-                    video_keys=video_keys,
-                    temp_dir=configured_root,
-                    depth_video_keys=depth_video_keys,
-                )
-
-            encoder.start_episode = types.MethodType(
-                start_episode_in_work_root, encoder
+        def start_episode(
+            _self: Any,
+            video_keys: list[str],
+            temp_dir: Path,
+            depth_video_keys: list[str] | None = None,
+        ) -> None:
+            _self._vla_episode_frame_counts = {}
+            _self._vla_single_frame_samples = {}
+            original_start_episode(
+                video_keys=video_keys,
+                temp_dir=configured_root or temp_dir,
+                depth_video_keys=depth_video_keys,
             )
+
+        def finish_episode(_self: Any) -> dict[str, tuple[Path, dict[str, Any]]]:
+            try:
+                results = original_finish_episode()
+                for video_key, (video_path, video_stats) in tuple(results.items()):
+                    if video_stats is not None:
+                        continue
+                    frame_count = _self._vla_episode_frame_counts.get(video_key, 0)
+                    sample = _self._vla_single_frame_samples.get(video_key)
+                    if frame_count != 1 or sample is None:
+                        raise RuntimeError(
+                            f"streaming encoder returned no statistics for {video_key!r} "
+                            f"after accepting {frame_count} frame(s)"
+                        )
+                    results[video_key] = (
+                        video_path,
+                        _single_frame_video_stats(sample),
+                    )
+                return results
+            finally:
+                _self._vla_episode_frame_counts = {}
+                _self._vla_single_frame_samples = {}
+
+        encoder.start_episode = types.MethodType(start_episode, encoder)
+        encoder.finish_episode = types.MethodType(finish_episode, encoder)
 
 
 class _SequentialMp4Sink:

@@ -1,16 +1,22 @@
 # Functional Manipulation Benchmark conversion
 
-The mounted source was inspected read-only. The central directories of
-multi_object_manipulation_assembly_2.zip and
-multi_object_manipulation_assembly_3.zip contain 600 and 604 trajectories,
-respectively. multi_object_manipulation_assembly_1.zip and
-single_object_manipulation.zip are both exactly 80 GB but have no ZIP
-end-of-central-directory record, so the converter rejects the mounted release
-as incomplete before conversion.
+The production converter consumes only the completed extracted release:
+
+```text
+/mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted/
+├── assembly_1/
+├── assembly_2/
+├── assembly_3/
+└── single_object/
+```
+
+Each shard must contain `.EXTRACTED_OK`. ZIP files are intentionally rejected
+by the production entry point; the archive names remain only as logical
+provenance and checkpoint labels.
 
 `convert_fmb_to_lerobot.py` converts the public FMB release
-`functional_manipulation_benchmark_fmb` to LeRobot v3.0.  The source is four
-ZIP archives containing compressed `.npy` object arrays; it is not RLDS.
+`functional_manipulation_benchmark_fmb` to LeRobot v3.0.  The extracted source
+contains compressed `.npy` object arrays; it is not RLDS.
 
 ## Source findings and mapping
 
@@ -70,19 +76,33 @@ samples, then deletes local bulk.  It never uses `Path.replace` between source
 and final roots.  A verified unit marker is the resume boundary; a missing
 `_SUCCESS` means the collection is incomplete.
 
+Hugging Face/Arrow intermediates are isolated under
+`cache/runtime/units/<partition>/unit-XXXXXX/`.  The uploader removes that
+unit cache only after the remote bulk files pass validation and the committed
+marker has been written.  A failed or interrupted upload leaves the unit
+cache available for retry; resume does not require it and can rebuild it.  On
+startup, the converter also removes the legacy shared
+`cache/runtime/datasets/` cache from older runs.  `resume/`, preflight
+metadata, local unit outputs, and final OSS objects are not part of this
+cleanup.
+
 ## Commands
 
 Preflight (one archive index/schema scan; no final output):
 
 ```bash
 cd /home/pai/zxw/vla-data-pipeline/embodied_datasets/scripts/convert_scripts
-python3 convert_fmb_to_lerobot.py --inspect-only
+python3 convert_fmb_to_lerobot.py \
+  --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
+  --inspect-only
 ```
 
 One bounded CPU encoder warmup is available with --warmup-frames 30. It writes
 one local-only sample, validates the encoded videos, and deletes the sample:
 
-    python3 convert_fmb_to_lerobot.py --warmup-frames 30 \
+    python3 convert_fmb_to_lerobot.py \
+      --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
+      --warmup-frames 30 \
       --local-work-root /home/pai/zxw/functional_manipulation_benchmark_fmb_staging \
       --encoder-threads-per-worker 8
 
@@ -90,7 +110,9 @@ Minimal smoke after a successful preflight, using an independent output UID
 (at most one episode per selected partition):
 
 ```bash
-python3 convert_fmb_to_lerobot.py --resume --max-episodes 1 \
+python3 convert_fmb_to_lerobot.py \
+  --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
+  --resume --max-episodes 1 \
   --output-dataset-uid functional_manipulation_benchmark_fmb_smoke \
   --workers 1 --upload-workers 1
 ```
@@ -99,7 +121,9 @@ Recovery after interruption or a failed upload (the same unit markers and
 local sources are reused):
 
 ```bash
-python3 convert_fmb_to_lerobot.py --resume \
+python3 convert_fmb_to_lerobot.py \
+  --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
+  --resume \
   --local-work-root /home/pai/zxw/functional_manipulation_benchmark_fmb_staging \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0
 ```
@@ -111,11 +135,15 @@ selecting the production setting. Each run also records wall_seconds and
 frames_per_second; pass --benchmark-report to write a separate JSON report:
 
 ```bash
-python3 convert_fmb_to_lerobot.py --resume --max-episodes 2 --episodes-per-unit 1 \
+python3 convert_fmb_to_lerobot.py \
+  --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
+  --resume --max-episodes 2 --episodes-per-unit 1 \
   --output-dataset-uid functional_manipulation_benchmark_fmb_bench_w1 --workers 1 --max-inflight-units 1 \
   --encoder-threads-per-worker 8 \
   --benchmark-report /home/pai/zxw/functional_manipulation_benchmark_fmb_staging/bench-w1.json
-python3 convert_fmb_to_lerobot.py --resume --max-episodes 2 --episodes-per-unit 1 \
+python3 convert_fmb_to_lerobot.py \
+  --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
+  --resume --max-episodes 2 --episodes-per-unit 1 \
   --output-dataset-uid functional_manipulation_benchmark_fmb_bench_w4 --workers 4 --max-inflight-units 4 \
   --encoder-threads-per-worker 8 \
   --benchmark-report /home/pai/zxw/functional_manipulation_benchmark_fmb_staging/bench-w4.json
@@ -149,12 +177,13 @@ The requested production command (provided, not executed here) is:
 
 ```bash
 python3 convert_fmb_to_lerobot.py --resume \
-  --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb \
+  --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
   --local-work-root /home/pai/zxw/functional_manipulation_benchmark_fmb_staging \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
   --max-local-temp-bytes 100000000000 --min-local-free-bytes 200000000000 \
-  --max-inflight-units 8 --workers 4 --encoder-threads-per-worker 8 \
-  --upload-workers 1
+  --max-inflight-units 1 --workers 1 --encoder-threads-per-worker 8 \
+  --upload-workers 1 --ossfs-io-timeout-seconds 900 \
+  --trust-preflight-source
 ```
 
 For a background run, use the same command with its log redirected into the
@@ -163,12 +192,13 @@ local staging root (the command is provided, not executed here):
 ```bash
 mkdir -p /home/pai/zxw/functional_manipulation_benchmark_fmb_staging/logs
 nohup python3 convert_fmb_to_lerobot.py --resume \
-  --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb \
+  --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
   --local-work-root /home/pai/zxw/functional_manipulation_benchmark_fmb_staging \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
   --max-local-temp-bytes 100000000000 --min-local-free-bytes 200000000000 \
-  --max-inflight-units 8 --workers 4 --encoder-threads-per-worker 8 \
-  --upload-workers 1 \
+  --max-inflight-units 1 --workers 1 --encoder-threads-per-worker 8 \
+  --upload-workers 1 --ossfs-io-timeout-seconds 900 \
+  --trust-preflight-source \
   > /home/pai/zxw/functional_manipulation_benchmark_fmb_staging/logs/production.log 2>&1 &
 ```
 

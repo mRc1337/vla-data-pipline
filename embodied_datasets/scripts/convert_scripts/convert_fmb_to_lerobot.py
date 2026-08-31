@@ -9,6 +9,7 @@ stats only and publishes ``_SUCCESS`` last.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 import json
 import os
@@ -17,7 +18,7 @@ import shutil
 import sys
 import tempfile
 import time
-from typing import Any, Sequence
+from typing import Any, Iterator, Sequence
 
 sys.dont_write_bytecode = True
 
@@ -60,12 +61,15 @@ from readers.fmb_npy_reader import (
     catalog_to_payload,
     inspect_fmb,
     iter_fmb_frames,
+    remap_catalog_to_extracted_root,
+    stage_fmb_unit_sources,
+    validate_extracted_fmb_root,
     validate_catalog_sources,
 )
 from convert_core.dataset_config import load_dataset_config
 
 
-DEFAULT_RAW_ROOT = Path("/mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb")
+DEFAULT_RAW_ROOT = Path("/mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted")
 DEFAULT_LOCAL_WORK_ROOT = Path("/home/pai/zxw/functional_manipulation_benchmark_fmb_staging")
 DEFAULT_CONFIG = Path(__file__).with_name("configs") / "functional_manipulation_benchmark_fmb.yaml"
 DEFAULT_ENCODER_THREADS = 8
@@ -102,6 +106,13 @@ def _positive(value: str) -> int:
     return result
 
 
+def _positive_float(value: str) -> float:
+    result = float(value)
+    if result <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return result
+
+
 def _warmup_frames(value: str) -> int:
     result = _positive(value)
     if not 30 <= result <= 60:
@@ -111,6 +122,56 @@ def _warmup_frames(value: str) -> int:
 
 def _run_id() -> str:
     return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + f"-{os.getpid()}"
+
+
+def _unit_datasets_cache_root(
+    runtime_cache_root: Path, partition_name: str, unit_index: int
+) -> Path:
+    """Return the private, reproducible HF cache for one conversion unit."""
+
+    if Path(partition_name).name != partition_name:
+        raise ConversionError(f"invalid FMB partition name for cache: {partition_name!r}")
+    return runtime_cache_root / "units" / partition_name / f"unit-{unit_index:06d}"
+
+
+@contextmanager
+def _fmb_datasets_cache(cache_root: Path) -> Iterator[None]:
+    """Route LeRobot/HF parquet intermediates to one unit-owned directory."""
+
+    cache_root.mkdir(parents=True, exist_ok=True)
+    previous = os.environ.get("VLA_DATASETS_CACHE_ROOT")
+    os.environ["VLA_DATASETS_CACHE_ROOT"] = str(cache_root)
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("VLA_DATASETS_CACHE_ROOT", None)
+        else:
+            os.environ["VLA_DATASETS_CACHE_ROOT"] = previous
+
+
+def _cleanup_unit_datasets_cache(
+    runtime_cache_root: Path, partition_name: str, unit_index: int
+) -> None:
+    """Delete only a unit cache after its committed marker is durable."""
+
+    cache_root = _unit_datasets_cache_root(runtime_cache_root, partition_name, unit_index)
+    if cache_root.exists():
+        if cache_root.is_symlink():
+            raise ConversionError(f"refusing to remove symlinked FMB cache: {cache_root}")
+        shutil.rmtree(cache_root)
+        print(f"[cache-cleanup] removed committed unit cache {cache_root}", flush=True)
+
+
+def _cleanup_legacy_datasets_cache(local_root: Path) -> None:
+    """Remove the pre-fix shared cache; preflight/checkpoints are elsewhere."""
+
+    cache_root = local_root / "cache" / "runtime" / "datasets"
+    if cache_root.exists():
+        if cache_root.is_symlink():
+            raise ConversionError(f"refusing to remove symlinked legacy cache: {cache_root}")
+        print(f"[cache-cleanup] removing legacy shared cache {cache_root}", flush=True)
+        shutil.rmtree(cache_root)
 
 
 def _plan_payload(plan: Any) -> dict[str, Any]:
@@ -133,25 +194,41 @@ def _worker(unit: ParallelWorkUnit) -> dict[str, Any]:
     root = Path(unit.target_path)
     root.parent.mkdir(parents=True, exist_ok=True)
     plan = payload.plan
-    write_dataset(
-        plan,
-        lambda episode: iter_fmb_frames(plan, episode, Path(payload.raw_root)),
-        root,
-        rgb_encoder=_fmb_rgb_encoder(),
-        streaming_encoding=True,
-        blocking_streaming_encoding=True,
-        encoder_queue_maxsize=30,
-        encoder_threads=payload.encoder_threads,
-        encoder_temp_root=root / "encoder-temp",
-        deferred_video_concatenation=True,
-        batch_metadata_writes=True,
-        fragmented_mp4_writes=False,
-    )
-    validate_written_dataset(plan, root)
-    validate_video_files(plan, root, expected_frames=unit.weight)
-    globalize_unit_data_files(unit)
-    write_verified_unit_marker(unit)
-    return {"unit": unit.key, "frames": unit.weight, "episodes": unit.episode_end - unit.episode_start}
+    source_root = root.parent / f".{root.name}.source"
+    datasets_cache_root = Path(payload.conversion_options["datasets_cache_root"])
+    print(f"[{unit.key}] staging FMB source members to local POSIX: {source_root}", flush=True)
+    try:
+        stage_fmb_unit_sources(
+            plan,
+            Path(payload.raw_root),
+            source_root,
+            progress=lambda message: print(f"[{unit.key}] {message}", flush=True),
+        )
+        with _fmb_datasets_cache(datasets_cache_root):
+            write_dataset(
+                plan,
+                lambda episode: iter_fmb_frames(plan, episode, source_root),
+                root,
+                rgb_encoder=_fmb_rgb_encoder(),
+                streaming_encoding=True,
+                blocking_streaming_encoding=True,
+                encoder_queue_maxsize=30,
+                encoder_threads=payload.encoder_threads,
+                encoder_temp_root=root / "encoder-temp",
+                deferred_video_concatenation=True,
+                batch_metadata_writes=True,
+                fragmented_mp4_writes=False,
+            )
+        validate_written_dataset(plan, root)
+        validate_video_files(plan, root, expected_frames=unit.weight)
+        globalize_unit_data_files(unit)
+        write_verified_unit_marker(unit)
+        print(f"[{unit.key}] local unit verified", flush=True)
+        return {"unit": unit.key, "frames": unit.weight, "episodes": unit.episode_end - unit.episode_start}
+    finally:
+        # Source members are reproducible from raw_root and must not be hashed
+        # into the verified output inventory or survive a successful commit.
+        shutil.rmtree(source_root, ignore_errors=True)
 
 
 def _validate_existing_unit(unit: ParallelWorkUnit) -> None:
@@ -172,6 +249,7 @@ def _make_units(
     encoder_threads: int,
     episodes_per_unit: int,
     fingerprint: str,
+    runtime_cache_root: Path,
 ) -> tuple[ParallelWorkUnit, ...]:
     slices = split_plan_into_units(partition.plan, max_episodes_per_unit=episodes_per_unit)
     units: list[ParallelWorkUnit] = []
@@ -209,7 +287,17 @@ def _make_units(
             estimated_memory_bytes=max(512 * 1024**2, min(source_bytes, 8 * 1024**3)),
             estimated_temp_bytes=estimated,
             fingerprint=unit_fingerprint,
-            payload=FmbWorkerPayload(unit_plan, str(raw_root), encoder_threads, {"workers": workers}),
+            payload=FmbWorkerPayload(
+                unit_plan,
+                str(raw_root),
+                encoder_threads,
+                {
+                    "workers": workers,
+                    "datasets_cache_root": str(
+                        _unit_datasets_cache_root(runtime_cache_root, partition.name, item.index)
+                    ),
+                },
+            ),
         ))
     validate_work_units(units)
     return tuple(units)
@@ -303,9 +391,14 @@ def _run_encoder_warmup(
             f"encoder warmup needs {frames} frames but the selected sample has "
             f"only {source_episode.num_frames}"
         )
-    warmup_episode = replace(source_episode, num_frames=frames)
+    warmup_episode = replace(
+        source_episode,
+        num_frames=frames,
+        extra={**source_episode.extra, "allow_frame_prefix": True},
+    )
     warmup_uid = f"{partition.name}__encoder_warmup"
     warmup_root = local_root / "warmup" / fingerprint[:24]
+    warmup_cache_root = local_root / "cache" / "runtime" / "warmup" / fingerprint[:24]
     warmup_plan = replace(
         partition.plan,
         dataset_uid=warmup_uid,
@@ -318,22 +411,34 @@ def _run_encoder_warmup(
         required_additional_bytes=4 * 1024**3,
     )
     started = time.monotonic()
+    warmup_source_root = local_root / "warmup" / f"{fingerprint[:24]}.source"
     try:
         warmup_root.parent.mkdir(parents=True, exist_ok=True)
-        write_dataset(
-            warmup_plan,
-            lambda episode: iter_fmb_frames(warmup_plan, episode, raw_root),
-            warmup_root,
-            rgb_encoder=_fmb_rgb_encoder(),
-            streaming_encoding=True,
-            blocking_streaming_encoding=True,
-            encoder_queue_maxsize=30,
-            encoder_threads=args.encoder_threads_per_worker,
-            encoder_temp_root=warmup_root / "encoder-temp",
-            batch_metadata_writes=True,
-            fragmented_mp4_writes=False,
-            deferred_video_concatenation=True,
+        print(
+            f"[warmup] staging source member to local POSIX: {warmup_source_root}",
+            flush=True,
         )
+        stage_fmb_unit_sources(
+            warmup_plan,
+            raw_root,
+            warmup_source_root,
+            progress=lambda message: print(f"[warmup] {message}", flush=True),
+        )
+        with _fmb_datasets_cache(warmup_cache_root):
+            write_dataset(
+                warmup_plan,
+                lambda episode: iter_fmb_frames(warmup_plan, episode, warmup_source_root),
+                warmup_root,
+                rgb_encoder=_fmb_rgb_encoder(),
+                streaming_encoding=True,
+                blocking_streaming_encoding=True,
+                encoder_queue_maxsize=30,
+                encoder_threads=args.encoder_threads_per_worker,
+                encoder_temp_root=warmup_root / "encoder-temp",
+                batch_metadata_writes=True,
+                fragmented_mp4_writes=False,
+                deferred_video_concatenation=True,
+            )
         validate_written_dataset(warmup_plan, warmup_root)
         validate_video_files(warmup_plan, warmup_root, expected_frames=warmup_plan.num_frames)
         elapsed = max(time.monotonic() - started, 1e-9)
@@ -346,6 +451,8 @@ def _run_encoder_warmup(
         }
     finally:
         shutil.rmtree(warmup_root, ignore_errors=True)
+        shutil.rmtree(warmup_source_root, ignore_errors=True)
+        shutil.rmtree(warmup_cache_root, ignore_errors=True)
 
 
 def _convert_partition(
@@ -368,13 +475,46 @@ def _convert_partition(
     work_root.mkdir(parents=True, exist_ok=True)
     plan = replace(partition.plan, output_path=final)
     partition = replace(partition, plan=plan)
-    units = _make_units(partition, work_root=work_root, raw_root=raw_root, workers=args.workers, encoder_threads=args.encoder_threads_per_worker, episodes_per_unit=args.episodes_per_unit, fingerprint=fingerprint)
+    runtime_cache_root = local_root / "cache" / "runtime"
+    units = _make_units(
+        partition,
+        work_root=work_root,
+        raw_root=raw_root,
+        workers=args.workers,
+        encoder_threads=args.encoder_threads_per_worker,
+        episodes_per_unit=args.episodes_per_unit,
+        fingerprint=fingerprint,
+        runtime_cache_root=runtime_cache_root,
+    )
+    for unit in units:
+        stale_source_root = Path(unit.target_path).parent / f".{Path(unit.target_path).name}.source"
+        if stale_source_root.exists():
+            print(f"[resume] removing stale local source staging {stale_source_root}", flush=True)
+            shutil.rmtree(stale_source_root)
     guard = _capacity_guard(local_root, args)
-    direct = prepare_direct_commits(units, partition_name=partition.name, partition_root=final, resume_root=resume_root)
+    direct = prepare_direct_commits(
+        units,
+        partition_name=partition.name,
+        partition_root=final,
+        resume_root=resume_root,
+        ossfs_io_timeout_seconds=args.ossfs_io_timeout_seconds,
+    )
+    for unit in direct.committed:
+        _cleanup_unit_datasets_cache(runtime_cache_root, partition.name, unit.index)
     prepared = prepare_work_units(direct.uncommitted, _validate_existing_unit, require_complete_plan=False) if direct.uncommitted else None
     reusable = prepared.reusable if prepared else ()
     pending = prepared.pending if prepared else ()
-    uploader = DirectCommitUploader(partition_name=partition.name, partition_root=final, resume_root=resume_root, workers=args.upload_workers, max_queue_units=args.max_inflight_units)
+    uploader = DirectCommitUploader(
+        partition_name=partition.name,
+        partition_root=final,
+        resume_root=resume_root,
+        workers=args.upload_workers,
+        max_queue_units=args.max_inflight_units,
+        on_committed=lambda unit: _cleanup_unit_datasets_cache(
+            runtime_cache_root, partition.name, unit.index
+        ),
+        ossfs_io_timeout_seconds=args.ossfs_io_timeout_seconds,
+    )
     try:
         for unit in reusable:
             uploader.submit(unit, trust_verified_marker=False)
@@ -415,7 +555,7 @@ def _convert_partition(
         final,
         resume_root=resume_root,
         reader_format="fmb_npy",
-        parallel_evidence={"workers": args.workers, "encoder_threads_per_worker": args.encoder_threads_per_worker, "upload_workers": args.upload_workers, "max_local_temp_bytes": args.max_local_temp_bytes, "min_local_free_bytes": args.min_local_free_bytes, "max_inflight_units": args.max_inflight_units, "peak_reservation": "active unit estimates plus next dispatch", "reused_units": [u.key for u in direct.committed], "worker_completion_order": list(completion), "peak_local_bytes": guard.peak_staging_bytes, "wall_seconds": time.monotonic() - started},
+        parallel_evidence={"workers": args.workers, "encoder_threads_per_worker": args.encoder_threads_per_worker, "upload_workers": args.upload_workers, "max_local_temp_bytes": args.max_local_temp_bytes, "min_local_free_bytes": args.min_local_free_bytes, "max_inflight_units": args.max_inflight_units, "ossfs_io_timeout_seconds": args.ossfs_io_timeout_seconds, "upload_attempts": 3, "peak_reservation": "active unit estimates plus next dispatch", "runtime_cache_policy": "per-unit datasets cache removed after durable direct commit; committed caches swept on resume", "reused_units": [u.key for u in direct.committed], "worker_completion_order": list(completion), "peak_local_bytes": guard.peak_staging_bytes, "wall_seconds": time.monotonic() - started},
     )
     elapsed = max(time.monotonic() - started, 1e-9)
     return {"partition": partition.name, "episodes": len(plan.episodes), "frames": plan.num_frames, "wall_seconds": elapsed, "frames_per_second": plan.num_frames / elapsed, "upload": upload_stats}
@@ -433,18 +573,58 @@ def _catalog_for_run(config: Any, raw_root: Path, cache_root: Path, args: argpar
     }
     if cache.is_file():
         payload = read_json_object(cache, "FMB preflight cache")
+        # A complete ZIP preflight can be reused after the same shards are
+        # extracted to OSSFS.  Re-scan only member stat/size metadata; avoid
+        # reading every large NPY payload again just to rebuild the catalog.
+        if (
+            payload.get("config_text") == args.config.read_text(encoding="utf-8")
+            and payload.get("cache_scope", {}).get("schema_version") == cache_scope["schema_version"]
+            and payload.get("cache_scope", {}).get("max_shards") == cache_scope["max_shards"]
+            and payload.get("cache_scope", {}).get("raw_root") != cache_scope["raw_root"]
+        ):
+            previous = catalog_from_payload(payload["catalog"], config, raw_root)
+            migrated = remap_catalog_to_extracted_root(previous, config, raw_root)
+            if migrated is not None:
+                atomic_write_json(
+                    cache,
+                    {
+                        "cache_scope": cache_scope,
+                        "config": str(args.config),
+                        "config_text": args.config.read_text(encoding="utf-8"),
+                        "catalog": catalog_to_payload(migrated),
+                    },
+                )
+                if getattr(args, "trust_preflight_source", False):
+                    print("[preflight] trusting complete cached source inventory", flush=True)
+                else:
+                    validate_catalog_sources(migrated, raw_root)
+                return migrated
         if (
             payload.get("config_text") == args.config.read_text(encoding="utf-8")
             and payload.get("cache_scope") == cache_scope
         ):
             catalog = catalog_from_payload(payload["catalog"], config, raw_root)
-            validate_catalog_sources(catalog, raw_root)
+            if getattr(args, "trust_preflight_source", False):
+                print("[preflight] trusting complete cached source inventory", flush=True)
+            else:
+                validate_catalog_sources(catalog, raw_root)
             return catalog
         # A different shard scope/config is a different preflight identity.
         # Fall through to a fresh scan and replace the cache atomically; never
         # reinterpret a partial catalog as a full source inventory.
-    catalog = inspect_fmb(config, raw_root, max_episodes=None, max_shards=args.max_shards)
-    atomic_write_json(cache, {"cache_scope": cache_scope, "config": str(args.config), "config_text": args.config.read_text(encoding="utf-8"), "catalog": catalog_to_payload(catalog)})
+    preflight_root = cache_root.parent / ".fmb-preflight-source"
+    try:
+        catalog = inspect_fmb(
+            config,
+            raw_root,
+            max_episodes=None,
+            max_shards=args.max_shards,
+            local_preflight_root=preflight_root,
+            progress=lambda message: print(f"[preflight] {message}", flush=True),
+        )
+        atomic_write_json(cache, {"cache_scope": cache_scope, "config": str(args.config), "config_text": args.config.read_text(encoding="utf-8"), "catalog": catalog_to_payload(catalog)})
+    finally:
+        shutil.rmtree(preflight_root, ignore_errors=True)
     return catalog
 
 
@@ -456,12 +636,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--inspect-only", "--dry-run", dest="inspect_only", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--trust-preflight-source",
+        action="store_true",
+        help="skip repeated OSSFS per-NPY stat validation after a complete preflight",
+    )
     parser.add_argument("--max-local-temp-bytes", type=_positive, default=DEFAULT_MAX_LOCAL_TEMP_BYTES)
     parser.add_argument("--min-local-free-bytes", type=_positive, default=DEFAULT_MIN_LOCAL_FREE_BYTES)
     parser.add_argument("--max-inflight-units", type=_positive, default=8)
     parser.add_argument("--workers", type=_positive, default=4)
     parser.add_argument("--encoder-threads-per-worker", type=_positive, default=DEFAULT_ENCODER_THREADS)
     parser.add_argument("--upload-workers", type=_positive, default=1)
+    parser.add_argument(
+        "--ossfs-io-timeout-seconds",
+        type=_positive_float,
+        default=900.0,
+        help="per-file no-progress timeout for OSSFS copy and validation",
+    )
     parser.add_argument("--episodes-per-unit", type=_positive, default=8)
     parser.add_argument("--max-episodes", type=_positive)
     parser.add_argument("--max-tasks", type=_positive)
@@ -479,6 +670,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.workers > args.max_inflight_units:
         raise SystemExit("--workers cannot exceed --max-inflight-units")
     raw_root, output_root = validate_source_and_output_roots(args.raw_root, args.output_root)
+    validate_extracted_fmb_root(raw_root)
     _, local_root = validate_source_and_output_roots(raw_root, args.local_work_root)
     _, local_root = validate_source_and_output_roots(output_root, local_root)
     if args.benchmark_report is not None:
@@ -544,6 +736,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     create_incomplete_output(collection_root, fingerprint=fingerprint, run_id=run_id)
     selected = tuple(_select_partition(partition, args) for partition in catalog.partitions)
     with exclusive_staging_lock(local_root / "fmb.lock"):
+        # Older runs used one shared HF parquet cache under
+        # cache/runtime/datasets.  It is reproducible and is not referenced by
+        # resume markers, so reclaim it once the collection lock is held.  New
+        # units use private caches and remove them after direct commit.
+        _cleanup_legacy_datasets_cache(local_root)
         reports = [_convert_partition(partition, args=args, raw_root=raw_root, output_root=collection_root, local_root=local_root, work_run_root=work_run_root, resume_root=resume_root, fingerprint=fingerprint) for partition in selected]
     manifest = {"schema_version": 1, "dataset_uid": uid, "fingerprint": fingerprint, "source": "Functional Manipulation Benchmark", "partitions": reports, "catalog": catalog.fingerprint_payload}
     atomic_write_json(collection_root / "collection_manifest.json", manifest)

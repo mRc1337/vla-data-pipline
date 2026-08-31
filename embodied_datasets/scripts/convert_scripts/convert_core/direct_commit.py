@@ -11,13 +11,14 @@ from __future__ import annotations
 from contextlib import suppress
 from dataclasses import dataclass
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import queue
 import shutil
 import threading
 import time
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 import uuid
 
 import numpy as np
@@ -39,6 +40,7 @@ DEFAULT_METADATA_BATCH_BYTES = 128 * 1024 * 1024
 DEFAULT_METADATA_BATCH_EPISODES = 1000
 DEFAULT_COPY_BLOCK_BYTES = 64 * 1024 * 1024
 DEFAULT_SAMPLE_BYTES = 1024 * 1024
+DEFAULT_UPLOAD_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -65,17 +67,27 @@ class DirectCommitUploader:
         workers: int,
         max_queue_units: int,
         retain_local_after_commit: bool = False,
+        on_committed: Callable[[ParallelWorkUnit], None] | None = None,
+        ossfs_io_timeout_seconds: float | None = None,
+        upload_attempts: int = DEFAULT_UPLOAD_ATTEMPTS,
     ) -> None:
         if workers <= 0:
             raise ValueError("upload workers must be positive")
         if max_queue_units <= 0:
             raise ValueError("upload queue size must be positive")
+        if ossfs_io_timeout_seconds is not None and ossfs_io_timeout_seconds <= 0:
+            raise ValueError("OSSFS I/O timeout must be positive")
+        if upload_attempts <= 0:
+            raise ValueError("upload attempts must be positive")
         self.partition_name = partition_name
         self.partition_root = partition_root
         self.resume_root = resume_root
         self.workers = workers
         self.max_queue_units = max_queue_units
         self.retain_local_after_commit = retain_local_after_commit
+        self.on_committed = on_committed
+        self.ossfs_io_timeout_seconds = ossfs_io_timeout_seconds
+        self.upload_attempts = upload_attempts
         self._queue: queue.Queue[tuple[ParallelWorkUnit, bool] | None] = queue.Queue(
             maxsize=max_queue_units
         )
@@ -114,6 +126,7 @@ class DirectCommitUploader:
                     continue
                 try:
                     started = time.monotonic()
+                    print(f"[direct-commit] start {unit.key}", flush=True)
                     commit_verified_unit(
                         unit,
                         partition_name=self.partition_name,
@@ -121,13 +134,33 @@ class DirectCommitUploader:
                         resume_root=self.resume_root,
                         trust_verified_marker=trusted,
                         retain_local_after_commit=self.retain_local_after_commit,
+                        ossfs_io_timeout_seconds=self.ossfs_io_timeout_seconds,
+                        upload_attempts=self.upload_attempts,
                     )
                 except BaseException as exc:
                     self._record_failure(exc)
                 else:
+                    if self.on_committed is not None:
+                        try:
+                            # commit_verified_unit has already persisted the
+                            # verified marker before this hook runs.  Cleanup
+                            # failures must not turn a durable upload into a
+                            # failed conversion; the cache is reproducible.
+                            self.on_committed(unit)
+                        except Exception as exc:
+                            print(
+                                f"[direct-commit] post-commit cleanup warning "
+                                f"for {unit.key}: {type(exc).__name__}: {exc}",
+                                flush=True,
+                            )
                     with self._lock:
                         self._completed += 1
                         self._elapsed_seconds += time.monotonic() - started
+                    print(
+                        f"[direct-commit] committed {unit.key} "
+                        f"in {time.monotonic() - started:.1f}s",
+                        flush=True,
+                    )
             finally:
                 self._queue.task_done()
 
@@ -454,6 +487,174 @@ def _validate_bulk_destination_with_retries(
     raise AssertionError("unreachable")
 
 
+def _validate_bulk_child(
+    path: str,
+    record: Mapping[str, Any],
+    verify_remote_sha256: bool,
+    connection: Any,
+) -> None:
+    try:
+        result = _validate_bulk_destination_with_retries(
+            Path(path), record, verify_remote_sha256=verify_remote_sha256
+        )
+        connection.send(("ok", result))
+    except BaseException as exc:
+        try:
+            connection.send(("error", f"{type(exc).__name__}: {exc}"))
+        except (BrokenPipeError, EOFError):
+            pass
+        raise
+    finally:
+        connection.close()
+
+
+def _validate_bulk_destination_with_timeout(
+    path: Path,
+    record: Mapping[str, Any],
+    *,
+    verify_remote_sha256: bool,
+    timeout_seconds: float | None,
+) -> dict[str, Any]:
+    if timeout_seconds is None:
+        return _validate_bulk_destination_with_retries(
+            path, record, verify_remote_sha256=verify_remote_sha256
+        )
+    context = multiprocessing.get_context("spawn")
+    parent, child = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_validate_bulk_child,
+        args=(str(path), dict(record), verify_remote_sha256, child),
+        name="fmb-ossfs-validation",
+    )
+    process.daemon = True
+    process.start()
+    child.close()
+    started = time.monotonic()
+    try:
+        while True:
+            if parent.poll(0.5):
+                status, value = parent.recv()
+                process.join(timeout=5.0)
+                if status == "ok":
+                    return value
+                raise ConversionError(f"remote validation failed for {path}: {value}")
+            if not process.is_alive():
+                process.join()
+                raise ConversionError(
+                    f"remote validation worker exited for {path}: "
+                    f"exitcode={process.exitcode}"
+                )
+            if time.monotonic() - started > timeout_seconds:
+                process.terminate()
+                process.join(timeout=5.0)
+                raise TimeoutError(
+                    f"OSSFS validation timed out after {timeout_seconds:.0f}s: {path}"
+                )
+    finally:
+        parent.close()
+
+
+def _copy_file_child(
+    source: str,
+    destination: str,
+    block_bytes: int,
+    connection: Any,
+) -> None:
+    copied = 0
+    last_report = 0
+    try:
+        with Path(source).open("rb") as incoming, Path(destination).open("wb") as outgoing:
+            while payload := incoming.read(block_bytes):
+                outgoing.write(payload)
+                copied += len(payload)
+                if copied - last_report >= block_bytes:
+                    connection.send(("progress", copied))
+                    last_report = copied
+            outgoing.flush()
+            os.fsync(outgoing.fileno())
+        connection.send(("done", copied))
+    except BaseException as exc:
+        try:
+            connection.send(("error", f"{type(exc).__name__}: {exc}"))
+        except (BrokenPipeError, EOFError):
+            pass
+        raise
+    finally:
+        connection.close()
+
+
+def _copy_file_with_timeout(
+    source: Path,
+    destination: Path,
+    *,
+    block_bytes: int,
+    timeout_seconds: float | None,
+) -> None:
+    if timeout_seconds is None:
+        # Keep the direct function path for local/test callers and existing
+        # monkeypatch-based failure-injection tests.
+        _copy_file(source, destination, block_bytes=block_bytes)
+        return
+    context = multiprocessing.get_context("spawn")
+    parent, child = context.Pipe(duplex=False)
+    process = context.Process(
+        target=_copy_file_child,
+        args=(str(source), str(destination), block_bytes, child),
+        name="fmb-ossfs-copy",
+    )
+    process.daemon = True
+    process.start()
+    child.close()
+    total = source.stat().st_size
+    started = time.monotonic()
+    last_progress = started
+    last_reported = 0
+    print(
+        f"[direct-commit] copy start {source.name} -> {destination} "
+        f"bytes={total}",
+        flush=True,
+    )
+    try:
+        while True:
+            if parent.poll(0.5):
+                status, value = parent.recv()
+                if status == "progress":
+                    last_progress = time.monotonic()
+                    last_reported = int(value)
+                    rate = last_reported / max(last_progress - started, 1e-9)
+                    print(
+                        f"[direct-commit] copy progress {destination} "
+                        f"{last_reported}/{total} bytes "
+                        f"({rate / 1024 / 1024:.1f} MiB/s)",
+                        flush=True,
+                    )
+                    continue
+                if status == "done":
+                    process.join(timeout=5.0)
+                    if int(value) != total:
+                        raise OSError(f"copied size differs: {value} != {total}")
+                    print(
+                        f"[direct-commit] copy done {destination} "
+                        f"elapsed={time.monotonic() - started:.1f}s",
+                        flush=True,
+                    )
+                    return
+                raise OSError(f"copy worker failed for {destination}: {value}")
+            if not process.is_alive():
+                process.join()
+                raise OSError(
+                    f"copy worker exited for {destination}: exitcode={process.exitcode}"
+                )
+            if time.monotonic() - last_progress > timeout_seconds:
+                process.terminate()
+                process.join(timeout=5.0)
+                raise TimeoutError(
+                    f"OSSFS copy stalled for {timeout_seconds:.0f}s: {destination}"
+                )
+    finally:
+        parent.close()
+
+
 def _copy_file(source: Path, destination: Path, *, block_bytes: int) -> None:
     if block_bytes <= 0:
         raise ValueError("copy block size must be positive")
@@ -680,6 +881,8 @@ def _finish_intent_once(
     verify_remote_sha256: bool,
     trust_local_source: bool = False,
     retain_local_after_commit: bool = False,
+    ossfs_io_timeout_seconds: float | None = None,
+    upload_attempts: int = DEFAULT_UPLOAD_ATTEMPTS,
 ) -> dict[str, Any]:
     root = Path(unit.target_path)
     local_bulk: list[Path] = []
@@ -692,10 +895,11 @@ def _finish_intent_once(
         evidence: dict[str, Any] | None = None
         if destination.exists():
             try:
-                evidence = _validate_bulk_destination_with_retries(
+                evidence = _validate_bulk_destination_with_timeout(
                     destination,
                     record,
                     verify_remote_sha256=verify_remote_sha256,
+                    timeout_seconds=ossfs_io_timeout_seconds,
                 )
             except (ConversionError, OSError, ValueError):
                 destination.unlink(missing_ok=True)
@@ -709,16 +913,35 @@ def _finish_intent_once(
             if not trust_local_source:
                 _validate_record(root, record, "work unit bulk file")
             destination.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                _copy_file(source, destination, block_bytes=copy_block_bytes)
-                evidence = _validate_bulk_destination_with_retries(
-                    destination,
-                    record,
-                    verify_remote_sha256=verify_remote_sha256,
-                )
-            except BaseException:
-                destination.unlink(missing_ok=True)
-                raise
+            last_error: BaseException | None = None
+            for attempt in range(1, upload_attempts + 1):
+                try:
+                    _copy_file_with_timeout(
+                        source,
+                        destination,
+                        block_bytes=copy_block_bytes,
+                        timeout_seconds=ossfs_io_timeout_seconds,
+                    )
+                    evidence = _validate_bulk_destination_with_timeout(
+                        destination,
+                        record,
+                        verify_remote_sha256=verify_remote_sha256,
+                        timeout_seconds=ossfs_io_timeout_seconds,
+                    )
+                    last_error = None
+                    break
+                except BaseException as exc:
+                    last_error = exc
+                    destination.unlink(missing_ok=True)
+                    if attempt < upload_attempts:
+                        print(
+                            f"[direct-commit] retry {attempt + 1}/{upload_attempts} "
+                            f"for {destination}: {type(exc).__name__}: {exc}",
+                            flush=True,
+                        )
+                        time.sleep(min(5.0 * attempt, 30.0))
+            if last_error is not None:
+                raise last_error
         record["remote_validation"] = evidence
     # Retain the complete local unit until every bulk object has copied and
     # passed remote validation.  A mid-upload failure can therefore resume
@@ -779,6 +1002,8 @@ def _finish_intent(
     verify_remote_sha256: bool,
     trust_local_source: bool = False,
     retain_local_after_commit: bool = False,
+    ossfs_io_timeout_seconds: float | None = None,
+    upload_attempts: int = DEFAULT_UPLOAD_ATTEMPTS,
 ) -> dict[str, Any]:
     """Finish one upload attempt and durably accumulate its elapsed time."""
 
@@ -795,6 +1020,8 @@ def _finish_intent(
             verify_remote_sha256=verify_remote_sha256,
             trust_local_source=trust_local_source,
             retain_local_after_commit=retain_local_after_commit,
+            ossfs_io_timeout_seconds=ossfs_io_timeout_seconds,
+            upload_attempts=upload_attempts,
         )
     except BaseException:
         # Keep the intent resumable while retaining timing from failed upload
@@ -826,6 +1053,8 @@ def commit_verified_unit(
     verify_remote_sha256: bool = False,
     trust_verified_marker: bool = False,
     retain_local_after_commit: bool = False,
+    ossfs_io_timeout_seconds: float | None = None,
+    upload_attempts: int = DEFAULT_UPLOAD_ATTEMPTS,
 ) -> dict[str, Any]:
     """Patch indices, copy bulk files to final paths, validate, then delete local bulk."""
 
@@ -846,12 +1075,15 @@ def commit_verified_unit(
                 verify_remote_sha256=verify_remote_sha256,
                 trust_local_source=False,
                 retain_local_after_commit=retain_local_after_commit,
+                ossfs_io_timeout_seconds=ossfs_io_timeout_seconds,
+                upload_attempts=upload_attempts,
             )
         validate_committed_unit(
             unit,
             partition_name=partition_name,
             partition_root=partition_root,
             resume_root=resume_root,
+            ossfs_io_timeout_seconds=ossfs_io_timeout_seconds,
         )
         return marker
     verified_marker = (
@@ -878,6 +1110,8 @@ def commit_verified_unit(
         verify_remote_sha256=verify_remote_sha256,
         trust_local_source=trust_verified_marker,
         retain_local_after_commit=retain_local_after_commit,
+        ossfs_io_timeout_seconds=ossfs_io_timeout_seconds,
+        upload_attempts=upload_attempts,
     )
 
 
@@ -887,6 +1121,7 @@ def validate_committed_unit(
     partition_name: str,
     partition_root: Path,
     resume_root: Path,
+    ossfs_io_timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     marker_path = committed_marker_path(resume_root, partition_name, unit)
     marker = read_json_object(marker_path, "direct commit marker")
@@ -896,13 +1131,14 @@ def validate_committed_unit(
     if marker.get("status") != "verified":
         raise ConversionError(f"direct commit is unfinished at {marker_path}")
     for record in marker.get("bulk", []):
-        _validate_bulk_destination_with_retries(
+        _validate_bulk_destination_with_timeout(
             partition_root / _marker_relative_path(record.get("destination"), "bulk destination"),
             record,
             verify_remote_sha256=bool(
                 isinstance(record.get("remote_validation"), Mapping)
                 and record["remote_validation"].get("remote_sha256_verified")
             ),
+            timeout_seconds=ossfs_io_timeout_seconds,
         )
     root = _marker_metadata_root(marker, resume_root=resume_root)
     for record in marker.get("work_metadata", []):
@@ -972,6 +1208,7 @@ def prepare_direct_commits(
     partition_name: str,
     partition_root: Path,
     resume_root: Path,
+    ossfs_io_timeout_seconds: float | None = None,
 ) -> DirectCommitPreparation:
     """Revalidate every committed chunk and isolate only corrupt units for rebuilding."""
 
@@ -1018,12 +1255,14 @@ def prepare_direct_commits(
                     resume_root,
                     copy_block_bytes=DEFAULT_COPY_BLOCK_BYTES,
                     verify_remote_sha256=False,
+                    ossfs_io_timeout_seconds=ossfs_io_timeout_seconds,
                 )
             validate_committed_unit(
                 unit,
                 partition_name=partition_name,
                 partition_root=partition_root,
                 resume_root=resume_root,
+                ossfs_io_timeout_seconds=ossfs_io_timeout_seconds,
             )
         except (ConversionError, OSError, ValueError):
             root = Path(unit.target_path)

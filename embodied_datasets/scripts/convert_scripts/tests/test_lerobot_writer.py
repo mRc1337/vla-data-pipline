@@ -283,6 +283,76 @@ def test_generated_index_stats_have_one_schema_for_single_and_multi_frame_episod
         assert schema.field(f"stats/{feature}/count").type == pa.list_(pa.int64())
 
 
+def test_streaming_image_stats_have_one_schema_for_multi_and_single_frame_episodes(
+    tmp_path: Path,
+):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from lerobot.configs.video import RGBEncoderConfig
+
+    episodes = (
+        EpisodePlan(
+            "source:0",
+            "split/segment:0",
+            "fixture task",
+            2,
+            {"checkpoint_unit": "fixture-unit"},
+        ),
+        EpisodePlan(
+            "source:1",
+            "split/segment:1",
+            "fixture task",
+            1,
+            {"checkpoint_unit": "fixture-unit"},
+        ),
+    )
+    output = tmp_path / "output"
+    plan = DatasetConversionPlan(
+        dataset_uid="stable_streaming_image_stats",
+        output_path=output,
+        fps=10,
+        measured_fps=10.0,
+        robot_type="fixture",
+        vector_features=(VectorFeatureSpec("observation.state", 1),),
+        camera_features=(CameraFeatureSpec("observation.images.head", 16, 16),),
+        episodes=episodes,
+    )
+
+    def frames(episode: EpisodePlan):
+        for frame_index in range(episode.num_frames):
+            yield {
+                "observation.state": np.asarray([frame_index], dtype=np.float32),
+                "observation.images.head": np.full(
+                    (16, 16, 3), 32 + frame_index, dtype=np.uint8
+                ),
+                "task": episode.instruction,
+            }
+
+    writer.convert_dataset(
+        plan,
+        frames,
+        reader_format="synthetic",
+        resume=True,
+        rgb_encoder=RGBEncoderConfig(vcodec="h264", crf=18, preset="medium"),
+        streaming_encoding=True,
+        blocking_streaming_encoding=True,
+        encoder_queue_maxsize=1,
+        encoder_threads=1,
+        fragmented_mp4_writes=True,
+    )
+
+    episodes_file = next((output / "meta" / "episodes").rglob("*.parquet"))
+    table = pq.read_table(episodes_file)
+    schema = table.schema
+    for stat in ("min", "max", "mean", "std", "q01", "q10", "q50", "q90", "q99"):
+        assert schema.field(f"stats/observation.images.head/{stat}").type == pa.list_(
+            pa.list_(pa.list_(pa.float64()))
+        )
+    count_key = "stats/observation.images.head/count"
+    assert schema.field(count_key).type == pa.list_(pa.int64())
+    assert table[count_key].to_pylist() == [[512], [256]]
+
+
 def test_real_writer_preserves_multidimensional_array_shape(tmp_path: Path):
     output = tmp_path / "output"
     episode = EpisodePlan(
