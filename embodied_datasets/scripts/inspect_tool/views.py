@@ -108,7 +108,12 @@ def action_bands(num_arms: int) -> List[Band]:
             eef_offset + ur.ACTION_EEF_POS_SLOT + ur.ACTION_EEF_ROT_SLOT,
         ))
         bands.append(Band(f"arm{arm_idx + 1}_gripper", gripper_offset, offset + ur.ACTION_ARM_BLOCK_DIM))
-    bands.append(Band("reserve", num_arms * ur.ACTION_ARM_BLOCK_DIM, ur.ACTION_CANONICAL_DIM))
+    if num_arms == 2:
+        bands.append(Band("arm2_padding", ur.ACTION_ARM2_PADDING_INDEX, ur.ACTION_RESERVE_START))
+        reserve_start = ur.ACTION_RESERVE_START
+    else:
+        reserve_start = ur.ACTION_ARM_BLOCK_DIM
+    bands.append(Band("reserve", reserve_start, ur.ACTION_CANONICAL_DIM))
     return bands
 
 

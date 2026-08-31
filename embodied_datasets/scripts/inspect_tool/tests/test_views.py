@@ -73,7 +73,8 @@ def test_action_bands_dual_arm_matches_128dim_layout():
         ("arm2_eef_pos", 41, 44),
         ("arm2_eef_rot", 44, 47),
         ("arm2_gripper", 47, 68),
-        ("reserve", 68, 128),
+        ("arm2_padding", 68, 69),
+        ("reserve", 69, 128),
     ]
 
 

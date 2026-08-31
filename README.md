@@ -366,6 +366,11 @@ stage1-5 / check1-3 / unify_representation.py / run_pipeline.py
 
 ## process_scripts 处理流程
 
+针对超大规模 `/mnt/data` 数据集，前三阶段另提供流式、稀疏清单实现：
+`embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/`。它不解码或复制视频，
+逐阶段把阈值、episode 判定和 frame rejection manifest 写到 `/mnt/data`，并按本节的
+128 维公共契约同时记录 canonical 维号。
+
 `run_pipeline.py` 按顺序对每个 episode 依次跑 Stage1-5，再跑 Check1-3（下面
 "跨本体统一表示"另有独立说明，不在下表内）：
 
@@ -418,8 +423,8 @@ observation.state_canonical_mask   # bool, shape (128,)，每帧写入，整数�
 | `[7:10]` | 3 | 末端位置delta | `ACTION_EEF_POS_SLOT` |
 | `[10:13]` | 3 | 末端旋转delta（axis-angle） | `ACTION_EEF_ROT_SLOT` |
 | `[13:34]` | 21 | 夹爪/灵巧手 | `GRIPPER_SLOT` |
-| `[34:68]`（仅双臂数据集） | 34 | ARM2，结构与 `[0:34]` 相同 | `ACTION_ARM_BLOCK_DIM` |
-| `[68:128]` | 60 | 预留，当前恒为0 | 无命名 |
+| `[34:69]`（仅双臂数据集） | 35 | ARM2；有效载荷 `[34:68]` 与 ARM1 相同，第 68 维固定为0且mask=False | `ACTION_DUAL_ARM_SLOT` |
+| `[69:128]` | 59 | 预留，当前恒为0 | `ACTION_RESERVE_START` |
 
 `unify_representation.apply_action()` 除计算128维向量外，还计算一个128维 bool
 mask。该mask 作为独立的 lerobot feature 写入最终数据集：

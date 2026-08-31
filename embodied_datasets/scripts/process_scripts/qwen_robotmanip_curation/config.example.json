@@ -1,0 +1,59 @@
+{
+  "defaults": {
+    "state_key": "observation.state",
+    "action_key": "action",
+    "embodiment": null,
+    "action_mode": "absolute",
+    "stage1_policy": "frame",
+    "median_kernels": [5, 5],
+    "savgol_window": 11,
+    "savgol_polyorder": 3,
+    "stage1_mad_scale": 8.0,
+    "stage1_quantile_floor": 0.999,
+    "stage2_da_threshold": 0.65,
+    "stage2_max_lag_seconds": 0.5,
+    "stage2_min_active_steps": 10,
+    "stage3_alpha": 0.1,
+    "calibration_samples": 200000,
+    "allow_positional_mapping": false,
+    "gripper_indices": {"observation.state": [], "action": []},
+    "angular_indices": {"observation.state": [], "action": []},
+    "quaternion_groups": {"observation.state": [], "action": []},
+    "canonical_indices": {"observation.state": null, "action": null},
+    "state_action_map": null
+  },
+  "datasets": {
+    "robodojo_real_piper_lerobot_v30": {
+      "embodiment": "piper_bimanual",
+      "gripper_indices": {"observation.state": [6, 13], "action": [6, 13]},
+      "canonical_indices": {
+        "observation.state": [0, 1, 2, 3, 4, 5, 14, 35, 36, 37, 38, 39, 40, 49],
+        "action": [0, 1, 2, 3, 4, 5, 13, 34, 35, 36, 37, 38, 39, 47]
+      }
+    },
+    "robodojo_real_piper_x_lerobot_v30": {
+      "embodiment": "piper_bimanual",
+      "gripper_indices": {"observation.state": [6, 13], "action": [6, 13]},
+      "canonical_indices": {
+        "observation.state": [0, 1, 2, 3, 4, 5, 14, 35, 36, 37, 38, 39, 40, 49],
+        "action": [0, 1, 2, 3, 4, 5, 13, 34, 35, 36, 37, 38, 39, 47]
+      }
+    },
+    "robodojo_real_arx_x5_lerobot_v30": {
+      "embodiment": "arx_x5_bimanual",
+      "gripper_indices": {"observation.state": [6, 13], "action": [6, 13]},
+      "canonical_indices": {
+        "observation.state": [0, 1, 2, 3, 4, 5, 14, 35, 36, 37, 38, 39, 40, 49],
+        "action": [0, 1, 2, 3, 4, 5, 13, 34, 35, 36, 37, 38, 39, 47]
+      }
+    },
+    "RoboDojo_lerobot_v30_video": {
+      "embodiment": "robodojo_sim_bimanual",
+      "gripper_indices": {"observation.state": [], "action": []},
+      "canonical_indices": {
+        "observation.state": [0, 1, 2, 3, 4, 5, 6, 35, 36, 37, 38, 39, 40, 41],
+        "action": [0, 1, 2, 3, 4, 5, 6, 34, 35, 36, 37, 38, 39, 40]
+      }
+    }
+  }
+}

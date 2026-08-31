@@ -63,6 +63,12 @@ ACTION_JOINT_SLOT = 7
 ACTION_EEF_POS_SLOT = 3
 ACTION_EEF_ROT_SLOT = 3
 ACTION_ARM_BLOCK_DIM = ACTION_JOINT_SLOT + ACTION_EEF_POS_SLOT + ACTION_EEF_ROT_SLOT + GRIPPER_SLOT  # 34
+# ``公开数据集格式规范.docx`` assigns ARM2 the 35-D slice [34:69].
+# Its payload still mirrors ARM1 and occupies [34:68]; index 68 is an
+# explicit zero/unmasked padding slot, and the reserve begins at 69.
+ACTION_DUAL_ARM_SLOT = 35
+ACTION_ARM2_PADDING_INDEX = 68
+ACTION_RESERVE_START = 69
 ACTION_CANONICAL_DIM = 128
 
 SUPPORTED_ACTION_SPACES: Set[str] = {"eef_pose", "joint_position"}
@@ -171,7 +177,9 @@ def apply_action(episode: Episode, config: ProcessConfig) -> StageResult:
     not shared, and the per-arm block widths differ too: state is
     joint(7)+eef(7)+gripper(21)=35 per arm, action is
     joint(7)+eef_pos(3)+eef_rot(3)+gripper(21)=34 per arm (no padding dim
-    between eef_rot and gripper). Assumes action/state rotation columns are
+    between eef_rot and gripper). For a dual arm, the second 34-D payload is
+    placed at [34:68], while index 68 remains zero/mask=False so the complete
+    ARM2 slice is [34:69] as required by ``公开数据集格式规范.docx``. Assumes action/state rotation columns are
     already quaternion (same upstream-staging contract apply()'s module
     docstring documents for state).
 

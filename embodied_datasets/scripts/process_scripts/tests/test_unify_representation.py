@@ -275,6 +275,31 @@ def test_apply_action_eef_pose_delta_populates_eef_not_joint():
     assert not np.any(mask[34:128])  # single arm: arm2 block + reserve untouched
 
 
+def test_action_docx_arm2_padding_is_zero_and_unmasked():
+    # The DOCX allocates ARM2 [34:69], although its payload mirrors the
+    # 34-D ARM1 block. Index 68 is therefore an explicit padding member.
+    action = np.zeros((3, 16))
+    action[:, 0:3] = [0.1, 0.2, 0.3]
+    action[:, 3:7] = [0.0, 0.0, 0.0, 1.0]
+    action[:, 7] = 0.2
+    action[:, 8:11] = [0.4, 0.5, 0.6]
+    action[:, 11:15] = [0.0, 0.0, 0.0, 1.0]
+    action[:, 15] = 0.8
+    episode = _action_episode(action, state=np.zeros((3, 28)))
+    config = ProcessConfig(
+        id="x", embodiment_class="dual_arm", action_space="eef_pose",
+        action_frame="delta", num_arms=2, gripper_type="parallel_jaw",
+    )
+    result = apply_action(episode, config)
+    canonical = result.stats["action_canonical"]
+    mask = result.stats["action_canonical_mask"]
+    assert canonical.shape == (3, 128)
+    assert np.all(canonical[:, 68] == 0)
+    assert not mask[68]
+    assert np.all(canonical[:, 69:] == 0)
+    assert not np.any(mask[69:])
+
+
 def test_apply_action_eef_pose_absolute_frame_subtracts_current_state_eef():
     action = [4.0, 5.0, 6.0, 0.0, 0.0, 0.0, 1.0, 0.5]
     state = np.zeros((3, 14))
@@ -420,7 +445,8 @@ def test_apply_action_dual_arm_packs_into_correct_blocks():
     assert mask[13]
     assert np.all(mask[41:47])
     assert mask[47]
-    assert not np.any(mask[68:128])  # reserve untouched
+    assert not mask[68]  # DOCX ARM2 padding
+    assert not np.any(mask[69:128])  # reserve untouched
 
 
 def test_apply_action_keeps_separate_2d_mobile_base_out_of_arm_division():
