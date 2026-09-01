@@ -257,8 +257,16 @@ async def episodes(uid: str) -> list[dict[str, Any]]:
     return catalog.list_episodes(uid)
 
 
+@app.get("/api/datasets/{uid}/episodes/{episode_index}/preview")
+async def episode_preview(uid: str, episode_index: int) -> dict[str, Any]:
+    try:
+        return catalog.episode_preview(uid, episode_index)
+    except (FileNotFoundError, IndexError):
+        raise HTTPException(404, "episode not found") from None
+
+
 @app.get("/api/datasets/{uid}/episodes/{episode_index}/series")
-async def series(uid: str, episode_index: int, fields: str = "state,action", limit: int = Query(2000, ge=1, le=10000)) -> dict[str, Any]:
+async def series(uid: str, episode_index: int, fields: str = "observation.state,action", limit: int = Query(2000, ge=1, le=10000)) -> dict[str, Any]:
     try:
         values = catalog.episode_series(uid, episode_index, [f.strip() for f in fields.split(",")], limit)
     except FileNotFoundError: raise HTTPException(404, "dataset not indexed")

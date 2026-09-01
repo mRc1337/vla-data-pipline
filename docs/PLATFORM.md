@@ -47,6 +47,7 @@ PostgreSQL、Celery CPU worker 和 Nginx。GPU Stage 可复制 worker 服务并
 - `standard` 只读取视频容器头和 Parquet footer/schema/行数；`deep` 额外解码至少一帧并校验 Parquet schema。坏文件会落成 `fail` 记录，不会使整批扫描失败。
 - 扫描范围默认只发现 staging 根下的标准 LeRobot 容器；`root` 可显式限定到嵌套目录或 `data_curation/stageN`，避免在 FUSE/海量目录中递归探测未知树。
 - `GET /api/datasets/{uid}/episodes/{index}/series` 返回有界 Parquet state/action 采样。
+- `GET /api/datasets/{uid}/episodes/{index}/preview` 返回 Episode 元数据、instruction、按元数据定位的多相机视频 URL 和 Stage 产物对比；前端工作台提供 Episode 搜索选择、同步播放、当前帧/时间戳、state/action 及位置/姿态/关节曲线。视频通过 `/api/videos/...` 的 HTTP Range 响应播放。
 - `GET /api/videos/{uid}/{relative_path}` 支持 `Range: bytes=start-end`，不会把 MP4 上传到云端。
 - `POST /api/pipelines/run` 创建 Stage 任务；`GET /api/tasks/{id}` 轮询状态、进度、错误和汇总。
 - `POST /api/annotations` 新增人工标签版本，自动标签不会被覆盖。

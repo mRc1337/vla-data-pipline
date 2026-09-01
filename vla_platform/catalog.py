@@ -433,14 +433,25 @@ class Catalog:
                         for episode_file in episode_files:
                             parquet = pq.ParquetFile(episode_file)
                             names = set(parquet.schema.names)
-                            columns = [name for name in ("episode_index", "frame_count", "frames", "instruction") if name in names]
+                            columns = [name for name in ("episode_index", "frame_count", "frames", "length", "instruction", "tasks") if name in names]
                             if not columns:
                                 continue
-                            for batch in parquet.iter_batches(columns=columns, batch_size=1000):
+                            if "tasks" not in columns:
+                                columns.append("tasks")
+                            try:
+                                batches = parquet.iter_batches(columns=columns, batch_size=1000)
+                            except Exception:
+                                columns = [name for name in columns if name != "tasks"]
+                                batches = parquet.iter_batches(columns=columns, batch_size=1000)
+                            for batch in batches:
                                 for item in batch.to_pylist():
                                     index = int(item.get("episode_index", item.get("index", 0)))
-                                    count = int(item.get("frame_count", item.get("frames", 0)) or 0)
-                                    episode_rows.append((uid, index, count, count / float(info.get("fps", 1) or 1), item.get("instruction"), json.dumps(item, default=str)))
+                                    count = int(item.get("frame_count", item.get("frames", item.get("length", 0))) or 0)
+                                    instruction = item.get("instruction")
+                                    if instruction is None:
+                                        tasks = item.get("tasks")
+                                        instruction = tasks[0] if isinstance(tasks, list) and tasks else tasks
+                                    episode_rows.append((uid, index, count, count / float(info.get("fps", 1) or 1), instruction, json.dumps(item, default=str)))
                                     if len(episode_rows) >= 1000:
                                         db.executemany("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,metadata_json) VALUES(?,?,?,?,?,?)", episode_rows)
                                         episode_rows.clear()
@@ -496,6 +507,171 @@ class Catalog:
         return [{"dataset_uid": uid, "episode_index": i, "frames": 0, "duration": 0, "instruction": None}
                 for i in range(dataset["episodes"])]
 
+    @classmethod
+    def _load_episode_metadata(cls, root: Path, episode_index: int) -> dict[str, Any] | None:
+        """Load one episode row from the compact metadata parquet."""
+        try:
+            import pyarrow.parquet as pq
+        except ImportError:
+            return None
+        info = cls._json(root / "meta" / "info.json")
+        fps = float(info.get("fps", 1) or 1)
+        files = sorted(root.glob("meta/episodes*.parquet")) + sorted(root.glob("meta/episodes/**/*.parquet"))
+        for episode_file in files:
+            try:
+                parquet = pq.ParquetFile(episode_file)
+                names = set(parquet.schema.names)
+                columns = [name for name in ("episode_index", "frame_count", "frames", "length", "instruction", "tasks",
+                                              "data/chunk_index", "data/file_index", "dataset_from_index", "dataset_to_index",
+                                              "videos/observation.images.front/chunk_index", "videos/observation.images.front/file_index",
+                                              "videos/observation.images.front/from_timestamp", "videos/observation.images.front/to_timestamp",
+                                              "videos/observation.images.wrist/chunk_index", "videos/observation.images.wrist/file_index",
+                                              "videos/observation.images.wrist/from_timestamp", "videos/observation.images.wrist/to_timestamp") if name in names]
+                if "tasks" not in columns:
+                    # HuggingFace/Arrow stores this logical list field as
+                    # repeated ``element`` nodes, so it is absent from
+                    # ParquetSchema.names even though it is selectable.
+                    columns.append("tasks")
+                try:
+                    batches = parquet.iter_batches(columns=columns, batch_size=2048)
+                except Exception:
+                    columns = [name for name in columns if name != "tasks"]
+                    batches = parquet.iter_batches(columns=columns, batch_size=2048)
+                for batch in batches:
+                    for item in batch.to_pylist():
+                        if int(item.get("episode_index", -1)) != episode_index:
+                            continue
+                        count = int(item.get("frame_count", item.get("frames", item.get("length", 0))) or 0)
+                        instruction = item.get("instruction")
+                        if instruction is None:
+                            tasks = item.get("tasks")
+                            instruction = tasks[0] if isinstance(tasks, list) and tasks else tasks
+                        return {
+                            "dataset_uid": "",
+                            "episode_index": episode_index,
+                            "frames": count,
+                            "duration": count / fps,
+                            "instruction": instruction,
+                            "metadata_json": json.dumps(item, default=str),
+                        }
+            except (OSError, ValueError):
+                continue
+        return None
+
+    @staticmethod
+    def _stage_episode_records(stage_root: Path, episode_index: int) -> list[dict[str, Any]]:
+        """Read small per-episode audit files without touching source videos."""
+        records: list[dict[str, Any]] = []
+        try:
+            import pyarrow.parquet as pq
+        except ImportError:
+            return records
+        for path in stage_root.glob("**/audit/*.parquet"):
+            try:
+                parquet = pq.ParquetFile(path)
+                names = set(parquet.schema.names)
+                if "episode_index" not in names:
+                    continue
+                columns = [name for name in names if name != "episode_index"]
+                columns.insert(0, "episode_index")
+                for batch in parquet.iter_batches(columns=columns, batch_size=2048):
+                    for item in batch.to_pylist():
+                        if int(item.get("episode_index", -1)) == episode_index:
+                            records.append({"file": str(path.relative_to(stage_root)), **item})
+            except (OSError, ValueError):
+                continue
+        return records
+
+    def episode_preview(self, uid: str, episode_index: int) -> dict[str, Any]:
+        """Return bounded episode metadata, video references and stage labels."""
+        dataset = self.get_dataset(uid)
+        if not dataset:
+            raise FileNotFoundError(uid)
+        episodes = self.list_episodes(uid)
+        episode = next((item for item in episodes if item["episode_index"] == episode_index), None)
+        if episode is None:
+            raise IndexError(episode_index)
+        root = Path(dataset["root"])
+        if not episode.get("metadata_json") or not episode.get("frames"):
+            loaded = self._load_episode_metadata(root, episode_index)
+            if loaded:
+                episode = {**episode, **loaded, "dataset_uid": uid}
+        info = self._json(root / "meta" / "info.json")
+        metadata: dict[str, Any] = {}
+        try:
+            metadata = json.loads(episode.get("metadata_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
+        video_template = info.get("video_path", "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4")
+        videos: list[dict[str, Any]] = []
+        chunks_size = int(info.get("chunks_size", 1000) or 1000)
+        for camera in dataset.get("cameras", []):
+            prefix = f"videos/{camera}"
+            chunk = metadata.get(f"{prefix}/chunk_index", episode_index // chunks_size)
+            file_index = metadata.get(f"{prefix}/file_index", episode_index % chunks_size)
+            try:
+                relative = str(video_template.format(video_key=camera, chunk_index=int(chunk), file_index=int(file_index)))
+            except (KeyError, ValueError):
+                relative = f"videos/{camera}/chunk-{int(chunk):03d}/file-{int(file_index):03d}.mp4"
+            path = (root / relative).resolve()
+            if path.is_file() and root.resolve() in path.parents:
+                videos.append({
+                    "camera": camera,
+                    "relative_path": relative,
+                    "url": f"/api/videos/{uid}/{relative}",
+                    "timestamp_start": metadata.get(f"{prefix}/from_timestamp", 0),
+                    "timestamp_end": metadata.get(f"{prefix}/to_timestamp", episode.get("duration", 0)),
+                })
+
+        stage_results: list[dict[str, Any]] = []
+        curation_root = self.data_root / "data_curation"
+        for stage_id in range(1, 9):
+            stage_root = curation_root / f"stage{stage_id}" / uid
+            if not stage_root.is_dir():
+                continue
+            for manifest_path in sorted(stage_root.glob("**/manifest.json")):
+                try:
+                    manifest = self._json(manifest_path)
+                    summary = self._json(manifest_path.parent / "reports" / "summary.json")
+                except OSError:
+                    continue
+                stage_results.append({
+                    "stage_id": stage_id,
+                    "run_id": manifest_path.parent.name,
+                    "stage": manifest.get("stage", f"Stage {stage_id}"),
+                    "detector_version": manifest.get("detector_version"),
+                    "summary": summary,
+                    "records": self._stage_episode_records(manifest_path.parent, episode_index),
+                })
+            # Some detector implementations write audit files without a
+            # manifest (for example the smoke runner); expose them as a run.
+            if not list(stage_root.glob("**/manifest.json")):
+                records = self._stage_episode_records(stage_root, episode_index)
+                if records:
+                    stage_results.append({"stage_id": stage_id, "run_id": "audit", "stage": f"Stage {stage_id}", "records": records})
+
+        # Human/automatic annotations are stored separately from immutable
+        # stage artifacts.  Surface them as another comparable run instead
+        # of overwriting detector output.
+        annotations = self.list_annotations(uid, episode_index)
+        for annotation in annotations:
+            stage_id = annotation.get("stage_id")
+            if stage_id is None:
+                continue
+            result = next((item for item in stage_results
+                           if item["stage_id"] == stage_id and item["run_id"] == "annotations"), None)
+            if result is None:
+                result = {"stage_id": stage_id, "run_id": "annotations", "stage": f"Stage {stage_id}", "records": []}
+                stage_results.append(result)
+            result.setdefault("records", []).append(annotation)
+
+        return {
+            "dataset": dataset,
+            "episode": episode,
+            "videos": videos,
+            "stage_results": stage_results,
+        }
+
     def add_annotation(self, annotation: dict[str, Any]) -> dict[str, Any]:
         with self._connect() as db:
             columns = ",".join(annotation)
@@ -533,18 +709,47 @@ class Catalog:
         dataset = self.get_dataset(uid)
         if not dataset:
             raise FileNotFoundError(uid)
-        files = sorted(Path(dataset["root"]).glob("data/**/*.parquet"))
+        root = Path(dataset["root"])
+        files = sorted(root.glob("data/**/*.parquet"))
         if not files:
             return []
+        # Episode metadata points to the exact data partition.  Restricting
+        # the scan to that file is important for datasets with millions of
+        # frames; the fallback keeps custom datasets usable.
+        episode_meta = next((item for item in self.list_episodes(uid) if item["episode_index"] == episode_index), None)
+        metadata_json = episode_meta.get("metadata_json") if episode_meta else None
+        if not metadata_json:
+            loaded = self._load_episode_metadata(root, episode_index)
+            metadata_json = loaded.get("metadata_json") if loaded else None
+        if metadata_json:
+            try:
+                metadata = json.loads(metadata_json)
+                chunk = metadata.get("data/chunk_index")
+                file_index = metadata.get("data/file_index")
+                if chunk is not None and file_index is not None:
+                    candidate = root / "data" / f"chunk-{int(chunk):03d}" / f"file-{int(file_index):03d}.parquet"
+                    if candidate.is_file():
+                        files = [candidate]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
         try:
             import pyarrow.dataset as ds
-            table = ds.dataset([str(p) for p in files], format="parquet").to_table()
-            names = [f for f in fields if f in table.column_names]
-            if "episode_index" in table.column_names:
-                mask = table["episode_index"] == episode_index
-                table = table.filter(mask)
-            if names:
-                table = table.select(names)
-            return table.slice(0, limit).to_pylist()
+            dataset_obj = ds.dataset([str(p) for p in files], format="parquet")
+            available = set(dataset_obj.schema.names)
+            aliases = {"state": "observation.state"}
+            requested = [aliases.get(field, field) for field in fields]
+            names = [field for field in requested if field in available]
+            if "timestamp" in available and "timestamp" not in names:
+                names.insert(0, "timestamp")
+            if not names:
+                return []
+            filter_expr = ds.field("episode_index") == episode_index if "episode_index" in available else None
+            scanner = dataset_obj.scanner(columns=names, filter=filter_expr, batch_size=min(limit, 2048))
+            result: list[dict[str, Any]] = []
+            for batch in scanner.to_batches():
+                result.extend(batch.to_pylist())
+                if len(result) >= limit:
+                    break
+            return result[:limit]
         except (ImportError, OSError, ValueError):
             return []

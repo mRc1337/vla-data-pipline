@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 from vla_platform.api import app
 from vla_platform.catalog import Catalog
@@ -126,6 +127,50 @@ def test_video_metadata_endpoint(monkeypatch, tmp_path):
     response = TestClient(app).get("/api/datasets/demo/videos")
     assert response.status_code == 200
     assert response.json()[0]["relative_path"] == "videos/front.mp4"
+
+
+def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    dataset = tmp_path / "demo"
+    (dataset / "meta" / "episodes" / "chunk-000").mkdir(parents=True)
+    (dataset / "data" / "chunk-000").mkdir(parents=True)
+    (dataset / "videos" / "observation.images.front" / "chunk-000").mkdir(parents=True)
+    info = {"codebase_version": "v3.0", "total_episodes": 1, "total_frames": 2,
+            "fps": 10, "video_path": "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
+            "features": {"observation.images.front": {"dtype": "video"},
+                         "observation.state": {"dtype": "float32", "shape": [2]},
+                         "action": {"dtype": "float32", "shape": [2]}}}
+    (dataset / "meta" / "info.json").write_text(json.dumps(info))
+    pq.write_table(pa.table({
+        "episode_index": pa.array([0]), "length": pa.array([2]),
+        "tasks": pa.array([["move the block"]]), "data/chunk_index": pa.array([0]),
+        "data/file_index": pa.array([0]),
+        "videos/observation.images.front/chunk_index": pa.array([0]),
+        "videos/observation.images.front/file_index": pa.array([0]),
+        "videos/observation.images.front/from_timestamp": pa.array([0.0]),
+        "videos/observation.images.front/to_timestamp": pa.array([0.2]),
+    }), dataset / "meta" / "episodes" / "chunk-000" / "file-000.parquet")
+    pq.write_table(pa.table({
+        "observation.state": pa.array([[1.0, 2.0], [2.0, 3.0]]),
+        "action": pa.array([[0.1, 0.2], [0.2, 0.3]]),
+        "timestamp": pa.array([0.0, 0.1]), "frame_index": pa.array([0, 1]),
+        "episode_index": pa.array([0, 0]),
+    }), dataset / "data" / "chunk-000" / "file-000.parquet")
+    video = dataset / "videos" / "observation.images.front" / "chunk-000" / "file-000.mp4"
+    video.write_bytes(b"not-a-real-video")
+
+    catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+    catalog.scan(mode="standard")
+    preview = catalog.episode_preview("demo", 0)
+    assert preview["episode"]["instruction"] == "move the block"
+    assert preview["videos"][0]["relative_path"].endswith("file-000.mp4")
+    rows = catalog.episode_series("demo", 0, ["timestamp", "observation.state", "action"], limit=2)
+    assert len(rows) == 2 and rows[0]["observation.state"] == [1.0, 2.0]
+    monkeypatch.setattr("vla_platform.api.catalog", catalog)
+    response = TestClient(app).get("/api/datasets/demo/episodes/0/preview")
+    assert response.status_code == 200
+    assert response.json()["episode"]["instruction"] == "move the block"
 
 
 def test_async_scan_api_reports_terminal_status(monkeypatch, tmp_path):
