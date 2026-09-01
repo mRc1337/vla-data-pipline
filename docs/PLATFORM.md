@@ -6,6 +6,23 @@ Range 响应。
 
 ## 快速启动
 
+也可以直接使用一键脚本：
+
+```bash
+./scripts/local_deploy.sh start
+./scripts/local_deploy.sh status
+./scripts/local_deploy.sh logs api
+./scripts/local_deploy.sh stop
+```
+
+首次启动会创建 `.venv`、安装 Python/npm 依赖，并把 PID/日志写入
+`.local-run/`。若依赖已经准备好，可使用 `--skip-install`。Docker 模式：
+
+```bash
+./scripts/local_deploy.sh start --mode docker
+./scripts/local_deploy.sh stop --mode docker
+```
+
 ```bash
 cd /home/pai/zxw/vla-data-pipeline
 .venv/bin/pip install -r requirements.txt

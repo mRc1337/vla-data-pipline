@@ -45,6 +45,18 @@ python3 run_pipeline.py \
 
 ## 本地数据治理平台
 
+一键启动本地开发服务：
+
+```bash
+./scripts/local_deploy.sh start
+```
+
+访问 `http://127.0.0.1:5173`；停止服务使用
+`./scripts/local_deploy.sh stop`，查看日志使用
+`./scripts/local_deploy.sh logs api`。脚本默认使用
+`/mnt/data/embodied_datasets/public_datasets_staging`，也可通过
+`--data-root` 或 `VLA_DATA_ROOT` 覆盖。
+
 平台位于 `vla_platform/`，默认只读取同一数据节点上的
 `/mnt/data/embodied_datasets/public_datasets_staging`，不会上传视频或
 LeRobot 文件。后端提供目录扫描、Episode/标签、MP4 HTTP Range 和异步
