@@ -449,8 +449,10 @@ class Catalog:
                     except (ImportError, OSError, ValueError):
                         pass
                     self._scan_video_files(db, uid, root, deep=mode == "deep")
-                    if mode == "deep":
-                        self._scan_parquet_files(db, uid, root)
+                    # ParquetFile reads the footer/schema and row count without
+                    # materializing the full table, so it is safe for both
+                    # standard browser indexing and deep integrity scans.
+                    self._scan_parquet_files(db, uid, root)
                 db.execute("INSERT OR REPLACE INTO scan_fingerprints(root,dataset_uid,info_mtime_ns,info_size,episodes_mtime_ns,scanned_at) VALUES(?,?,?,?,?,?)",
                             (str(root), uid, info_mtime, info_size, episodes_mtime, time.time()))
             found.append(row)

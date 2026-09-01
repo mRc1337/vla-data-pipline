@@ -44,7 +44,7 @@ PostgreSQL、Celery CPU worker 和 Nginx。GPU Stage 可复制 worker 服务并
 - 快速扫描只读取 `meta/info.json` 和目录标记，不递归统计视频大小；未变化数据集由指纹直接跳过。
 - 扫描任务和指纹写入本地 SQLite；API 重启后未完成任务会标记为 `failed`，可以重新提交，已完成数据集仍可通过指纹复用。
 - `standard`/`deep` 会把视频和 Parquet 文件的 `size+mtime` 作为文件级指纹；未变化文件直接复用已索引的 codec、分辨率、FPS、行数和完整性结果，新增、修改或删除的文件才会重新处理。
-- `standard` 只读取视频容器头；`deep` 额外解码至少一帧并校验 Parquet schema。坏文件会落成 `fail` 记录，不会使整批扫描失败。
+- `standard` 只读取视频容器头和 Parquet footer/schema/行数；`deep` 额外解码至少一帧并校验 Parquet schema。坏文件会落成 `fail` 记录，不会使整批扫描失败。
 - 扫描范围默认只发现 staging 根下的标准 LeRobot 容器；`root` 可显式限定到嵌套目录或 `data_curation/stageN`，避免在 FUSE/海量目录中递归探测未知树。
 - `GET /api/datasets/{uid}/episodes/{index}/series` 返回有界 Parquet state/action 采样。
 - `GET /api/videos/{uid}/{relative_path}` 支持 `Range: bytes=start-end`，不会把 MP4 上传到云端。

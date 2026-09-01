@@ -47,6 +47,12 @@ app = FastAPI(title="VLA Data Governance Platform", version="0.1.0")
 scan_tasks: dict[str, dict[str, Any]] = {}
 scan_cancellations: dict[str, threading.Event] = {}
 scan_lock = threading.Lock()
+# SQLite is configured for a single writer.  Keep scan execution serialized in
+# the single-process deployment while allowing queued jobs to remain visible
+# and cancellable through the API.  A threading lock is used instead of an
+# asyncio primitive because TestClient and production workers can use
+# different event loops over the lifetime of this module.
+scan_execution_lock = threading.Lock()
 
 
 def _persist_scan(scan_id: str, task: dict[str, Any]) -> None:
@@ -123,27 +129,36 @@ def _safe_scan_root(root: str | None) -> str | None:
 
 async def _run_catalog_scan(scan_id: str, mode: str, scan_root: str | None) -> None:
     task = scan_tasks[scan_id]
-    task["status"] = "running"
-    task["started_at"] = time.time()
-    _persist_scan(scan_id, task)
-
-    def progress(update: dict[str, Any]) -> None:
-        with scan_lock:
-            task.update(update)
-            task["completed"] = int(update.get("current", 0))
-            task["skipped"] = int(task.get("skipped", 0)) + int(update.get("skipped", False))
-            elapsed = max(time.time() - task["started_at"], 0.001)
-            task["rate"] = task["completed"] / elapsed
-            total = int(update.get("total", 0))
-            task["eta_seconds"] = max((total - task["completed"]) / task["rate"], 0) if task["rate"] else None
-            _persist_scan(scan_id, task)
-
     try:
-        rows = await asyncio.to_thread(catalog.scan, mode, scan_root, progress, scan_cancellations[scan_id])
-        with scan_lock:
-            task.update(status="cancelled" if scan_cancellations[scan_id].is_set() else "succeeded",
-                        datasets=len(rows), finished_at=time.time())
+        await asyncio.to_thread(scan_execution_lock.acquire)
+        try:
+            cancellation = scan_cancellations[scan_id]
+            if cancellation.is_set():
+                task.update(status="cancelled", finished_at=time.time())
+                _persist_scan(scan_id, task)
+                return
+            task["status"] = "running"
+            task["started_at"] = time.time()
             _persist_scan(scan_id, task)
+
+            def progress(update: dict[str, Any]) -> None:
+                with scan_lock:
+                    task.update(update)
+                    task["completed"] = int(update.get("current", 0))
+                    task["skipped"] = int(task.get("skipped", 0)) + int(update.get("skipped", False))
+                    elapsed = max(time.time() - task["started_at"], 0.001)
+                    task["rate"] = task["completed"] / elapsed
+                    total = int(update.get("total", 0))
+                    task["eta_seconds"] = max((total - task["completed"]) / task["rate"], 0) if task["rate"] else None
+                    _persist_scan(scan_id, task)
+
+            rows = await asyncio.to_thread(catalog.scan, mode, scan_root, progress, cancellation)
+            with scan_lock:
+                task.update(status="cancelled" if cancellation.is_set() else "succeeded",
+                            datasets=len(rows), finished_at=time.time())
+                _persist_scan(scan_id, task)
+        finally:
+            scan_execution_lock.release()
     except Exception as exc:
         with scan_lock:
             task.update(status="failed", error=str(exc), finished_at=time.time())
