@@ -142,6 +142,8 @@ def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_p
                          "observation.state": {"dtype": "float32", "shape": [2]},
                          "action": {"dtype": "float32", "shape": [2]}}}
     (dataset / "meta" / "info.json").write_text(json.dumps(info))
+    pq.write_table(pa.table({"task_index": pa.array([0]), "__index_level_0__": pa.array(["move the block"])}),
+                   dataset / "meta" / "tasks.parquet")
     pq.write_table(pa.table({
         "episode_index": pa.array([0]), "length": pa.array([2]),
         "tasks": pa.array([["move the block"]]), "data/chunk_index": pa.array([0]),
@@ -162,6 +164,8 @@ def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_p
 
     catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
     catalog.scan(mode="standard")
+    assert catalog.list_tasks("demo") == [{"task_index": 0, "name": "move the block", "episodes": 1}]
+    assert catalog.list_episodes("demo", 0)[0]["task_index"] == 0
     preview = catalog.episode_preview("demo", 0)
     assert preview["episode"]["instruction"] == "move the block"
     assert preview["videos"][0]["relative_path"].endswith("file-000.mp4")
@@ -171,6 +175,7 @@ def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_p
     response = TestClient(app).get("/api/datasets/demo/episodes/0/preview")
     assert response.status_code == 200
     assert response.json()["episode"]["instruction"] == "move the block"
+    assert TestClient(app).get("/api/datasets/demo/tasks").json()[0]["episodes"] == 1
 
 
 def test_async_scan_api_reports_terminal_status(monkeypatch, tmp_path):

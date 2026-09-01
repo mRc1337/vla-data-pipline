@@ -251,10 +251,16 @@ async def videos(uid: str, integrity_status: str | None = Query(None)) -> list[d
     return catalog.list_videos(uid, integrity_status)
 
 
-@app.get("/api/datasets/{uid}/episodes")
-async def episodes(uid: str) -> list[dict[str, Any]]:
+@app.get("/api/datasets/{uid}/tasks")
+async def tasks(uid: str) -> list[dict[str, Any]]:
     if not catalog.get_dataset(uid): raise HTTPException(404, "dataset not indexed")
-    return catalog.list_episodes(uid)
+    return catalog.list_tasks(uid)
+
+
+@app.get("/api/datasets/{uid}/episodes")
+async def episodes(uid: str, task_index: int | None = Query(None, ge=0)) -> list[dict[str, Any]]:
+    if not catalog.get_dataset(uid): raise HTTPException(404, "dataset not indexed")
+    return catalog.list_episodes(uid, task_index)
 
 
 @app.get("/api/datasets/{uid}/episodes/{episode_index}/preview")

@@ -39,7 +39,7 @@ class Catalog:
             CREATE TABLE IF NOT EXISTS episodes (
               dataset_uid TEXT NOT NULL, episode_index INTEGER NOT NULL,
               frames INTEGER NOT NULL DEFAULT 0, duration REAL NOT NULL DEFAULT 0,
-              instruction TEXT, metadata_json TEXT NOT NULL DEFAULT '{}',
+              instruction TEXT, task_index INTEGER, metadata_json TEXT NOT NULL DEFAULT '{}',
               PRIMARY KEY(dataset_uid, episode_index)
             );
             CREATE TABLE IF NOT EXISTS annotations (
@@ -81,6 +81,11 @@ class Catalog:
               PRIMARY KEY(dataset_uid, relative_path)
             );
             """)
+            # Keep existing local catalogs compatible with the task-aware
+            # episode browser introduced after the initial schema.
+            episode_columns = {row[1] for row in db.execute("PRAGMA table_info(episodes)").fetchall()}
+            if "task_index" not in episode_columns:
+                db.execute("ALTER TABLE episodes ADD COLUMN task_index INTEGER")
 
     def create_scan_job(self, job: dict[str, Any]) -> None:
         columns = ("scan_id", "status", "mode", "root", "phase", "current", "total",
@@ -429,6 +434,7 @@ class Catalog:
                     try:
                         import pyarrow.parquet as pq
                         episode_files = sorted(root.glob("meta/episodes*.parquet")) + sorted(root.glob("meta/episodes/**/*.parquet"))
+                        task_map = self._load_task_map(root)
                         episode_rows: list[tuple[Any, ...]] = []
                         for episode_file in episode_files:
                             parquet = pq.ParquetFile(episode_file)
@@ -451,12 +457,13 @@ class Catalog:
                                     if instruction is None:
                                         tasks = item.get("tasks")
                                         instruction = tasks[0] if isinstance(tasks, list) and tasks else tasks
-                                    episode_rows.append((uid, index, count, count / float(info.get("fps", 1) or 1), instruction, json.dumps(item, default=str)))
+                                    task_index = next((key for key, value in task_map.items() if value == instruction), None)
+                                    episode_rows.append((uid, index, count, count / float(info.get("fps", 1) or 1), instruction, task_index, json.dumps(item, default=str)))
                                     if len(episode_rows) >= 1000:
-                                        db.executemany("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,metadata_json) VALUES(?,?,?,?,?,?)", episode_rows)
+                                        db.executemany("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,task_index,metadata_json) VALUES(?,?,?,?,?,?,?)", episode_rows)
                                         episode_rows.clear()
                         if episode_rows:
-                            db.executemany("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,metadata_json) VALUES(?,?,?,?,?,?)", episode_rows)
+                            db.executemany("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,task_index,metadata_json) VALUES(?,?,?,?,?,?,?)", episode_rows)
                     except (ImportError, OSError, ValueError):
                         pass
                     self._scan_video_files(db, uid, root, deep=mode == "deep")
@@ -494,43 +501,99 @@ class Catalog:
         result["schema"] = json.loads(result.pop("schema_json") or "{}")
         return result
 
-    def list_episodes(self, uid: str) -> list[dict[str, Any]]:
+    def list_episodes(self, uid: str, task_index: int | None = None) -> list[dict[str, Any]]:
         dataset = self.get_dataset(uid)
         if not dataset:
             return []
         with self._connect() as db:
-            rows = db.execute("SELECT * FROM episodes WHERE dataset_uid=? ORDER BY episode_index", (uid,)).fetchall()
+            if task_index is None:
+                rows = db.execute("SELECT * FROM episodes WHERE dataset_uid=? ORDER BY episode_index", (uid,)).fetchall()
+            else:
+                rows = db.execute("SELECT * FROM episodes WHERE dataset_uid=? AND task_index=? ORDER BY episode_index", (uid, task_index)).fetchall()
         if rows:
             return [dict(r) for r in rows]
-        # LeRobot stores episode summaries in meta/episodes/*.parquet. Keep a useful
-        # fallback when pyarrow is unavailable and expose the dataset-level count.
-        return [{"dataset_uid": uid, "episode_index": i, "frames": 0, "duration": 0, "instruction": None}
-                for i in range(dataset["episodes"])]
+        # LeRobot stores episode summaries in meta/episodes/*.parquet. Read the
+        # compact metadata on demand when only a quick dataset scan exists.
+        # The unfiltered quick path intentionally stays O(1) and returns
+        # lightweight placeholders; episode_preview loads one row on demand.
+        # A task filter needs the compact metadata table to materialize the
+        # matching episode indices.
+        if task_index is None:
+            return [{"dataset_uid": uid, "episode_index": i, "frames": 0, "duration": 0, "instruction": None}
+                    for i in range(dataset["episodes"])]
+        metadata_rows = list(self._iter_episode_metadata(Path(dataset["root"])))
+        if metadata_rows:
+            result = [{"dataset_uid": uid, **item} for item in metadata_rows
+                      if task_index is None or item.get("task_index") == task_index]
+            if result:
+                return result
+        # Keep a useful fallback when pyarrow is unavailable and expose the
+        # dataset-level count.
+        return []
 
     @classmethod
-    def _load_episode_metadata(cls, root: Path, episode_index: int) -> dict[str, Any] | None:
-        """Load one episode row from the compact metadata parquet."""
+    def _load_task_map(cls, root: Path) -> dict[int, str]:
+        try:
+            import pyarrow.parquet as pq
+            path = root / "meta" / "tasks.parquet"
+            if not path.is_file():
+                return {}
+            table = pq.read_table(path, columns=["task_index", "__index_level_0__"])
+            result: dict[int, str] = {}
+            for item in table.to_pylist():
+                try:
+                    result[int(item["task_index"])] = str(item.get("__index_level_0__", ""))
+                except (TypeError, ValueError):
+                    continue
+            return result
+        except (ImportError, OSError, ValueError):
+            return {}
+
+    @classmethod
+    def list_tasks_for_root(cls, root: Path) -> list[dict[str, Any]]:
+        """Return task names and episode counts from a LeRobot dataset root."""
+        task_map = cls._load_task_map(root)
+        if not task_map:
+            return []
+        counts = {index: 0 for index in task_map}
+        for item in cls._iter_episode_metadata(root):
+            index = item.get("task_index")
+            if index in counts:
+                counts[index] += 1
+        return [{"task_index": index, "name": name, "episodes": counts.get(index, 0)}
+                for index, name in sorted(task_map.items())]
+
+    def list_tasks(self, uid: str) -> list[dict[str, Any]]:
+        dataset = self.get_dataset(uid)
+        if not dataset:
+            return []
+        return self.list_tasks_for_root(Path(dataset["root"]))
+
+    @classmethod
+    def _iter_episode_metadata(cls, root: Path) -> Iterable[dict[str, Any]]:
+        """Yield normalized compact episode rows without reading frame data."""
         try:
             import pyarrow.parquet as pq
         except ImportError:
-            return None
+            return
         info = cls._json(root / "meta" / "info.json")
         fps = float(info.get("fps", 1) or 1)
+        task_map = cls._load_task_map(root)
         files = sorted(root.glob("meta/episodes*.parquet")) + sorted(root.glob("meta/episodes/**/*.parquet"))
+        logical_columns = (
+            "episode_index", "frame_count", "frames", "length", "instruction", "tasks",
+            "data/chunk_index", "data/file_index", "dataset_from_index", "dataset_to_index",
+            "videos/observation.images.front/chunk_index", "videos/observation.images.front/file_index",
+            "videos/observation.images.front/from_timestamp", "videos/observation.images.front/to_timestamp",
+            "videos/observation.images.wrist/chunk_index", "videos/observation.images.wrist/file_index",
+            "videos/observation.images.wrist/from_timestamp", "videos/observation.images.wrist/to_timestamp",
+        )
         for episode_file in files:
             try:
                 parquet = pq.ParquetFile(episode_file)
                 names = set(parquet.schema.names)
-                columns = [name for name in ("episode_index", "frame_count", "frames", "length", "instruction", "tasks",
-                                              "data/chunk_index", "data/file_index", "dataset_from_index", "dataset_to_index",
-                                              "videos/observation.images.front/chunk_index", "videos/observation.images.front/file_index",
-                                              "videos/observation.images.front/from_timestamp", "videos/observation.images.front/to_timestamp",
-                                              "videos/observation.images.wrist/chunk_index", "videos/observation.images.wrist/file_index",
-                                              "videos/observation.images.wrist/from_timestamp", "videos/observation.images.wrist/to_timestamp") if name in names]
+                columns = [name for name in logical_columns if name in names]
                 if "tasks" not in columns:
-                    # HuggingFace/Arrow stores this logical list field as
-                    # repeated ``element`` nodes, so it is absent from
-                    # ParquetSchema.names even though it is selectable.
                     columns.append("tasks")
                 try:
                     batches = parquet.iter_batches(columns=columns, batch_size=2048)
@@ -539,23 +602,26 @@ class Catalog:
                     batches = parquet.iter_batches(columns=columns, batch_size=2048)
                 for batch in batches:
                     for item in batch.to_pylist():
-                        if int(item.get("episode_index", -1)) != episode_index:
-                            continue
+                        index = int(item.get("episode_index", item.get("index", 0)))
                         count = int(item.get("frame_count", item.get("frames", item.get("length", 0))) or 0)
                         instruction = item.get("instruction")
                         if instruction is None:
                             tasks = item.get("tasks")
                             instruction = tasks[0] if isinstance(tasks, list) and tasks else tasks
-                        return {
-                            "dataset_uid": "",
-                            "episode_index": episode_index,
-                            "frames": count,
-                            "duration": count / fps,
-                            "instruction": instruction,
-                            "metadata_json": json.dumps(item, default=str),
-                        }
+                        task_index = next((key for key, value in task_map.items() if value == instruction), None)
+                        yield {"episode_index": index, "frames": count,
+                               "duration": count / fps, "instruction": instruction,
+                               "task_index": task_index,
+                               "metadata_json": json.dumps(item, default=str)}
             except (OSError, ValueError):
                 continue
+
+    @classmethod
+    def _load_episode_metadata(cls, root: Path, episode_index: int) -> dict[str, Any] | None:
+        """Load one episode row from the compact metadata parquet."""
+        for item in cls._iter_episode_metadata(root):
+            if item["episode_index"] == episode_index:
+                return {"dataset_uid": "", **item}
         return None
 
     @staticmethod

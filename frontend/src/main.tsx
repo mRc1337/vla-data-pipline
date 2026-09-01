@@ -13,8 +13,9 @@ type Dataset = {
 };
 type Episode = {
   dataset_uid: string; episode_index: number; frames: number; duration: number;
-  instruction?: string | null; metadata_json?: string;
+  instruction?: string | null; task_index?: number | null; metadata_json?: string;
 };
+type DatasetTask = { task_index: number; name: string; episodes: number };
 type VideoRef = {
   camera: string; relative_path: string; url: string;
   timestamp_start?: number; timestamp_end?: number;
@@ -86,6 +87,8 @@ function Curve({ title, rows, field, dimensions, fps, intervals = [] }: {
 function App() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [selected, setSelected] = useState<Dataset>();
+  const [tasks, setTasks] = useState<DatasetTask[]>([]);
+  const [taskIndex, setTaskIndex] = useState<number>();
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [episodeIndex, setEpisodeIndex] = useState<number>();
   const [preview, setPreview] = useState<Preview>();
@@ -128,14 +131,23 @@ function App() {
   useEffect(() => { void refresh(); }, []);
 
   useEffect(() => {
+    if (!selected) { setTasks([]); setTaskIndex(undefined); return; }
+    setTasks([]); setTaskIndex(undefined); setEpisodes([]); setEpisodeIndex(undefined);
+    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/tasks`)
+      .then((response) => response.json()).then(setTasks)
+      .catch(() => message.error("Task 列表读取失败"));
+  }, [selected]);
+
+  useEffect(() => {
     if (!selected) { setEpisodes([]); setEpisodeIndex(undefined); return; }
     setPreview(undefined); setSeries([]); setEpisodeIndex(undefined);
-    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes`)
+    const query = taskIndex === undefined ? "" : `?task_index=${taskIndex}`;
+    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes${query}`)
       .then((response) => response.json()).then((items: Episode[]) => {
         setEpisodes(items);
         if (items.length) setEpisodeIndex(items[0].episode_index);
       }).catch(() => message.error("Episode 列表读取失败"));
-  }, [selected]);
+  }, [selected, taskIndex]);
 
   useEffect(() => {
     if (!selected || episodeIndex === undefined) return;
@@ -180,6 +192,10 @@ function App() {
     value: item.episode_index,
     label: `Episode ${item.episode_index} · ${item.frames || "?"} frames${item.instruction ? ` · ${item.instruction.slice(0, 72)}` : ""}`,
   })), [episodes]);
+  const taskOptions = useMemo(() => tasks.map((item) => ({
+    value: item.task_index,
+    label: `Task ${item.task_index} · ${item.episodes} episodes · ${item.name}`,
+  })), [tasks]);
 
   const syncTime = (source: HTMLVideoElement) => {
     if (syncing.current) return;
@@ -237,6 +253,7 @@ function App() {
           {!selected && <Card><Alert type="info" showIcon message="请先从左侧选择数据集" /></Card>}
           {selected && <>
             <Card title={`Episode 预览 / ${selected.uid}`} extra={<Space>
+              <Select allowClear showSearch virtual optionFilterProp="label" placeholder="选择 Task" value={taskIndex} options={taskOptions} onChange={setTaskIndex} style={{ width: 380 }} />
               <Select showSearch virtual optionFilterProp="label" placeholder="选择 Episode" value={episodeIndex} options={episodeOptions} onChange={setEpisodeIndex} style={{ width: 360 }} />
               {episodeIndex !== undefined && <InputNumber min={0} max={Math.max(0, selected.episodes - 1)} value={episodeIndex} onChange={(value) => value !== null && setEpisodeIndex(value)} />}
             </Space>}>
