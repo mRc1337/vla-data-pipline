@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -71,3 +72,34 @@ def test_annotation_review_version(monkeypatch, tmp_path):
     created = client.post("/api/annotations", json={"dataset_uid":"demo", "episode_index":0, "label_type":"quality"}).json()
     reviewed = client.patch(f"/api/annotations/{created['annotation_id']}/review", json={"reviewer":"qa"})
     assert reviewed.status_code == 200 and reviewed.json()["review_status"] == "reviewed"
+
+
+def test_quick_scan_avoids_deep_size_walk_and_reuses_fingerprint(tmp_path):
+    dataset = tmp_path / "demo"
+    make_dataset(dataset)
+    catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+    first = catalog.scan(mode="quick")
+    assert first[0]["bytes"] == 0
+    second = catalog.scan(mode="quick")
+    assert second[0]["uid"] == "demo"
+    assert catalog.list_datasets()[0]["bytes"] == 0
+
+
+def test_async_scan_api_reports_terminal_status(monkeypatch, tmp_path):
+    dataset = tmp_path / "demo"
+    make_dataset(dataset)
+    test_catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+    monkeypatch.setattr("vla_platform.api.catalog", test_catalog)
+    monkeypatch.setattr("vla_platform.api.DATA_ROOT", tmp_path)
+    with TestClient(app) as client:
+        response = client.post("/api/catalog/scan", json={"mode": "quick"})
+        assert response.status_code == 202
+        scan_id = response.json()["scan_id"]
+        deadline = time.time() + 3
+        while time.time() < deadline:
+            status = client.get(f"/api/catalog/scans/{scan_id}").json()
+            if status["status"] in {"succeeded", "failed", "cancelled"}:
+                break
+            time.sleep(0.02)
+        assert status["status"] == "succeeded"
+        assert status["datasets"] == 1

@@ -4,8 +4,9 @@ import json
 import os
 import sqlite3
 import time
+import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
 
 
 class Catalog:
@@ -24,6 +25,9 @@ class Catalog:
 
     def _init_db(self) -> None:
         with self._connect() as db:
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute("PRAGMA synchronous=NORMAL")
+            db.execute("PRAGMA busy_timeout=5000")
             db.executescript("""
             CREATE TABLE IF NOT EXISTS datasets (
               uid TEXT PRIMARY KEY, root TEXT NOT NULL, codebase_version TEXT,
@@ -48,6 +52,12 @@ class Catalog:
               comment TEXT, created_at REAL NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_annotations_dataset ON annotations(dataset_uid, episode_index);
+            CREATE TABLE IF NOT EXISTS scan_fingerprints (
+              root TEXT PRIMARY KEY, dataset_uid TEXT NOT NULL,
+              info_mtime_ns INTEGER NOT NULL, info_size INTEGER NOT NULL,
+              episodes_mtime_ns INTEGER NOT NULL DEFAULT 0,
+              scanned_at REAL NOT NULL
+            );
             """)
 
     @staticmethod
@@ -58,19 +68,117 @@ class Catalog:
         except (OSError, json.JSONDecodeError):
             return {}
 
-    def scan(self) -> list[dict[str, Any]]:
-        """Scan dataset directories without loading video payloads into memory."""
-        found: list[dict[str, Any]] = []
-        if not self.data_root.exists():
-            return found
-        info_paths = sorted(self.data_root.glob("*/meta/info.json"))
-        info_paths += sorted(self.data_root.glob("*/**/dataset/meta/info.json"))
-        seen_roots: set[Path] = set()
-        for info_path in info_paths:
-            root = info_path.parent.parent
-            if root in seen_roots:
+    def _dataset_roots(self, scan_root: Path | None = None) -> list[tuple[Path, Path]]:
+        """Find dataset markers while pruning caches, videos and temp trees."""
+        base = (scan_root or self.data_root).resolve()
+        if not base.exists():
+            return []
+        excluded = {".runtime_cache", ".conversion_work", ".conversion_logs", ".conversion_resume",
+                    ".lerobot-datasets-cache", ".git", "videos", "video", "artifacts"}
+        candidates: list[tuple[Path, Path]] = []
+
+        def add_if_dataset(root: Path) -> None:
+            info = root / "meta" / "info.json"
+            if info.is_file():
+                candidates.append((root, info))
+
+        add_if_dataset(base)
+        # Normal staging layout: <root>/<dataset>/meta/info.json. Stage runs
+        # are intentionally discovered only under data_curation/stageN.
+        containers: list[Path] = []
+        default_containers = {"lerobot_v3_0", "lerobot_v2_1"}
+        for child in os.scandir(base):
+            if not child.is_dir(follow_symlinks=False) or child.name in excluded:
                 continue
-            seen_roots.add(root)
+            child_path = Path(child.path)
+            # At the staging root, do not recursively inspect arbitrary cache,
+            # raw, or curation trees. They must be requested explicitly via
+            # scan(root=...). This keeps the default quick scan bounded.
+            if base == self.data_root.resolve() and child.name not in default_containers:
+                add_if_dataset(child_path)
+                continue
+            containers.append(child_path)
+        for container in containers:
+            add_if_dataset(container)
+            if container.name == "data_curation":
+                containers.extend(sorted((p for p in container.glob("stage[1-8]") if p.is_dir())))
+        visited: set[Path] = set()
+
+        def discover(container: Path, depth: int = 0, max_depth: int = 4) -> None:
+            container = container.resolve()
+            if container in visited or depth > max_depth or not container.is_dir():
+                return
+            visited.add(container)
+            add_if_dataset(container)
+            if (container / "meta" / "info.json").is_file() or depth == max_depth:
+                return
+            try:
+                children = list(os.scandir(container))
+            except OSError:
+                return
+            for child in children:
+                if child.is_dir(follow_symlinks=False) and child.name not in excluded and not child.name.startswith("."):
+                    discover(Path(child.path), depth + 1, max_depth)
+
+        for container in containers:
+            # The staging root is intentionally shallow: only datasets with a
+            # direct meta/info marker are considered. Nested layouts can be
+            # scanned explicitly with ``root=...`` without walking every
+            # payload directory in the global tree.
+            depth_limit = 1 if base == self.data_root.resolve() and container.name in default_containers else 4
+            discover(container, max_depth=depth_limit)
+        unique: dict[Path, Path] = {}
+        for root, info in candidates:
+            unique.setdefault(root.resolve(), info.resolve())
+        return sorted(unique.items(), key=lambda item: str(item[0]))
+
+    @staticmethod
+    def _episode_marker(root: Path) -> tuple[int, int]:
+        marker = 0
+        size = 0
+        for path in sorted(root.glob("meta/episodes*.parquet")) + sorted(root.glob("meta/episodes/**/*.parquet")):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            marker = max(marker, stat.st_mtime_ns)
+            size += stat.st_size
+        return marker, size
+
+    def _fingerprint(self, root: Path, info_path: Path) -> tuple[int, int, int]:
+        info_stat = info_path.stat()
+        episode_mtime, _ = self._episode_marker(root)
+        return info_stat.st_mtime_ns, info_stat.st_size, episode_mtime
+
+    def scan(
+        self,
+        mode: str = "quick",
+        scan_root: str | Path | None = None,
+        progress: Callable[[dict[str, Any]], None] | None = None,
+        cancel: threading.Event | None = None,
+    ) -> list[dict[str, Any]]:
+        """Scan metadata without loading videos; ``deep`` alone walks file sizes."""
+        if mode not in {"quick", "standard", "deep"}:
+            raise ValueError("scan mode must be quick, standard, or deep")
+        found: list[dict[str, Any]] = []
+        if progress:
+            progress({"phase": "discovering", "current": 0, "total": 0, "skipped": False})
+        roots = self._dataset_roots(Path(scan_root) if scan_root else None)
+        total = len(roots)
+        for position, (root, info_path) in enumerate(roots, start=1):
+            if cancel and cancel.is_set():
+                break
+            info_mtime, info_size, episodes_mtime = self._fingerprint(root, info_path)
+            with self._connect() as db:
+                previous = db.execute("SELECT info_mtime_ns,info_size,episodes_mtime_ns FROM scan_fingerprints WHERE root=?", (str(root),)).fetchone()
+                if mode == "quick" and previous and tuple(previous) == (info_mtime, info_size, episodes_mtime):
+                    existing = db.execute("SELECT * FROM datasets WHERE root=?", (str(root),)).fetchone()
+                    if existing:
+                        row = self._dataset_row(existing)
+                        found.append(row)
+                        if progress:
+                            progress({"phase": "indexing", "current": position, "total": total, "uid": row["uid"], "skipped": True})
+                        continue
             info = self._json(info_path)
             # Stage runs use stage<N>/<dataset>/<run_id>/dataset; preserve the
             # stable dataset uid while still indexing the immutable artifact.
@@ -81,7 +189,15 @@ class Catalog:
             cameras = sorted(k for k in features if k.startswith("observation.images"))
             episodes = int(info.get("total_episodes", 0) or 0)
             frames = int(info.get("total_frames", 0) or 0)
-            total_bytes = sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
+            total_bytes = 0
+            if mode == "deep":
+                for current, dirs, files in os.walk(root):
+                    dirs[:] = [d for d in dirs if d not in {".runtime_cache", ".conversion_work", ".conversion_logs", ".conversion_resume"}]
+                    for name in files:
+                        try:
+                            total_bytes += (Path(current) / name).stat().st_size
+                        except OSError:
+                            pass
             row = {
                 "uid": uid, "root": str(root),
                 "codebase_version": info.get("codebase_version", "unknown"),
@@ -99,19 +215,29 @@ class Catalog:
                     {**row, "cameras": json.dumps(cameras), "schema": json.dumps(features)})
                 # Episodes are small metadata parquet files; index them without
                 # touching image/video payloads.
-                try:
-                    import pyarrow.dataset as ds
-                    episode_files = sorted(root.glob("meta/episodes*.parquet"))
-                    if episode_files:
-                        table = ds.dataset([str(p) for p in episode_files], format="parquet").to_table()
-                        for item in table.to_pylist():
-                            index = int(item.get("episode_index", item.get("index", 0)))
-                            count = int(item.get("frame_count", item.get("frames", 0)) or 0)
-                            db.execute("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,metadata_json) VALUES(?,?,?,?,?,?)",
-                                (uid, index, count, count / float(info.get("fps", 1) or 1), item.get("instruction"), json.dumps(item, default=str)))
-                except (ImportError, OSError, ValueError):
-                    pass
+                if mode in {"standard", "deep"}:
+                    try:
+                        import pyarrow.parquet as pq
+                        episode_files = sorted(root.glob("meta/episodes*.parquet")) + sorted(root.glob("meta/episodes/**/*.parquet"))
+                        for episode_file in episode_files:
+                            parquet = pq.ParquetFile(episode_file)
+                            names = set(parquet.schema.names)
+                            columns = [name for name in ("episode_index", "frame_count", "frames", "instruction") if name in names]
+                            if not columns:
+                                continue
+                            for batch in parquet.iter_batches(columns=columns, batch_size=1000):
+                                for item in batch.to_pylist():
+                                    index = int(item.get("episode_index", item.get("index", 0)))
+                                    count = int(item.get("frame_count", item.get("frames", 0)) or 0)
+                                    db.execute("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,metadata_json) VALUES(?,?,?,?,?,?)",
+                                        (uid, index, count, count / float(info.get("fps", 1) or 1), item.get("instruction"), json.dumps(item, default=str)))
+                    except (ImportError, OSError, ValueError):
+                        pass
+                db.execute("INSERT OR REPLACE INTO scan_fingerprints(root,dataset_uid,info_mtime_ns,info_size,episodes_mtime_ns,scanned_at) VALUES(?,?,?,?,?,?)",
+                            (str(root), uid, info_mtime, info_size, episodes_mtime, time.time()))
             found.append(row)
+            if progress:
+                progress({"phase": "indexing", "current": position, "total": total, "uid": uid, "skipped": False})
         return found
 
     def list_datasets(self) -> list[dict[str, Any]]:

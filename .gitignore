@@ -4,6 +4,7 @@
 .codex/
 frontend/node_modules/
 frontend/dist/
+frontend/*.tsbuildinfo
 *.sqlite3
 .local-run/
 __pycache__/

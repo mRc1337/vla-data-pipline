@@ -6,6 +6,7 @@ import uuid
 import shutil
 import asyncio
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -42,10 +43,14 @@ except (OSError, Exception) as exc:
         raise exc
 runner = PipelineRunner(catalog, CURATION_ROOT)
 app = FastAPI(title="VLA Data Governance Platform", version="0.1.0")
+scan_tasks: dict[str, dict[str, Any]] = {}
+scan_cancellations: dict[str, threading.Event] = {}
+scan_lock = threading.Lock()
 
 
 class ScanRequest(BaseModel):
     root: str | None = None
+    mode: str = "quick"
 
 
 class PipelineRequest(BaseModel):
@@ -92,10 +97,104 @@ async def health() -> dict[str, Any]:
     return {"ok": True, "data_root": str(DATA_ROOT), "catalog": str(DB_PATH)}
 
 
-@app.post("/api/catalog/scan")
-async def scan(_: ScanRequest | None = None) -> dict[str, Any]:
-    rows = catalog.scan()
-    return {"datasets": rows, "count": len(rows), "scanned_at": time.time()}
+def _safe_scan_root(root: str | None) -> str | None:
+    if not root:
+        return None
+    candidate = Path(root)
+    if not candidate.is_absolute():
+        candidate = DATA_ROOT / candidate
+    candidate = candidate.resolve()
+    base = DATA_ROOT.resolve()
+    if candidate != base and base not in candidate.parents:
+        raise HTTPException(400, "scan root must be inside VLA_DATA_ROOT")
+    if not candidate.is_dir():
+        raise HTTPException(404, "scan root does not exist")
+    return str(candidate)
+
+
+async def _run_catalog_scan(scan_id: str, mode: str, scan_root: str | None) -> None:
+    task = scan_tasks[scan_id]
+    task["status"] = "running"
+    task["started_at"] = time.time()
+
+    def progress(update: dict[str, Any]) -> None:
+        with scan_lock:
+            task.update(update)
+            task["completed"] = int(update.get("current", 0))
+            task["skipped"] = int(task.get("skipped", 0)) + int(update.get("skipped", False))
+            elapsed = max(time.time() - task["started_at"], 0.001)
+            task["rate"] = task["completed"] / elapsed
+            total = int(update.get("total", 0))
+            task["eta_seconds"] = max((total - task["completed"]) / task["rate"], 0) if task["rate"] else None
+
+    try:
+        rows = await asyncio.to_thread(catalog.scan, mode, scan_root, progress, scan_cancellations[scan_id])
+        with scan_lock:
+            task.update(status="cancelled" if scan_cancellations[scan_id].is_set() else "succeeded",
+                        datasets=len(rows), finished_at=time.time())
+    except Exception as exc:
+        with scan_lock:
+            task.update(status="failed", error=str(exc), finished_at=time.time())
+    finally:
+        scan_cancellations.pop(scan_id, None)
+
+
+@app.post("/api/catalog/scan", status_code=202)
+async def scan(body: ScanRequest | None = None) -> dict[str, Any]:
+    body = body or ScanRequest()
+    if body.mode not in {"quick", "standard", "deep"}:
+        raise HTTPException(400, "scan mode must be quick, standard, or deep")
+    scan_id = f"scan-{uuid.uuid4().hex[:12]}"
+    task = {"scan_id": scan_id, "status": "queued", "mode": body.mode,
+            "root": _safe_scan_root(body.root), "current": 0, "completed": 0,
+            "skipped": 0, "datasets": 0, "eta_seconds": None, "created_at": time.time()}
+    scan_tasks[scan_id] = task
+    scan_cancellations[scan_id] = threading.Event()
+    asyncio.create_task(_run_catalog_scan(scan_id, body.mode, task["root"]))
+    return task
+
+
+@app.get("/api/catalog/scans/{scan_id}")
+async def scan_status(scan_id: str) -> dict[str, Any]:
+    task = scan_tasks.get(scan_id)
+    if not task:
+        raise HTTPException(404, "scan not found")
+    with scan_lock:
+        return dict(task)
+
+
+@app.post("/api/catalog/scans/{scan_id}/cancel")
+async def cancel_scan(scan_id: str) -> dict[str, Any]:
+    task = scan_tasks.get(scan_id)
+    if not task:
+        raise HTTPException(404, "scan not found")
+    event = scan_cancellations.get(scan_id)
+    if event:
+        event.set()
+    task["status"] = "cancelling"
+    return task
+
+
+@app.get("/api/catalog/scans/{scan_id}/events")
+async def scan_events(scan_id: str):
+    if scan_id not in scan_tasks:
+        raise HTTPException(404, "scan not found")
+
+    async def stream():
+        last = None
+        while True:
+            task = scan_tasks.get(scan_id)
+            if task is None:
+                break
+            payload = json.dumps(task, default=str)
+            if payload != last:
+                last = payload
+                yield f"data: {payload}\n\n"
+            if task["status"] in {"succeeded", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/datasets")
