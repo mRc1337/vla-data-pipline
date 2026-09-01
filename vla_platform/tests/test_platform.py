@@ -129,6 +129,18 @@ def test_video_metadata_endpoint(monkeypatch, tmp_path):
     assert response.json()[0]["relative_path"] == "videos/front.mp4"
 
 
+def test_task_map_accepts_explicit_task_index_column(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    dataset = tmp_path / "task-index"
+    (dataset / "meta").mkdir(parents=True)
+    pq.write_table(pa.table({
+        "task_index": pa.array([0]),
+        "task": pa.array(["open the bottle"]),
+    }), dataset / "meta" / "tasks.parquet")
+    assert Catalog._load_task_map(dataset) == {0: "open the bottle"}
+
+
 def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_path):
     pa = pytest.importorskip("pyarrow")
     pq = pytest.importorskip("pyarrow.parquet")

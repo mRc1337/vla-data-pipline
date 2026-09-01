@@ -538,15 +538,26 @@ class Catalog:
             path = root / "meta" / "tasks.parquet"
             if not path.is_file():
                 return {}
-            table = pq.read_table(path, columns=["task_index", "__index_level_0__"])
+            # LeRobot exports created by different versions use either the
+            # pandas default index name ``__index_level_0__`` or an explicit
+            # ``task`` index. Read the compact table once and accept both.
+            table = pq.read_table(path)
+            names = set(table.column_names)
+            if "task_index" not in names:
+                return {}
+            name_column = next((name for name in ("__index_level_0__", "task", "instruction") if name in names), None)
+            if name_column is None:
+                return {}
             result: dict[int, str] = {}
             for item in table.to_pylist():
                 try:
-                    result[int(item["task_index"])] = str(item.get("__index_level_0__", ""))
+                    name = item.get(name_column)
+                    if name is not None and str(name):
+                        result[int(item["task_index"])] = str(name)
                 except (TypeError, ValueError):
                     continue
             return result
-        except (ImportError, OSError, ValueError):
+        except (ImportError, OSError, ValueError, TypeError):
             return {}
 
     @classmethod

@@ -9,7 +9,10 @@ import "./style.css";
 
 type Dataset = {
   uid: string; episodes: number; frames: number; duration: number; bytes: number;
-  cameras: string[]; codebase_version: string; schema?: Record<string, unknown>;
+  cameras: string[]; codebase_version: string; root?: string; schema?: Record<string, unknown>;
+};
+type DatasetCollection = {
+  id: string; name: string; datasets: Dataset[]; episodes: number; frames: number; duration: number; bytes: number;
 };
 type Episode = {
   dataset_uid: string; episode_index: number; frames: number; duration: number;
@@ -30,6 +33,36 @@ type Task = { task_id: string; status: string; progress: number; stage_id: numbe
 type ScanTask = { scan_id: string; status: string; current: number; total: number; datasets: number; skipped: number; eta_seconds: number | null };
 
 const stages = Array.from({ length: 8 }, (_, i) => ({ value: i + 1, label: `Stage ${i + 1}` }));
+
+// The catalog indexes physical LeRobot roots. Public datasets commonly put
+// one task in each root (for example arcap/open_bottle), so group those roots
+// for display while retaining each member UID for API requests.
+function collectionName(dataset: Dataset): string {
+  const parts = (dataset.root || dataset.uid).split(/[\\/]+/).filter(Boolean);
+  const versionIndex = parts.findIndex((part) => /^lerobot_v\d+_\d+$/i.test(part));
+  if (versionIndex >= 0 && parts[versionIndex + 1]) return parts[versionIndex + 1];
+  return dataset.uid;
+}
+
+function buildCollections(rows: Dataset[]): DatasetCollection[] {
+  const grouped = new Map<string, Dataset[]>();
+  rows.filter((dataset) => !dataset.root?.includes("/data_curation/stage"))
+    .forEach((dataset) => {
+      const name = collectionName(dataset);
+      const members = grouped.get(name) || [];
+      members.push(dataset);
+      grouped.set(name, members);
+    });
+  return Array.from(grouped.entries()).map(([name, members]) => ({
+    id: name,
+    name,
+    datasets: members.sort((left, right) => left.uid.localeCompare(right.uid)),
+    episodes: members.reduce((sum, item) => sum + (item.episodes || 0), 0),
+    frames: members.reduce((sum, item) => sum + (item.frames || 0), 0),
+    duration: members.reduce((sum, item) => sum + (item.duration || 0), 0),
+    bytes: members.reduce((sum, item) => sum + (item.bytes || 0), 0),
+  })).sort((left, right) => left.name.localeCompare(right.name));
+}
 
 function numeric(value: unknown): number | null {
   if (Array.isArray(value)) return value.length ? numeric(value[0]) : null;
@@ -86,6 +119,12 @@ function Curve({ title, rows, field, dimensions, fps, intervals = [] }: {
 
 function App() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const collections = useMemo(() => buildCollections(datasets), [datasets]);
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string>();
+  const selectedCollection = useMemo(
+    () => collections.find((item) => item.id === selectedCollectionId),
+    [collections, selectedCollectionId],
+  );
   const [selected, setSelected] = useState<Dataset>();
   const [tasks, setTasks] = useState<DatasetTask[]>([]);
   const [taskIndex, setTaskIndex] = useState<number>();
@@ -105,6 +144,13 @@ function App() {
 
   const refresh = () => fetch("/api/datasets").then((response) => response.json()).then(setDatasets)
     .catch(() => message.error("后端未启动"));
+
+  const chooseCollection = (collection: DatasetCollection) => {
+    setSelectedCollectionId(collection.id);
+    setSelected(collection.datasets.length === 1 ? collection.datasets[0] : undefined);
+    setTasks([]); setTaskIndex(undefined); setEpisodes([]); setEpisodeIndex(undefined);
+    setPreview(undefined); setSeries([]);
+  };
 
   const scan = async (mode: "quick" | "standard" | "deep" = "quick") => {
     try {
@@ -241,17 +287,26 @@ function App() {
     <Layout.Content>
       <Row gutter={16}>
         <Col xs={24} lg={7}>
-          <Card title="数据集目录" extra={<Tag>{datasets.length}</Tag>}>
-            <List dataSource={datasets} className="dataset-list" renderItem={(dataset) => <List.Item onClick={() => setSelected(dataset)} className={selected?.uid === dataset.uid ? "selected" : "dataset-item"}>
-              <List.Item.Meta title={dataset.uid} description={`${dataset.episodes} episodes · ${dataset.frames} frames`} />
-              <Tag color="green">{dataset.codebase_version}</Tag>
+          <Card title="数据集目录" extra={<Tag>{collections.length}</Tag>}>
+            <List dataSource={collections} className="dataset-list" renderItem={(collection) => <List.Item onClick={() => chooseCollection(collection)} className={selectedCollection?.id === collection.id ? "selected" : "dataset-item"}>
+              <List.Item.Meta title={collection.name} description={`${collection.episodes} episodes · ${collection.frames} frames · ${collection.datasets.length} 个数据集`} />
+              <Tag color="green">{collection.datasets.length > 1 ? `${collection.datasets.length} members` : collection.datasets[0]?.codebase_version}</Tag>
             </List.Item>} />
           </Card>
         </Col>
         <Col xs={24} lg={17}>
-          {!selected && <Card><Alert type="info" showIcon message="请先从左侧选择数据集" /></Card>}
+          {!selectedCollection && <Card><Alert type="info" showIcon message="请先从左侧选择数据集集合" /></Card>}
+          {selectedCollection && !selected && <Card title={`数据集 / ${selectedCollection.name}`}>
+            <Alert type="info" showIcon message="该集合包含多个物理数据集，请先选择其中一个，再选择 Task 和 Episode。" />
+            <Select showSearch virtual optionFilterProp="label" placeholder="选择子数据集 / Task 集合" style={{ width: "100%", marginTop: 12 }}
+              options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${item.uid} · ${item.episodes} episodes · ${item.frames} frames` }))}
+              onChange={(uid) => setSelected(selectedCollection.datasets.find((item) => item.uid === uid))} />
+          </Card>}
           {selected && <>
-            <Card title={`Episode 预览 / ${selected.uid}`} extra={<Space>
+            <Card title={`Episode 预览 / ${selectedCollection?.name || selected.uid}`} extra={<Space>
+              {selectedCollection && selectedCollection.datasets.length > 1 && <Select showSearch virtual optionFilterProp="label" value={selected.uid}
+                placeholder="选择子数据集" style={{ width: 300 }} options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${item.uid} · ${item.episodes} episodes` }))}
+                onChange={(uid) => { setSelected(selectedCollection.datasets.find((item) => item.uid === uid)); setTaskIndex(undefined); }} />}
               <Select allowClear showSearch virtual optionFilterProp="label" placeholder="选择 Task" value={taskIndex} options={taskOptions} onChange={setTaskIndex} style={{ width: 380 }} />
               <Select disabled={taskIndex === undefined} showSearch virtual optionFilterProp="label" placeholder={taskIndex === undefined ? "先选择 Task" : "选择 Episode"} value={episodeIndex} options={episodeOptions} onChange={setEpisodeIndex} style={{ width: 360 }} />
               {episodeIndex !== undefined && <InputNumber disabled={taskIndex === undefined} min={0} max={Math.max(0, selected.episodes - 1)} value={episodeIndex} onChange={(value) => value !== null && setEpisodeIndex(value)} />}
