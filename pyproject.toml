@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 
 [tool.pytest.ini_options]
 pythonpath = [
+    ".",
     "embodied_datasets/scripts/process_scripts",
     "embodied_datasets/scripts/convert_scripts",
     "embodied_datasets/scripts/inspect_tool",

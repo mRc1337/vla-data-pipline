@@ -43,6 +43,29 @@ python3 run_pipeline.py \
     --config /any/path/to/process_config.yaml
 ```
 
+## 本地数据治理平台
+
+平台位于 `vla_platform/`，默认只读取同一数据节点上的
+`/mnt/data/embodied_datasets/public_datasets_staging`，不会上传视频或
+LeRobot 文件。后端提供目录扫描、Episode/标签、MP4 HTTP Range 和异步
+Stage 任务 API；运行产物遵循 `data_curation/stage<N>/<dataset>/<run_id>`，
+通过 manifest 指向原始数据，避免复制视频。
+
+```bash
+uvicorn vla_platform.api:app --host 0.0.0.0 --port 8000
+curl -X POST http://localhost:8000/api/catalog/scan
+```
+
+前端开发环境：
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+生产/隔离部署可使用 `docker compose up --build`。PostgreSQL 和 Redis
+已在 Compose 中预留给平台元数据与 worker；默认本地 profile 使用 SQLite
+和 asyncio，方便单机离线验证，切换 Celery/RQ 不改变 Stage 插件接口。
+
 ## 通用数据集 schema-dump 工具
 
 已下载的原始数据集格式不止一种（HDF5、RLDS/TFDS，以后还会有更多），在给
@@ -366,10 +389,11 @@ stage1-5 / check1-3 / unify_representation.py / run_pipeline.py
 
 ## process_scripts 处理流程
 
-针对超大规模 `/mnt/data` 数据集，前三阶段另提供流式、稀疏清单实现：
-`embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/`。它不解码或复制视频，
-逐阶段把阈值、episode 判定和 frame rejection manifest 写到 `/mnt/data`，并按本节的
-128 维公共契约同时记录 canonical 维号。
+针对超大规模 `/mnt/data` 数据集，前三阶段另提供 Qwen-RobotManip 实现：
+`embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/`。它以 LeRobot v3.0
+为输入，并为每个阶段输出完整的 LeRobot v3.0 数据集以及独立的 `audit/` 审计信息。
+默认输出根目录为 `/mnt/data/embodied_datasets/public_datasets_staging/data_curation`，前三阶段分别写入其下已有的 `stage1`、`stage2`、`stage3` 目录。
+该三阶段流程保持输入的原始 feature schema，不依赖下文的 128 维跨本体表示。
 
 `run_pipeline.py` 按顺序对每个 episode 依次跑 Stage1-5，再跑 Check1-3（下面
 "跨本体统一表示"另有独立说明，不在下表内）：

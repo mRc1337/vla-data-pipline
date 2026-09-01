@@ -1,176 +1,163 @@
-# Qwen-RobotManip 三阶段清洗（LeRobot v3）
+# Qwen-RobotManip Stage 1–3 清洗（LeRobot v3.0 → LeRobot v3.0）
 
-对应论文 [Qwen-RobotManip Technical Report](https://arxiv.org/abs/2606.17846) 第 2.4 节的前三阶段。程序只读取 `observation.state`、`action` 和索引列，不解码视频，也不修改源数据。
+本目录实现 [Qwen-RobotManip Technical Report](https://arxiv.org/abs/2606.17846) 第 2.4 节前三阶段。Stage 1–3 不使用 `/home/pai/zxw/公开数据集格式规范.docx`，不补齐 128 维，也不生成跨本体 canonical 表示。输入和每一阶段的主输出均为可由 `LeRobotDataset` 独立打开的 LeRobot v3.0 数据集；Parquet 审计表只是 sidecar。
 
-论文没有公布 Stage 1 的窗口/数据集阈值和 Stage 3 的 `alpha`。本实现明确记录这些补充选择：Stage 1 使用两次中值滤波和 Savitzky–Golay 平滑，以 `max(median + 8*MAD, q99.9)` 做逐数据集、逐维阈值；Stage 2 默认 DA 阈值为 0.65；Stage 3 默认 `alpha=0.1`。所有参数均可在 JSON 配置中覆盖。
+每个阶段都保留输入数据的全部用户 feature（包括额外传感器字段、图像和所有视频视角），并由官方 LeRobot writer 重建 data、video、episode metadata、全局统计和连续索引。源数据始终只读。
 
-Stage 1 默认只生成帧级剔除。论文只在能够确认突变必然来自碰撞的 InternData-A1 上整集删除；若某个本地数据源也满足这一条件，再把该数据集的 `stage1_policy` 显式改为 `episode`，不要仅因它是真机数据就整集删除。
+## 三阶段分别处理什么
 
-## 论文未公开部分的工程补全与原因
+### Stage 1：突变检测与数值修复
 
-以下默认值是为了让论文描述能够在当前 LeRobot v3 数据上可复现地运行，并非论文作者公布的官方参数。选择原则是：先保证源数据只读、阈值可审计、不同 FPS/本体不会被一个绝对阈值混在一起，再通过真实数据 smoke 调整。每次运行都会把最终配置和阈值写入 `run.json`/`thresholds.parquet`，因此后续修改仍可追溯。
+对 `observation.state` 和 `action` 分别处理：
 
-### Stage 1：平滑窗口和突变阈值
+1. 对 NaN/Inf 做临时插值，仅用于稳定地计算检测指标；
+2. 连续执行两次中值滤波，再执行 Savitzky–Golay 平滑，得到局部趋势；
+3. 计算原信号相对趋势的 residual、二阶差分 acceleration、三阶差分 jerk；
+4. 仅当 `residual` 超阈值并且 `acceleration` 或 `jerk` 也超阈值时，标记该维该帧；
+5. `stage1_policy=frame` 时，仅对被标记的数值单元做同一 episode 内的线性时间插值，帧数、时间戳和视频不变；`episode` 时删除含异常帧的整个 episode。
 
-论文只说明“级联中值滤波 + Savitzky–Golay 平滑”，没有给出级数、窗口和多项式阶数。本实现默认使用两次 5 帧中值滤波，再使用 11 帧、3 阶 Savitzky–Golay：
-
-- 两次小窗口中值滤波对单点/连续少量脉冲噪声稳健，但比一个很大的窗口更能保留真实动作边缘；
-- 11 帧 Savitzky–Golay 能在平滑噪声的同时保留局部斜率和曲率，后续计算二阶/三阶差分时不会像普通移动平均那样明显削弱峰值；
-- 3 阶多项式足以表达短时间内的位置、速度和加速度趋势，阶数继续增大容易追随噪声；
-- 短 episode 会自动缩短为合法奇数窗口，避免因为长度不足直接丢数据。
-
-代价是窗口以“帧”计而不是以秒计：3 FPS 与 60 FPS 对应的物理时间不同。因此它只是安全起点；高频强噪声数据可增大窗口，低 FPS 或高速动作数据应减小窗口。配置支持按 dataset pattern 覆盖 `median_kernels`、`savgol_window` 和 `savgol_polyorder`。
-
-论文还说明阈值按数据集/本体/旋转表示等设置，但没有给出计算方法。本实现对 residual、二阶差分、三阶差分分别采用：
+默认阈值按数据集、feature、维度和指标分别计算：
 
 ```text
 threshold = max(median + 8 × 1.4826 × MAD, q99.9, numerical_floor)
 ```
 
-这样处理的原因和收益是：
+Stage 1 输出为 `data_curation/stage1/<dataset>/dataset/`，审计文件位于同级 `audit/`。
 
-- `median + 8×MAD` 不容易被少量极端坏点反向拉高，比 mean/std 更适合先有污染的数据；
-- `1.4826×MAD` 在近似高斯分布下可解释成稳健标准差，`8` 是偏保守的起点，优先降低误杀；
-- 当某维长期不动导致 MAD 接近 0 时，`q99.9` 提供数据驱动的下限，避免任意微小浮点变化都被标记；
-- `numerical_floor` 防止全零维阈值为 0；
-- 阈值按数据集、信号类型和维度独立计算，不会把弧度、米、归一化夹爪值混成同一尺度。
+### Stage 2：action/state 趋势一致性与 episode 门控
 
-Stage 1 使用论文给出的联合条件 `residual 超阈值 AND (acceleration 或 jerk 超阈值)`，而不是三项任一超阈值。好处是缓慢漂移可能 residual 大但导数不突变，正常快速运动可能导数大但仍贴合平滑趋势，两者都不会仅凭单一指标被误杀。
+Stage 2 读取 Stage 1 的 LeRobot v3.0 输出：
 
-当前实现也豁免配置中的夹爪维。论文只在 Stage 3 明确要求夹爪豁免，因此这是额外的保守选择：夹爪命令常是开/关双峰信号，正常切换本来就是离散跳变，直接套连续轨迹检测会产生大量假阳性。代价是夹爪传感器的真实瞬时毛刺不会由 Stage 1 捕获；若某数据集记录的是连续夹爪位置并需要检查，应为它单独拆分 Stage 1/Stage 3 的豁免配置后再启用，而不是直接照搬默认列表。
+1. 对 state/action 做与 Stage 1 相同的平滑；
+2. 若配置 `action_mode=delta`，先对 action 累加还原绝对趋势；
+3. 在 `[0, stage2_max_lag_seconds]` 的因果窗口内用互相关寻找 action 领先 state 的最佳 lag；
+4. 在双方都真实变化的 active steps 上计算方向一致率 DA；
+5. 任一可评分的可比较维度 DA 低于阈值时，删除整个 episode；通过的 episode 不做时间平移。
 
-### Stage 1：默认帧级清单而不是立即重写数据
+可比较的 state/action 维只能通过以下方式确定：显式 `state_action_map`、state/action 的可靠同名字段，或明确设置 `allow_positional_mapping=true`。默认不会因为数组等长就盲目配对，也不依赖任何 128 维 canonical slot。
 
-论文允许从删帧到整 episode 删除的不同策略，但没有给通用规则。本实现默认 `stage1_policy=frame`，并输出稀疏 rejection manifest，不在原 Parquet 上插值或删除：
+Stage 2 输出为 `data_curation/stage2/<dataset>/dataset/`，审计文件位于同级 `audit/`。
 
-- LeRobot 的 Parquet 行、视频时间戳、episode/frame index 相互关联，单独删除 Parquet 行会破坏视频对齐；
-- 稀疏清单可重复调阈值，不需要复制或重编码 TB 级视频；
-- 可视化复核后，训练 loader 可以做 anti-join，最终物化流程也可以一次性应用所有阶段结果；
-- 只有确认“任一突变都意味着整条轨迹不可信”时才配置 `stage1_policy=episode`。
+### Stage 3：本体内极值检测与数值修复
 
-Stage 2 仍使用完整连续 episode，不先删除 Stage 1 的局部帧，因为从中间挖掉帧会改变 lag。Stage 1 帧级异常会在 Stage 3 标定和最终输出中排除。
-
-### Stage 2：DA、lag 和静止区间
-
-论文给出的 DA 常用范围是 0.6～0.7。本实现取中点 `0.65`：相比 0.6 更能拦截明显错位，相比 0.7 对量化噪声、控制死区和轻微回弹更宽容。它不是普适常数；应先看 `dimension_metrics.parquet` 的 DA 分布，如果好/坏 episode 形成两个峰，应把阈值放在谷底，而不是机械保持 0.65。
-
-论文没有公布 cross-correlation 的搜索窗口。本实现默认只在 action 领先或同时发生的 `[0, 0.5 秒]` 内选最优 lag，并按各数据集 FPS 换算成帧：
-
-- 使用秒而不是固定帧数，使 5 FPS 和 30 FPS 数据具有可比较的物理窗口；
-- 只用非负 lag 落实“命令先于状态”的因果约束，不会用一个相关性较高但物理上反向的 lag 修饰坏数据；
-- 另外计算 `[-0.5, +0.5 秒]` 的非约束最优 lag 并写入诊断列，便于发现 state 反而领先 action 的时钟问题；
-- 有明显慢执行器或低频控制链时，应根据实测响应延迟增大 `stage2_max_lag_seconds`，否则真实但缓慢的响应可能得到较低 DA。
-
-DA 只统计 state 和 action 一阶差分都超过各自 `q90(|Δ|)×1e-3` 的 active steps，且默认至少需要 10 个 active steps。原因是大量静止值的符号都是 0；若把它们算作一致，完全不响应 action 的关节也可能获得虚假的高 DA。要求两边都实际变化并设置最小样本数，可以让 DA 表示“运动方向是否一致”，代价是很短或几乎静止的 episode 会成为不可评分而不是被拒绝。
-
-Stage 2 只比较 canonical joint slots，不按相同数组下标盲配 state/action。这样能避免把末端位置、四元数、夹爪或环境状态当成关节进行相关分析。delta action 会先积分恢复绝对趋势；absolute action 直接比较。任一可评分关节低于 DA 阈值就删除整个 episode，因为时间戳错位或丢包通常是 episode 级记录问题，局部删帧无法恢复可靠因果关系。
-
-### Stage 3：`alpha=0.1` 和分位数近似
-
-论文公开了范围公式，但没有公布 `alpha`。本实现默认：
+Stage 3 读取 Stage 2 的 LeRobot v3.0 输出。对于 `embodiment` 相同且 raw feature schema 相同的数据集，逐 feature、逐维汇总 q1/q99，并使用：
 
 ```text
-lower = q1  - 0.1 × (q99 - q1)
-upper = q99 + 0.1 × (q99 - q1)
+lower = q1  - alpha × (q99 - q1)
+upper = q99 + alpha × (q99 - q1)
 ```
 
-选择 0.1 的原因是，如果直接使用 `[q1,q99]`，即使数据完全正常也会按定义删除约 2% 的尾部；向两侧各扩展中央 98% 区间宽度的 10%，能容纳有限样本误差、任务边界动作和轻微分布漂移，同时仍会排除远离主体分布的极值。好处是比固定物理上下限更容易扩展到多种机器人，又比无限放宽更能保护后续 q01/q99 normalization。
+默认 `alpha=0.1`。超界或非有限数值会被标记；夹爪维按论文要求豁免范围检查，但 NaN/Inf 仍会修复。被标记的数值单元在同一 episode 内做线性时间插值，帧数、时间戳和视频不变。
 
-`alpha` 的主要权衡是：过小会把少见但合法的极限姿态删掉，过大会留下真正异常值。建议同时查看每维 `q01/q99/lower/upper`、Stage 3 剔除率和对应视频；若异常集中在任务的合法末端姿态，应增大 alpha 或按任务/本体细分统计，若明显传感器飞点仍落在范围内则减小 alpha。不要只根据“期望剔除百分比”调参。
+Stage 3 输出为 `data_curation/stage3/<dataset>/dataset/`，审计文件位于同级 `audit/`。
 
-为适应当前数亿帧数据和 OSSFS，本实现不把全部数值拼进内存，而是按固定 stride 确定性采样，默认每个数据集/本体组最多 20 万帧：
+## 论文未公开部分：为什么这样补全
 
-- 内存和本地临时空间有稳定上界；
-- 同一输入和配置会得到相同样本及阈值，便于复现；
-- 顺序扫描只读取 state/action 列，不解码视频，适合本机 OSSFS。
+以下参数和物化策略是工程选择，不是论文作者公布的官方设置。每次运行都会在 `audit/run.json` 和阈值 Parquet 中记录最终值，便于追溯和重新标定。
 
-这是工程近似而非论文要求。固定 stride 在强周期数据上可能产生采样混叠；如果阈值对少量尾部样本非常敏感，应提高 `calibration_samples`，或改成确定性哈希/分层 episode 采样后做对照。当前 720 GiB 内存足够增大样本，但远端 I/O 仍是主要瓶颈。
+### 两次 5 帧中值滤波 + 11 帧三阶 Savitzky–Golay
 
-Stage 3 按 `embodiment` 合并统计，且要求同组 raw schema 和 raw-to-canonical 映射一致。这样 Piper 与 Piper-X 可以共享本体范围，但不会把不同语义的第 3 列误合并。夹爪按论文要求豁免；NaN/Inf 无论分位数如何都会标记为异常。
+论文只给出“级联中值滤波 + Savitzky–Golay”，未给窗口和阶数。两次小窗口中值滤波能稳健抑制单点及短脉冲，又比一个大窗口更少损伤真实动作边缘；Savitzky–Golay 在降噪时保留局部斜率和曲率，适合随后计算高阶差分。三阶多项式足以描述短时位置、速度和加速度趋势，继续提高阶数更容易跟随噪声。短 episode 会自动缩短为合法奇数窗口。
 
-### 为什么不先补成 128 维再计算阈值
+窗口以帧计，因此不同 FPS 对应不同物理时间。默认值只是保守起点：低 FPS 或高速动作应减小窗口，高频强噪声可增大窗口。
 
-三阶段在原始有效维度上计算，并在 manifest 中同时记录 raw 和 canonical 维号；最终才生成 128 维向量及 mask。这样做可避免大量 padding 0 进入中位数、MAD、相关性和分位数，导致不存在的自由度改变真实维度的统计结果。`canonical_indices` 只负责证明不同数据集的维度语义及 Stage 2 关节配对，padding 位始终 `mask=False`。
+### `median + 8×MAD` 与 q99.9 取最大值
 
-### 推荐的标定顺序
+论文要求分数据集/本体/旋转表示设置阈值，但未公开计算公式。median/MAD 不容易被少量坏点抬高；`1.4826×MAD` 在近似高斯分布下可解释为稳健标准差；8 倍尺度优先降低误杀。长期静止维的 MAD 可能接近零，因此再用 q99.9 和数值下限避免正常浮点波动被全部标记。逐维计算也避免弧度、米和归一化值共享不合理的绝对阈值。
 
-1. 先对每个 schema/本体抽 20～100 个 episode 做 smoke，不直接全量物化。
-2. 查看 Stage 1 的阈值倍数和异常帧视频，先确定窗口，再调整 MAD scale/quantile floor。
-3. 查看 Stage 2 各关节的 lag、active steps 和 DA 分布，确认 action mode 与映射无误后再定 DA 阈值。
-4. Stage 3 必须在 Stage 1/2 参数冻结后重新标定，因为上游坏点会改变 q1/q99。
-5. 固化配置、运行全量并保存 `run.json`、threshold parquet 和代码 commit；不同配置产物不要混用。
+联合条件 `residual AND (acceleration OR jerk)` 能同时排除两类误报：缓慢漂移可能 residual 大但没有突变，正常高速动作可能高阶差分大但仍贴合局部趋势。
 
-## 安装
+### Stage 1/3 插值而不是删帧
 
-项目已并入 `/home/pai/zxw/vla-data-pipeline/embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation`，依赖复用仓库根目录的 `.venv`，不再创建第二套虚拟环境。
+论文允许排除异常 frame，但没有说明在带视频的 LeRobot 中如何物化。单独删除 Parquet 行会使视频帧、timestamp、frame index 和动作错位；每删一个帧就重编码并同步裁剪所有视角，成本高且会再次有损压缩。默认只替换被判异常的 state/action 单元，保留原时间网格和视频：
 
-当前机器有 40 个 CPU 核、720 GiB 内存和 4 张 A800 80GB；三个阶段都是低维时序统计，瓶颈是 `/mnt/data` 的 OSSFS I/O，GPU 不会带来收益。当前仍有多项转换任务向 staging 根目录写入，因此先按已完成子数据集串行运行。转换全部结束后可按 2～4 个互不重叠的 dataset selector 并行，但每个进程内部保持 Arrow `use_threads=False`，避免大量小对象请求拖慢 OSSFS。
+- 中间坏点由左右最近有效点线性插值；
+- 边界坏点使用最近有效值；
+- 某维整集均无有效值时填 0，同时审计表仍完整保留异常位置。
 
-## 先做清单检查
+好处是多模态严格同步、修复范围最小、输出可以直接由标准 LeRobot loader 使用。代价是修复值是估计值，所以训练或复核时仍应保留 `audit/frame_flags.parquet`。若异常意味着整条轨迹不可信，应将 Stage 1 配成 `episode`，而不是删除孤立视频帧。
+
+### Stage 1 的夹爪豁免
+
+论文只明确提出 Stage 3 夹爪豁免；Stage 1 也沿用配置中的夹爪豁免，是额外的保守选择。开/关式夹爪本来就是双峰和离散跳变，连续轨迹突变检测容易产生大量假阳性。代价是夹爪传感器毛刺不会被 Stage 1 捕获；连续夹爪位置数据可按数据集清空该豁免配置。
+
+### Stage 2 的 DA=0.65、0.5 秒 lag 与 active steps
+
+论文给出的 DA 常用范围是 0.6–0.7，默认取中点 0.65，在明显错位拦截与控制死区/轻微回弹容忍之间折中。lag 用秒配置并按 FPS 换算，使不同帧率的物理窗口一致；只搜索非负 lag，落实“命令先于状态”的因果方向，同时把双向搜索结果写入审计用于发现反向时钟问题。
+
+DA 只统计 state/action 一阶差分都超过各自 `q90(|Δ|)×1e-3` 的位置，且默认至少 10 个 active steps。否则大量静止的 0 符号会让完全不响应的关节获得虚假高分。短或几乎静止的 episode 会标记为不可评分，但不会仅因样本不足被拒绝。
+
+Stage 2 不按最佳 lag 物理平移数据。论文这一阶段用于发现并排除不同步轨迹；平移会裁掉首尾并要求所有视频视角同步重写，而且单一 lag 未必适用于 episode 的每一段。把它作为 episode 质量门控可避免制造新的时序假设。
+
+### Stage 3 的 `alpha=0.1` 与定步长采样
+
+直接使用 `[q1,q99]` 即使数据正常也会按定义排除约 2% 尾部；向两侧扩展中央 98% 区间宽度的 10%，可以容纳有限样本误差、合法边界动作和轻微分布漂移，同时仍能拦截远离主体分布的飞点。alpha 太小会伤及少见但合法的极限姿态，太大会留下异常，应结合每维阈值、异常率和视频复核。
+
+为限制数亿帧数据的内存占用，标定默认按固定 stride 确定性采样，每个数据集/本体组最多 20 万帧。它有固定内存上界且可复现，但周期数据可能发生采样混叠；对此可提高 `calibration_samples`，或改用分层/确定性哈希采样后对照。
+
+## 配置与运行
+
+复制 `config.example.json` 后按数据集覆盖参数。Stage 2 若字段名不能可靠配对，必须填写：
+
+```json
+{
+  "datasets": {
+    "my_dataset": {
+      "embodiment": "my_robot",
+      "state_action_map": [[0, 0], [1, 1], [2, 2]],
+      "gripper_indices": {"observation.state": [6], "action": [6]}
+    }
+  }
+}
+```
+
+`config.example.json` 已为 `libero_plus*` 配置专用语义：state 是绝对 EEF 位姿加双指夹爪，action 是 6D EEF 增量加夹爪命令，因此设为 `action_mode=delta`，只比较可逐分量可靠积分的 XYZ 平移 `[0,1,2]`。旋转增量必须在明确轴角尺度、坐标系和左/右乘约定后用 SO(3) 复合，不能直接逐分量累加；当前保守地不让旋转维产生错误的 episode 拒绝。state `[6,7]` 和 action `[6]` 作为夹爪维豁免。
+
+清单检查：
 
 ```bash
 ./.venv/bin/python embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/curate.py \
-  --config embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/config.json inventory \
-  --input-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
-  --output /mnt/data/qwen_robotmanip_curation/inventory.json
+  --config embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/config.example.json inventory \
+  --input-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0
 ```
 
-默认发现两层内的数据集根目录（已经覆盖当前的顶层数据集和 LIBERO 子集）；若后续转换产物更深，可加 `--discovery-depth 3`。对单个已知路径优先使用 `run --dataset-path ...`，避免扫描仍在转换的大目录。
-
-复制 `config.example.json` 为 `config.json`，补齐 inventory 中 `stage2_mapping_required` 的数据集。Stage 2 只能比较语义一致的关节状态和绝对关节动作；末端增量动作不能盲目按数组位置配到关节状态。增量关节动作须设 `action_mode: delta`，并配置 `state_action_map`。
-
-本机当前 inventory 共发现 822 个 LeRobot 根：93 个可由字段名建立 Stage 2 映射，409 个需要人工补关节映射，320 个缺少默认 `observation.state` 或 `action`。只有配置中明确写入 `canonical_indices` 的数据集才算完成跨本体契约；`config.example.json` 已覆盖 4 个 RoboDojo 数据集。不能把“数组长度相同”当成语义相同后直接清洗。
-
-## 小范围验证
-
-```bash
-./.venv/bin/python embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/curate.py \
-  --config embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/config.json run \
-  --dataset-path /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/robodojo_real_piper_lerobot_v30 \
-  --dataset-id robodojo_real_piper_lerobot_v30 \
-  --output-root /mnt/data/qwen_robotmanip_curation_smoke \
-  --work-root /home/pai/zxw/qwen_robotmanip_work \
-  --max-episodes 20 --overwrite
-```
-
-## 全量运行
-
-确认所有转换进程结束、配置审核完毕后运行：
-
-```bash
-./.venv/bin/python embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/curate.py \
-  --config embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/config.json run \
-  --input-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
-  --output-root /mnt/data/qwen_robotmanip_curation \
-  --work-root /home/pai/zxw/qwen_robotmanip_work
-```
-
-在配置尚未覆盖全部 822 个根目录时，应使用一个或多个 `--select` 只运行已审核子集。例如当前已经全量验证的 Piper 本体：
+小范围运行：
 
 ```bash
 ./.venv/bin/python embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/curate.py \
   --config embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/config.example.json run \
-  --input-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
-  --select 'robodojo_real_piper*_lerobot_v30' \
-  --output-root /mnt/data/qwen_robotmanip_curation \
-  --work-root /home/pai/zxw/qwen_robotmanip_work
+  --dataset-path /path/to/lerobot_v3_dataset --dataset-id my_dataset \
+  --output-root /mnt/data/embodied_datasets/public_datasets_staging/data_curation \
+  --work-root /home/pai/zxw/qwen_robotmanip_work \
+  --max-episodes 20 --overwrite
 ```
 
-也可以用 `--select 'robodojo*'`（可重复）分批执行。阶段有依赖关系：Stage 2 会继承 Stage 1 的整集剔除，Stage 3 会继承前两阶段的帧/episode 剔除。若分开运行，保持同一个 `output-root` 并依次用 `--stages 1`、`--stages 2`、`--stages 3`。
+完整运行去掉 `--max-episodes`。`--output-root` 的默认值就是 `/mnt/data/embodied_datasets/public_datasets_staging/data_curation`，命令中可以省略；程序会分别写入该目录已有的 `stage1`、`stage2`、`stage3`。该区域与原始输入 `lerobot_v3_0` 隔离，不会被输入数据集发现逻辑误扫。按 `--stages 1`、`--stages 2`、`--stages 3` 分开执行时保持同一 `output-root`；程序会优先读取前一阶段的 `dataset/`。视频通过官方 writer 解码并重编码，以保证删除 episode 后索引、容器时间段和元数据一致，因此全量运行的主要成本是视频 I/O/编码，不是三个低维信号统计步骤。
 
-## 输出
+## 输出结构
 
-每个数据集会产生：
+```text
+/mnt/data/embodied_datasets/public_datasets_staging/data_curation/
+  stage1/<dataset>/
+    dataset/                 # 完整 LeRobot v3.0
+    audit/
+      frame_flags.parquet
+      episode_summary.parquet
+      thresholds.parquet
+      run.json
+  stage2/<dataset>/
+    dataset/                 # 完整 LeRobot v3.0
+    audit/
+      dimension_metrics.parquet
+      episode_flags.parquet
+      run.json
+  stage3/<dataset>/
+    dataset/                 # 完整 LeRobot v3.0
+    audit/
+      frame_flags.parquet
+      episode_summary.parquet
+      thresholds.parquet
+      run.json
+```
 
-- `stage1_sudden_change/<dataset>/frame_flags.parquet`、`episode_summary.parquet`、`thresholds.parquet`；
-- `stage2_trend_alignment/<dataset>/dimension_metrics.parquet`、`episode_flags.parquet`；
-- `stage3_extreme_value/<dataset>/frame_flags.parquet`、`episode_summary.parquet`、`thresholds.parquet`；
-- 每个阶段都有 `run.json`，记录参数、范围、计数和时间。
-
-这些是稀疏 rejection manifests。训练时以 `(episode_index, frame_index)` 做反连接过滤；不要只删除 Parquet 行，否则会破坏 LeRobot 的视频时间戳和 episode 索引。Stage 2 的 `episode_flags.parquet` 应整集排除。
-
-## 128 维跨本体表示
-
-布局严格采用 `/home/pai/zxw/公开数据集格式规范.docx`：state 为 `[0:35]` 单臂、`[35:70]` ARM2、`[70:128]` 预留；action 为 `[0:34]` 单臂、`[34:69]` ARM2、`[69:128]` 预留。由于 ARM2 的有效结构与 ARM1 相同、只有 34 维，action 第 68 维定义为固定零且 `mask=False` 的 ARM2 padding。
-
-每个数据集必须在 `canonical_indices` 中声明“原始列 -> 128 维 canonical 列”。清单中的阈值和异常帧同时记录原始维号与 canonical 维号；`output-root/canonical_layout.json` 是机器可读契约。最终 LeRobot 数据的 128 维物化继续复用上级目录的 `unify_representation.py`，并保留 `observation.state_canonical_mask` 与 `action_canonical_mask`。
+`audit/` 用于解释、复核和重调参数；训练数据入口应指向各阶段的 `dataset/`，而不是 audit Parquet。

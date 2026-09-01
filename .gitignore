@@ -1,5 +1,10 @@
 .claude/
 .pytest_cache/
+.loopx/
+.codex/
+frontend/node_modules/
+frontend/dist/
+*.sqlite3
 __pycache__/
 *.pyc
 .DS_Store

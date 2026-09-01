@@ -2,16 +2,21 @@ from __future__ import annotations
 
 from argparse import Namespace
 from io import BytesIO
+import os
 from pathlib import Path
 import zipfile
 
 import numpy as np
+import pytest
 
+import convert_fmb_to_lerobot as converter
 from convert_core.dataset_config import DatasetConversionConfig
 from convert_core.errors import ConversionError
 from convert_core.dataset_config import load_dataset_config
 from convert_core.lerobot_writer import build_manifest
+from convert_core.parallel import ParallelWorkUnit
 from convert_fmb_to_lerobot import (
+    FmbWorkerPayload,
     _catalog_for_run,
     _cleanup_legacy_datasets_cache,
     _cleanup_unit_datasets_cache,
@@ -111,6 +116,64 @@ def test_legacy_cache_cleanup_does_not_touch_preflight_or_resume(tmp_path: Path)
     assert not legacy.exists()
     assert preflight.is_file()
     assert resume.is_file()
+
+
+def test_worker_routes_write_and_validation_through_unit_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shared_cache = tmp_path / "shared-cache"
+    unit_cache = tmp_path / "unit-cache"
+    monkeypatch.setenv("VLA_DATASETS_CACHE_ROOT", str(shared_cache))
+    observed: dict[str, str | None] = {}
+
+    def record_cache(stage: str):
+        def callback(*_args, **_kwargs) -> None:
+            observed[stage] = os.environ.get("VLA_DATASETS_CACHE_ROOT")
+
+        return callback
+
+    def stage_sources(_plan, _raw_root, source_root: Path, **_kwargs) -> None:
+        source_root.mkdir(parents=True)
+
+    monkeypatch.setattr(converter, "stage_fmb_unit_sources", stage_sources)
+    monkeypatch.setattr(converter, "write_dataset", record_cache("write"))
+    monkeypatch.setattr(converter, "validate_written_dataset", record_cache("dataset_validation"))
+    monkeypatch.setattr(converter, "validate_video_files", record_cache("video_validation"))
+    monkeypatch.setattr(converter, "globalize_unit_data_files", record_cache("globalize"))
+    monkeypatch.setattr(converter, "write_verified_unit_marker", lambda _unit: None)
+    monkeypatch.setattr(converter, "_fmb_rgb_encoder", lambda: object())
+
+    unit = ParallelWorkUnit(
+        index=0,
+        key="partition/unit-000000",
+        dataset_uid="fixture",
+        target_path=str(tmp_path / "work" / "unit-000000"),
+        episode_start=0,
+        episode_end=1,
+        frame_start=0,
+        frame_end=1,
+        task_indices=(0,),
+        weight=1,
+        estimated_memory_bytes=1,
+        estimated_temp_bytes=1,
+        fingerprint="fixture",
+        payload=FmbWorkerPayload(
+            plan=object(),
+            raw_root=str(tmp_path / "raw"),
+            encoder_threads=1,
+            conversion_options={"datasets_cache_root": str(unit_cache)},
+        ),
+    )
+
+    converter._worker(unit)
+
+    assert observed == {
+        "write": str(unit_cache),
+        "dataset_validation": str(unit_cache),
+        "video_validation": str(unit_cache),
+        "globalize": str(shared_cache),
+    }
+    assert os.environ["VLA_DATASETS_CACHE_ROOT"] == str(shared_cache)
 
 
 def test_inspect_partitions_and_preserves_schema(tmp_path: Path) -> None:

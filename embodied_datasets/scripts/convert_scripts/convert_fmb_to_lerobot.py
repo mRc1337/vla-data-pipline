@@ -219,8 +219,8 @@ def _worker(unit: ParallelWorkUnit) -> dict[str, Any]:
                 batch_metadata_writes=True,
                 fragmented_mp4_writes=False,
             )
-        validate_written_dataset(plan, root)
-        validate_video_files(plan, root, expected_frames=unit.weight)
+            validate_written_dataset(plan, root)
+            validate_video_files(plan, root, expected_frames=unit.weight)
         globalize_unit_data_files(unit)
         write_verified_unit_marker(unit)
         print(f"[{unit.key}] local unit verified", flush=True)
