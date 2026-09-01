@@ -42,6 +42,7 @@ PostgreSQL、Celery CPU worker 和 Nginx。GPU Stage 可复制 worker 服务并
 - `POST /api/catalog/scan` 创建异步扫描任务，支持 `quick`、`standard`、`deep` 三种模式和限定 `root`。
 - `GET /api/catalog/scans/{scan_id}` 查询进度；`GET /api/catalog/scans/{scan_id}/events` 通过 SSE 接收进度；`POST /api/catalog/scans/{scan_id}/cancel` 取消任务。
 - 快速扫描只读取 `meta/info.json` 和目录标记，不递归统计视频大小；未变化数据集由指纹直接跳过。
+- 扫描任务和指纹写入本地 SQLite；API 重启后未完成任务会标记为 `failed`，可以重新提交，已完成数据集仍可通过指纹复用。
 - `GET /api/datasets/{uid}/episodes/{index}/series` 返回有界 Parquet state/action 采样。
 - `GET /api/videos/{uid}/{relative_path}` 支持 `Range: bytes=start-end`，不会把 MP4 上传到云端。
 - `POST /api/pipelines/run` 创建 Stage 任务；`GET /api/tasks/{id}` 轮询状态、进度、错误和汇总。

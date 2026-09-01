@@ -103,3 +103,5 @@ def test_async_scan_api_reports_terminal_status(monkeypatch, tmp_path):
             time.sleep(0.02)
         assert status["status"] == "succeeded"
         assert status["datasets"] == 1
+        persisted = test_catalog.get_scan_job(scan_id)
+        assert persisted and persisted["status"] == "succeeded"

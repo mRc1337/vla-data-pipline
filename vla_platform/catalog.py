@@ -58,7 +58,48 @@ class Catalog:
               episodes_mtime_ns INTEGER NOT NULL DEFAULT 0,
               scanned_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS scan_jobs (
+              scan_id TEXT PRIMARY KEY, status TEXT NOT NULL, mode TEXT NOT NULL,
+              root TEXT, phase TEXT, current INTEGER NOT NULL DEFAULT 0,
+              total INTEGER NOT NULL DEFAULT 0, completed INTEGER NOT NULL DEFAULT 0,
+              skipped INTEGER NOT NULL DEFAULT 0, datasets INTEGER NOT NULL DEFAULT 0,
+              rate REAL, eta_seconds REAL, error TEXT,
+              created_at REAL NOT NULL, started_at REAL, finished_at REAL
+            );
             """)
+
+    def create_scan_job(self, job: dict[str, Any]) -> None:
+        columns = ("scan_id", "status", "mode", "root", "phase", "current", "total",
+                   "completed", "skipped", "datasets", "rate", "eta_seconds", "error",
+                   "created_at", "started_at", "finished_at")
+        values = {column: job.get(column) for column in columns}
+        with self._connect() as db:
+            db.execute(f"INSERT OR REPLACE INTO scan_jobs({','.join(columns)}) VALUES({','.join(':'+c for c in columns)})", values)
+
+    def update_scan_job(self, scan_id: str, values: dict[str, Any]) -> None:
+        allowed = {"status", "mode", "root", "phase", "current", "total", "completed", "skipped",
+                   "datasets", "rate", "eta_seconds", "error", "created_at", "started_at", "finished_at"}
+        values = {key: value for key, value in values.items() if key in allowed}
+        if not values:
+            return
+        assignments = ",".join(f"{key}=:{key}" for key in values)
+        values["scan_id"] = scan_id
+        with self._connect() as db:
+            db.execute(f"UPDATE scan_jobs SET {assignments} WHERE scan_id=:scan_id", values)
+
+    def get_scan_job(self, scan_id: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM scan_jobs WHERE scan_id=?", (scan_id,)).fetchone()
+        return dict(row) if row else None
+
+    def recover_interrupted_scans(self) -> int:
+        """Mark jobs from a previous API process as interrupted and retryable."""
+        with self._connect() as db:
+            cursor = db.execute(
+                "UPDATE scan_jobs SET status='failed', error='scanner process restarted', finished_at=? "
+                "WHERE status IN ('queued','running','cancelling')", (time.time(),)
+            )
+        return cursor.rowcount
 
     @staticmethod
     def _json(path: Path) -> dict[str, Any]:
@@ -219,6 +260,7 @@ class Catalog:
                     try:
                         import pyarrow.parquet as pq
                         episode_files = sorted(root.glob("meta/episodes*.parquet")) + sorted(root.glob("meta/episodes/**/*.parquet"))
+                        episode_rows: list[tuple[Any, ...]] = []
                         for episode_file in episode_files:
                             parquet = pq.ParquetFile(episode_file)
                             names = set(parquet.schema.names)
@@ -229,8 +271,12 @@ class Catalog:
                                 for item in batch.to_pylist():
                                     index = int(item.get("episode_index", item.get("index", 0)))
                                     count = int(item.get("frame_count", item.get("frames", 0)) or 0)
-                                    db.execute("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,metadata_json) VALUES(?,?,?,?,?,?)",
-                                        (uid, index, count, count / float(info.get("fps", 1) or 1), item.get("instruction"), json.dumps(item, default=str)))
+                                    episode_rows.append((uid, index, count, count / float(info.get("fps", 1) or 1), item.get("instruction"), json.dumps(item, default=str)))
+                                    if len(episode_rows) >= 1000:
+                                        db.executemany("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,metadata_json) VALUES(?,?,?,?,?,?)", episode_rows)
+                                        episode_rows.clear()
+                        if episode_rows:
+                            db.executemany("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,metadata_json) VALUES(?,?,?,?,?,?)", episode_rows)
                     except (ImportError, OSError, ValueError):
                         pass
                 db.execute("INSERT OR REPLACE INTO scan_fingerprints(root,dataset_uid,info_mtime_ns,info_size,episodes_mtime_ns,scanned_at) VALUES(?,?,?,?,?,?)",

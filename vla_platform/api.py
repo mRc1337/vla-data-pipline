@@ -42,10 +42,19 @@ except (OSError, Exception) as exc:
     else:
         raise exc
 runner = PipelineRunner(catalog, CURATION_ROOT)
+catalog.recover_interrupted_scans()
 app = FastAPI(title="VLA Data Governance Platform", version="0.1.0")
 scan_tasks: dict[str, dict[str, Any]] = {}
 scan_cancellations: dict[str, threading.Event] = {}
 scan_lock = threading.Lock()
+
+
+def _persist_scan(scan_id: str, task: dict[str, Any]) -> None:
+    try:
+        catalog.update_scan_job(scan_id, task)
+    except (AttributeError, OSError):
+        # Keep the in-memory fallback usable for lightweight test doubles.
+        pass
 
 
 class ScanRequest(BaseModel):
@@ -116,6 +125,7 @@ async def _run_catalog_scan(scan_id: str, mode: str, scan_root: str | None) -> N
     task = scan_tasks[scan_id]
     task["status"] = "running"
     task["started_at"] = time.time()
+    _persist_scan(scan_id, task)
 
     def progress(update: dict[str, Any]) -> None:
         with scan_lock:
@@ -126,15 +136,18 @@ async def _run_catalog_scan(scan_id: str, mode: str, scan_root: str | None) -> N
             task["rate"] = task["completed"] / elapsed
             total = int(update.get("total", 0))
             task["eta_seconds"] = max((total - task["completed"]) / task["rate"], 0) if task["rate"] else None
+            _persist_scan(scan_id, task)
 
     try:
         rows = await asyncio.to_thread(catalog.scan, mode, scan_root, progress, scan_cancellations[scan_id])
         with scan_lock:
             task.update(status="cancelled" if scan_cancellations[scan_id].is_set() else "succeeded",
                         datasets=len(rows), finished_at=time.time())
+            _persist_scan(scan_id, task)
     except Exception as exc:
         with scan_lock:
             task.update(status="failed", error=str(exc), finished_at=time.time())
+            _persist_scan(scan_id, task)
     finally:
         scan_cancellations.pop(scan_id, None)
 
@@ -150,6 +163,7 @@ async def scan(body: ScanRequest | None = None) -> dict[str, Any]:
             "skipped": 0, "datasets": 0, "eta_seconds": None, "created_at": time.time()}
     scan_tasks[scan_id] = task
     scan_cancellations[scan_id] = threading.Event()
+    catalog.create_scan_job(task)
     asyncio.create_task(_run_catalog_scan(scan_id, body.mode, task["root"]))
     return task
 
@@ -158,7 +172,9 @@ async def scan(body: ScanRequest | None = None) -> dict[str, Any]:
 async def scan_status(scan_id: str) -> dict[str, Any]:
     task = scan_tasks.get(scan_id)
     if not task:
-        raise HTTPException(404, "scan not found")
+        task = catalog.get_scan_job(scan_id)
+        if not task:
+            raise HTTPException(404, "scan not found")
     with scan_lock:
         return dict(task)
 
@@ -172,6 +188,7 @@ async def cancel_scan(scan_id: str) -> dict[str, Any]:
     if event:
         event.set()
     task["status"] = "cancelling"
+    _persist_scan(scan_id, task)
     return task
 
 
