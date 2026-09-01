@@ -229,6 +229,13 @@ async def dataset(uid: str) -> dict[str, Any]:
     return value
 
 
+@app.get("/api/datasets/{uid}/videos")
+async def videos(uid: str, integrity_status: str | None = Query(None)) -> list[dict[str, Any]]:
+    if not catalog.get_dataset(uid):
+        raise HTTPException(404, "dataset not indexed")
+    return catalog.list_videos(uid, integrity_status)
+
+
 @app.get("/api/datasets/{uid}/episodes")
 async def episodes(uid: str) -> list[dict[str, Any]]:
     if not catalog.get_dataset(uid): raise HTTPException(404, "dataset not indexed")

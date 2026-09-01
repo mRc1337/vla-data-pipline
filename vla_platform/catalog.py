@@ -66,6 +66,20 @@ class Catalog:
               rate REAL, eta_seconds REAL, error TEXT,
               created_at REAL NOT NULL, started_at REAL, finished_at REAL
             );
+            CREATE TABLE IF NOT EXISTS video_files (
+              dataset_uid TEXT NOT NULL, relative_path TEXT NOT NULL,
+              size INTEGER NOT NULL DEFAULT 0, mtime_ns INTEGER NOT NULL DEFAULT 0,
+              codec TEXT, width INTEGER, height INTEGER, fps REAL, frames INTEGER,
+              integrity_status TEXT NOT NULL DEFAULT 'not_checked', error TEXT,
+              PRIMARY KEY(dataset_uid, relative_path)
+            );
+            CREATE TABLE IF NOT EXISTS parquet_files (
+              dataset_uid TEXT NOT NULL, relative_path TEXT NOT NULL,
+              size INTEGER NOT NULL DEFAULT 0, mtime_ns INTEGER NOT NULL DEFAULT 0,
+              rows INTEGER, schema_json TEXT NOT NULL DEFAULT '{}',
+              integrity_status TEXT NOT NULL DEFAULT 'not_checked', error TEXT,
+              PRIMARY KEY(dataset_uid, relative_path)
+            );
             """)
 
     def create_scan_job(self, job: dict[str, Any]) -> None:
@@ -191,6 +205,161 @@ class Catalog:
         episode_mtime, _ = self._episode_marker(root)
         return info_stat.st_mtime_ns, info_stat.st_size, episode_mtime
 
+    @staticmethod
+    def _media_files(root: Path) -> Iterable[Path]:
+        # LeRobot keeps encoded payloads below ``videos/`` (older exports may
+        # use ``video/``).  Restrict traversal to those roots so a standard
+        # scan never walks the much larger ``data/`` tree just to discover
+        # media filenames.  For small/custom datasets, retain a top-level
+        # fallback without recursively probing arbitrary directories.
+        suffixes = {".mp4", ".webm", ".mkv", ".avi", ".mov"}
+        excluded = {".runtime_cache", ".conversion_work", ".conversion_logs", ".conversion_resume", ".git"}
+        media_roots = [candidate for name in ("videos", "video")
+                       if (candidate := root / name).is_dir()]
+        if media_roots:
+            for media_root in media_roots:
+                for current, dirs, files in os.walk(media_root):
+                    dirs[:] = [d for d in dirs if d not in excluded and not d.startswith(".")]
+                    for name in files:
+                        path = Path(current) / name
+                        if path.suffix.lower() in suffixes:
+                            yield path
+            return
+        try:
+            for entry in root.iterdir():
+                if entry.is_file() and entry.suffix.lower() in suffixes:
+                    yield entry
+        except OSError:
+            return
+
+    def _scan_video_files(self, db: sqlite3.Connection, uid: str, root: Path, deep: bool) -> None:
+        rows: list[tuple[Any, ...]] = []
+        existing = {
+            row["relative_path"]: dict(row)
+            for row in db.execute(
+                "SELECT * FROM video_files WHERE dataset_uid=?", (uid,)
+            ).fetchall()
+        }
+        seen: set[str] = set()
+        for path in self._media_files(root):
+            relative = str(path.relative_to(root))
+            seen.add(relative)
+            try:
+                stat = path.stat()
+                size, mtime_ns = stat.st_size, stat.st_mtime_ns
+            except OSError as exc:
+                rows.append((uid, relative, 0, 0, None, None, None, None, None, "error", str(exc)))
+                continue
+            cached = existing.get(relative)
+            # Header metadata is reusable for standard scans.  A deep scan
+            # must still decode a file unless a previous deep scan already
+            # established pass/fail for this exact size and mtime.
+            reusable_statuses = {"header_ok", "pass", "fail", "metadata_unavailable"}
+            if (cached and cached["size"] == size and cached["mtime_ns"] == mtime_ns
+                    and cached["integrity_status"] in reusable_statuses
+                    and (not deep or cached["integrity_status"] in {"pass", "fail"})):
+                rows.append(tuple(cached.get(column) for column in (
+                    "dataset_uid", "relative_path", "size", "mtime_ns", "codec",
+                    "width", "height", "fps", "frames", "integrity_status", "error")))
+                if len(rows) >= 500:
+                    db.executemany("""INSERT OR REPLACE INTO video_files
+                        (dataset_uid,relative_path,size,mtime_ns,codec,width,height,fps,frames,integrity_status,error)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?)""", rows)
+                    rows.clear()
+                continue
+            codec = width = height = fps = frames = None
+            integrity = "not_checked"
+            error = None
+            try:
+                import av
+                with av.open(str(path), mode="r") as container:
+                    stream = next((s for s in container.streams if s.type == "video"), None)
+                    if stream is None:
+                        raise ValueError("no video stream")
+                    codec = getattr(stream.codec_context, "name", None) or getattr(stream, "name", None)
+                    width, height = stream.width, stream.height
+                    fps_value = stream.average_rate
+                    fps = float(fps_value) if fps_value else None
+                    frames = int(stream.frames or 0) or None
+                    if deep:
+                        next(container.decode(stream), None)
+                        integrity = "pass"
+                    else:
+                        integrity = "header_ok"
+            except ImportError:
+                integrity = "metadata_unavailable"
+            except Exception as exc:  # codec/container errors become labels, not scan failures
+                integrity, error = "fail", str(exc)
+            rows.append((uid, relative, size, mtime_ns, codec, width, height, fps, frames, integrity, error))
+            if len(rows) >= 500:
+                db.executemany("""INSERT OR REPLACE INTO video_files
+                    (dataset_uid,relative_path,size,mtime_ns,codec,width,height,fps,frames,integrity_status,error)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?)""", rows)
+                rows.clear()
+        if rows:
+            db.executemany("""INSERT OR REPLACE INTO video_files
+                (dataset_uid,relative_path,size,mtime_ns,codec,width,height,fps,frames,integrity_status,error)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)""", rows)
+        stale = set(existing) - seen
+        if stale:
+            db.executemany(
+                "DELETE FROM video_files WHERE dataset_uid=? AND relative_path=?",
+                [(uid, relative) for relative in stale],
+            )
+
+    def _scan_parquet_files(self, db: sqlite3.Connection, uid: str, root: Path) -> None:
+        try:
+            import pyarrow.parquet as pq
+        except ImportError:
+            return
+        rows: list[tuple[Any, ...]] = []
+        existing = {
+            row["relative_path"]: dict(row)
+            for row in db.execute(
+                "SELECT * FROM parquet_files WHERE dataset_uid=?", (uid,)
+            ).fetchall()
+        }
+        seen: set[str] = set()
+        for path in root.glob("data/**/*.parquet"):
+            relative = str(path.relative_to(root))
+            seen.add(relative)
+            try:
+                stat = path.stat()
+                cached = existing.get(relative)
+                if (cached and cached["size"] == stat.st_size
+                        and cached["mtime_ns"] == stat.st_mtime_ns
+                        and cached["integrity_status"] in {"pass", "fail"}):
+                    rows.append(tuple(cached.get(column) for column in (
+                        "dataset_uid", "relative_path", "size", "mtime_ns", "rows",
+                        "schema_json", "integrity_status", "error")))
+                    if len(rows) >= 500:
+                        db.executemany("""INSERT OR REPLACE INTO parquet_files
+                            (dataset_uid,relative_path,size,mtime_ns,rows,schema_json,integrity_status,error)
+                            VALUES(?,?,?,?,?,?,?,?)""", rows)
+                        rows.clear()
+                    continue
+                parquet = pq.ParquetFile(path)
+                schema = {name: str(parquet.schema_arrow.field(name).type) for name in parquet.schema.names}
+                rows.append((uid, relative, stat.st_size, stat.st_mtime_ns, parquet.metadata.num_rows,
+                             json.dumps(schema), "pass", None))
+            except Exception as exc:
+                rows.append((uid, relative, 0, 0, None, "{}", "fail", str(exc)))
+            if len(rows) >= 500:
+                db.executemany("""INSERT OR REPLACE INTO parquet_files
+                    (dataset_uid,relative_path,size,mtime_ns,rows,schema_json,integrity_status,error)
+                    VALUES(?,?,?,?,?,?,?,?)""", rows)
+                rows.clear()
+        if rows:
+            db.executemany("""INSERT OR REPLACE INTO parquet_files
+                (dataset_uid,relative_path,size,mtime_ns,rows,schema_json,integrity_status,error)
+                VALUES(?,?,?,?,?,?,?,?)""", rows)
+        stale = set(existing) - seen
+        if stale:
+            db.executemany(
+                "DELETE FROM parquet_files WHERE dataset_uid=? AND relative_path=?",
+                [(uid, relative) for relative in stale],
+            )
+
     def scan(
         self,
         mode: str = "quick",
@@ -279,6 +448,9 @@ class Catalog:
                             db.executemany("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,metadata_json) VALUES(?,?,?,?,?,?)", episode_rows)
                     except (ImportError, OSError, ValueError):
                         pass
+                    self._scan_video_files(db, uid, root, deep=mode == "deep")
+                    if mode == "deep":
+                        self._scan_parquet_files(db, uid, root)
                 db.execute("INSERT OR REPLACE INTO scan_fingerprints(root,dataset_uid,info_mtime_ns,info_size,episodes_mtime_ns,scanned_at) VALUES(?,?,?,?,?,?)",
                             (str(root), uid, info_mtime, info_size, episodes_mtime, time.time()))
             found.append(row)
@@ -290,6 +462,13 @@ class Catalog:
         with self._connect() as db:
             rows = db.execute("SELECT * FROM datasets ORDER BY uid").fetchall()
         return [self._dataset_row(r) for r in rows]
+
+    def list_videos(self, uid: str, integrity_status: str | None = None) -> list[dict[str, Any]]:
+        query, args = "SELECT * FROM video_files WHERE dataset_uid=?", [uid]
+        if integrity_status:
+            query += " AND integrity_status=?"; args.append(integrity_status)
+        with self._connect() as db:
+            return [dict(row) for row in db.execute(query + " ORDER BY relative_path", args).fetchall()]
 
     def get_dataset(self, uid: str) -> dict[str, Any] | None:
         with self._connect() as db:

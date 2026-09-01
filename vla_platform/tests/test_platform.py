@@ -85,6 +85,49 @@ def test_quick_scan_avoids_deep_size_walk_and_reuses_fingerprint(tmp_path):
     assert catalog.list_datasets()[0]["bytes"] == 0
 
 
+def test_standard_scan_indexes_video_metadata_without_decoding_payload(tmp_path):
+    dataset = tmp_path / "demo"
+    make_dataset(dataset)
+    catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+
+    catalog.scan(mode="standard")
+    videos = catalog.list_videos("demo")
+    assert len(videos) == 1
+    assert videos[0]["relative_path"] == "videos/front.mp4"
+    assert videos[0]["size"] == 10
+    assert videos[0]["integrity_status"] in {
+        "header_ok", "fail", "metadata_unavailable"
+    }
+
+    # A second standard scan reuses the size/mtime cache and keeps the row.
+    catalog.scan(mode="standard")
+    assert len(catalog.list_videos("demo")) == 1
+
+
+def test_deep_scan_labels_bad_video_instead_of_failing_scan(tmp_path):
+    dataset = tmp_path / "demo"
+    make_dataset(dataset)
+    catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+
+    rows = catalog.scan(mode="deep")
+    videos = catalog.list_videos("demo")
+    assert len(rows) == 1
+    assert videos[0]["integrity_status"] in {
+        "pass", "fail", "metadata_unavailable"
+    }
+
+
+def test_video_metadata_endpoint(monkeypatch, tmp_path):
+    dataset = tmp_path / "demo"
+    make_dataset(dataset)
+    test_catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+    test_catalog.scan(mode="standard")
+    monkeypatch.setattr("vla_platform.api.catalog", test_catalog)
+    response = TestClient(app).get("/api/datasets/demo/videos")
+    assert response.status_code == 200
+    assert response.json()[0]["relative_path"] == "videos/front.mp4"
+
+
 def test_async_scan_api_reports_terminal_status(monkeypatch, tmp_path):
     dataset = tmp_path / "demo"
     make_dataset(dataset)
