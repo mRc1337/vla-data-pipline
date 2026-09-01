@@ -139,10 +139,9 @@ function App() {
   }, [selected]);
 
   useEffect(() => {
-    if (!selected) { setEpisodes([]); setEpisodeIndex(undefined); return; }
+    if (!selected || taskIndex === undefined) { setEpisodes([]); setEpisodeIndex(undefined); return; }
     setPreview(undefined); setSeries([]); setEpisodeIndex(undefined);
-    const query = taskIndex === undefined ? "" : `?task_index=${taskIndex}`;
-    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes${query}`)
+    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes?task_index=${taskIndex}`)
       .then((response) => response.json()).then((items: Episode[]) => {
         setEpisodes(items);
         if (items.length) setEpisodeIndex(items[0].episode_index);
@@ -254,8 +253,8 @@ function App() {
           {selected && <>
             <Card title={`Episode 预览 / ${selected.uid}`} extra={<Space>
               <Select allowClear showSearch virtual optionFilterProp="label" placeholder="选择 Task" value={taskIndex} options={taskOptions} onChange={setTaskIndex} style={{ width: 380 }} />
-              <Select showSearch virtual optionFilterProp="label" placeholder="选择 Episode" value={episodeIndex} options={episodeOptions} onChange={setEpisodeIndex} style={{ width: 360 }} />
-              {episodeIndex !== undefined && <InputNumber min={0} max={Math.max(0, selected.episodes - 1)} value={episodeIndex} onChange={(value) => value !== null && setEpisodeIndex(value)} />}
+              <Select disabled={taskIndex === undefined} showSearch virtual optionFilterProp="label" placeholder={taskIndex === undefined ? "先选择 Task" : "选择 Episode"} value={episodeIndex} options={episodeOptions} onChange={setEpisodeIndex} style={{ width: 360 }} />
+              {episodeIndex !== undefined && <InputNumber disabled={taskIndex === undefined} min={0} max={Math.max(0, selected.episodes - 1)} value={episodeIndex} onChange={(value) => value !== null && setEpisodeIndex(value)} />}
             </Space>}>
               <Row gutter={16}>
                 <Col><Statistic title="Episodes" value={selected.episodes} /></Col>
