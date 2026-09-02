@@ -22,12 +22,18 @@ type DatasetTask = { task_index: number; name: string; episodes: number };
 type VideoRef = {
   camera: string; relative_path: string; url: string;
   timestamp_start?: number; timestamp_end?: number;
+  source_start?: number; source_end?: number; duration?: number;
+  chunk_index?: number; file_index?: number; integrity_status?: string;
 };
 type StageResult = {
   stage_id: number; run_id: string; stage?: string; detector_version?: string;
+  coordinate_system?: string;
   summary?: Record<string, unknown>; records?: Array<Record<string, unknown>>;
 };
-type Preview = { dataset: Dataset; episode: Episode; videos: VideoRef[]; stage_results: StageResult[] };
+type EpisodeTimeline = {
+  coordinate_system: string; frame_count: number; fps: number; duration: number; dataset_from_index: number;
+};
+type Preview = { dataset: Dataset; episode: Episode; timeline?: EpisodeTimeline; videos: VideoRef[]; stage_results: StageResult[] };
 type SeriesRow = Record<string, unknown>;
 type Task = { task_id: string; status: string; progress: number; stage_id: number; error?: string };
 type ScanTask = { scan_id: string; status: string; current: number; total: number; datasets: number; skipped: number; eta_seconds: number | null };
@@ -76,25 +82,65 @@ function vector(value: unknown): number[] {
   return result === null ? [] : [result];
 }
 
-function stageIntervals(results: StageResult[], fps: number): Array<[{ xAxis: number }, { xAxis: number }]> {
+function stageIntervals(results: StageResult[], timeline: EpisodeTimeline): Array<[{ xAxis: number }, { xAxis: number }]> {
   const intervals: Array<[{ xAxis: number }, { xAxis: number }]> = [];
   results.forEach((stage) => (stage.records || []).forEach((record) => {
     const status = String(record.status || record.label || "warning").toLowerCase();
     if (["pass", "ok", "clean"].includes(status)) return;
-    const start = numeric(record.frame_start ?? record.start_frame ?? record.frame_index);
-    const end = numeric(record.frame_end ?? record.end_frame ?? record.frame_index ?? start);
-    if (start !== null && end !== null) intervals.push([{ xAxis: start / fps }, { xAxis: Math.max(end, start) / fps }]);
+    if (record.flagged_frame === false || record.failed === false && record.frame_index !== undefined) return;
+    const coordinate = String(record.coordinate_system || stage.coordinate_system || "episode_frame");
+    let start = numeric(record.frame_start ?? record.start_frame ?? record.frame_index);
+    let end = numeric(record.frame_end ?? record.end_frame ?? record.frame_index ?? start);
+    if (start === null) {
+      const timestamp = numeric(record.timestamp_start ?? record.start_timestamp ?? record.timestamp);
+      if (timestamp !== null) start = timestamp * timeline.fps;
+    }
+    if (end === null) {
+      const timestamp = numeric(record.timestamp_end ?? record.end_timestamp ?? record.timestamp);
+      if (timestamp !== null) end = timestamp * timeline.fps;
+    }
+    if (start === null || end === null) return;
+    if (["dataset_frame", "global_frame"].includes(coordinate)) {
+      start -= timeline.dataset_from_index;
+      end -= timeline.dataset_from_index;
+    }
+    start = Math.min(Math.max(start, 0), Math.max(0, timeline.frame_count - 1));
+    end = Math.min(Math.max(end, start), Math.max(0, timeline.frame_count - 1));
+    intervals.push([{ xAxis: start / timeline.fps }, { xAxis: end / timeline.fps }]);
   }));
   return intervals;
 }
 
-function Curve({ title, rows, field, dimensions, fps, intervals = [] }: {
+function videoWindow(video: VideoRef, episodeDuration: number): { start: number; end: number; duration: number } {
+  const start = Math.max(0, numeric(video.source_start ?? video.timestamp_start) ?? 0);
+  const metadataEnd = numeric(video.source_end ?? video.timestamp_end);
+  const end = metadataEnd !== null && metadataEnd > start
+    ? metadataEnd
+    : start + Math.max(0, episodeDuration);
+  return { start, end: Math.max(start, end), duration: Math.max(0, end - start) };
+}
+
+function Curve({ title, rows, field, dimensions, fps, intervals = [], playhead, onSeek }: {
   title: string; rows: SeriesRow[]; field: string; dimensions?: number[]; fps: number;
   intervals?: Array<[{ xAxis: number }, { xAxis: number }]>;
+  playhead?: number;
+  onSeek?: (time: number) => void;
 }) {
   const first = rows.find((row) => vector(row[field]).length);
   const width = first ? vector(first[field]).length : 0;
-  const indexes = dimensions || Array.from({ length: width }, (_, i) => i);
+  const dimensionKey = dimensions?.join(",") || `all:${width}`;
+  const indexes = useMemo(
+    () => dimensions || Array.from({ length: width }, (_, i) => i),
+    [dimensionKey, width],
+  );
+  const chartSeries = useMemo(() => indexes.map((dimension) => ({
+    dimension,
+    data: rows.map((row, index) => {
+      const values = vector(row[field]);
+      const timestamp = numeric(row.episode_time ?? row.timestamp) ?? index / fps;
+      return [timestamp, values[dimension] ?? null];
+    }),
+  })), [field, fps, indexes, rows]);
   const option = useMemo(() => ({
     animation: false,
     title: { text: title, left: 8, textStyle: { fontSize: 13 } },
@@ -103,18 +149,26 @@ function Curve({ title, rows, field, dimensions, fps, intervals = [] }: {
     grid: { left: 48, right: 18, top: 58, bottom: 32 },
     xAxis: { type: "value", name: "s", min: 0 },
     yAxis: { type: "value" },
-    series: indexes.map((dimension) => ({
+    series: chartSeries.map(({ dimension, data }, seriesIndex) => ({
       name: `${field}[${dimension}]`, type: "line", showSymbol: false,
-      data: rows.map((row, index) => {
-        const values = vector(row[field]);
-        const timestamp = numeric(row.timestamp) ?? index / fps;
-        return [timestamp, values[dimension] ?? null];
-      }),
+      data,
+      markArea: seriesIndex === 0 && intervals.length ? {
+        silent: true, itemStyle: { color: "rgba(245, 63, 63, .16)" }, data: intervals,
+      } : undefined,
+      markLine: seriesIndex === 0 && playhead !== undefined ? {
+        silent: true, symbol: "none", lineStyle: { color: "#1677ff", width: 1.5 },
+        label: { show: false }, data: [{ xAxis: playhead }],
+      } : undefined,
     })),
-    markArea: intervals.length ? { itemStyle: { color: "rgba(245, 63, 63, .16)" }, data: intervals } : undefined,
-  }), [field, fps, indexes, intervals, rows, title]);
+  }), [chartSeries, field, intervals, playhead, title]);
   if (!rows.length || !width) return <Card size="small" title={title}><Alert type="info" showIcon message="该字段暂无可绘制数据，请先运行 standard 扫描或检查 Parquet schema。" /></Card>;
-  return <ReactECharts option={option} style={{ height: 270 }} notMerge lazyUpdate />;
+  const onEvents = onSeek ? {
+    click: (params: { value?: unknown }) => {
+      const value = Array.isArray(params.value) ? Number(params.value[0]) : Number(params.value);
+      if (Number.isFinite(value)) onSeek(value);
+    },
+  } : undefined;
+  return <ReactECharts option={option} onEvents={onEvents} style={{ height: 270, cursor: onSeek ? "crosshair" : undefined }} notMerge lazyUpdate />;
 }
 
 function App() {
@@ -136,11 +190,11 @@ function App() {
   const [stage, setStage] = useState(1);
   const [task, setTask] = useState<Task>();
   const [loadingEpisode, setLoadingEpisode] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [currentFrame, setCurrentFrame] = useState(0);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const syncing = useRef(false);
-  const playbackSyncing = useRef(false);
 
   const refresh = () => fetch("/api/datasets").then((response) => response.json()).then(setDatasets)
     .catch(() => message.error("后端未启动"));
@@ -197,7 +251,8 @@ function App() {
   useEffect(() => {
     if (!selected || episodeIndex === undefined) return;
     let cancelled = false;
-    setLoadingEpisode(true); setCurrentTime(0); setCurrentFrame(0);
+    Object.values(videoRefs.current).forEach((video) => video?.pause());
+    setIsPlaying(false); setLoadingEpisode(true); setCurrentTime(0); setCurrentFrame(0);
     Promise.all([
       fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/preview`).then((response) => response.json()),
       fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/series?fields=timestamp,frame_index,observation.state,action&limit=5000`).then((response) => response.json()),
@@ -230,9 +285,27 @@ function App() {
     return () => clearInterval(id);
   }, [episodeIndex, selected, task]);
 
-  const fps = Number(((preview?.dataset.schema?.timestamp as { fps?: number } | undefined)?.fps)
+  const fps = Number(preview?.timeline?.fps || ((preview?.dataset.schema?.timestamp as { fps?: number } | undefined)?.fps)
     || ((selected?.schema?.timestamp as { fps?: number } | undefined)?.fps) || 20);
-  const intervals = useMemo(() => stageIntervals(preview?.stage_results || [], fps), [fps, preview]);
+  const timeline = useMemo<EpisodeTimeline>(() => ({
+    coordinate_system: preview?.timeline?.coordinate_system || "episode_relative",
+    frame_count: preview?.timeline?.frame_count || preview?.episode.frames || 0,
+    fps,
+    duration: preview?.timeline?.duration || preview?.episode.duration || 0,
+    dataset_from_index: preview?.timeline?.dataset_from_index || 0,
+  }), [fps, preview]);
+  const intervals = useMemo(() => stageIntervals(preview?.stage_results || [], timeline), [preview, timeline]);
+
+  useEffect(() => {
+    if (!preview) return;
+    setIsPlaying(false); setCurrentTime(0); setCurrentFrame(0);
+    Object.values(videoRefs.current).forEach((video) => {
+      if (!video) return;
+      video.pause();
+      const meta = preview.videos.find((item) => item.camera === video.dataset.camera);
+      if (meta && video.readyState >= 1) video.currentTime = videoWindow(meta, timeline.duration).start;
+    });
+  }, [preview, timeline.duration]);
   const episodeOptions = useMemo(() => episodes.map((item) => ({
     value: item.episode_index,
     label: `Episode ${item.episode_index} · ${item.frames || "?"} frames${item.instruction ? ` · ${item.instruction.slice(0, 72)}` : ""}`,
@@ -244,28 +317,83 @@ function App() {
 
   const syncTime = (source: HTMLVideoElement) => {
     if (syncing.current) return;
+    const sourceMeta = preview?.videos.find((item) => item.camera === source.dataset.camera);
+    if (!sourceMeta) return;
+    const sourceWindow = videoWindow(sourceMeta, timeline.duration);
+    if (source.currentTime < sourceWindow.start) source.currentTime = sourceWindow.start;
+    if (source.currentTime > sourceWindow.end) {
+      source.currentTime = sourceWindow.end;
+      Object.values(videoRefs.current).forEach((video) => video?.pause());
+      setIsPlaying(false);
+    }
+    const relativeTime = Math.min(Math.max(source.currentTime - sourceWindow.start, 0), timeline.duration);
     syncing.current = true;
     Object.values(videoRefs.current).forEach((video) => {
-      if (video && video !== source && Math.abs(video.currentTime - source.currentTime) > 0.05) video.currentTime = source.currentTime;
+      if (!video || video === source) return;
+      const meta = preview?.videos.find((item) => item.camera === video.dataset.camera);
+      if (!meta) return;
+      const window = videoWindow(meta, timeline.duration);
+      const target = Math.min(window.end, window.start + relativeTime);
+      if (Math.abs(video.currentTime - target) > 0.05) video.currentTime = target;
     });
     syncing.current = false;
-    const time = source.currentTime || 0;
-    setCurrentTime(time); setCurrentFrame(Math.round(time * fps));
-  };
-  const syncPlayback = (source: HTMLVideoElement, playing: boolean) => {
-    if (playbackSyncing.current) return;
-    playbackSyncing.current = true;
-    Object.values(videoRefs.current).forEach((video) => {
-      if (!video || video === source) return;
-      video.currentTime = source.currentTime;
-      if (playing) void video.play().catch(() => undefined); else video.pause();
-    });
-    window.setTimeout(() => { playbackSyncing.current = false; }, 0);
+    setCurrentTime(relativeTime);
+    setCurrentFrame(Math.min(Math.max(0, timeline.frame_count - 1), Math.floor(relativeTime * fps + 1e-6)));
   };
   const seek = (time: number) => {
-    Object.values(videoRefs.current).forEach((video) => { if (video) video.currentTime = time; });
-    setCurrentTime(time); setCurrentFrame(Math.round(time * fps));
+    const duration = timeline.duration;
+    const relativeTime = Math.min(Math.max(time, 0), duration);
+    Object.values(videoRefs.current).forEach((video) => {
+      if (!video) return;
+      const meta = preview?.videos.find((item) => item.camera === video.dataset.camera);
+      if (!meta) return;
+      const videoDuration = videoWindow(meta, duration);
+      video.currentTime = Math.min(videoDuration.end, videoDuration.start + relativeTime);
+    });
+    setCurrentTime(relativeTime);
+    setCurrentFrame(Math.min(Math.max(0, timeline.frame_count - 1), Math.floor(relativeTime * fps + 1e-6)));
   };
+
+  const togglePlayback = () => {
+    if (isPlaying) {
+      Object.values(videoRefs.current).forEach((video) => video?.pause());
+      setIsPlaying(false);
+      return;
+    }
+    if (currentTime >= timeline.duration - 1 / fps) seek(0);
+    const videos = Object.values(videoRefs.current).filter((video): video is HTMLVideoElement => Boolean(video));
+    void Promise.allSettled(videos.map((video) => video.play())).then((results) => {
+      const allStarted = videos.length > 0 && results.every((result) => result.status === "fulfilled");
+      if (!allStarted) Object.values(videoRefs.current).forEach((video) => video?.pause());
+      setIsPlaying(allStarted);
+    });
+  };
+
+  useEffect(() => {
+    if (!isPlaying || !preview?.videos.length) return undefined;
+    const primary = videoRefs.current[preview.videos[0].camera];
+    if (!primary) return undefined;
+    type FrameVideo = HTMLVideoElement & {
+      requestVideoFrameCallback?: (callback: () => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    };
+    const frameVideo = primary as FrameVideo;
+    let handle = 0;
+    let animationHandle = 0;
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      syncTime(primary);
+      if (frameVideo.requestVideoFrameCallback) handle = frameVideo.requestVideoFrameCallback(tick);
+      else animationHandle = window.requestAnimationFrame(tick);
+    };
+    tick();
+    return () => {
+      cancelled = true;
+      if (handle && frameVideo.cancelVideoFrameCallback) frameVideo.cancelVideoFrameCallback(handle);
+      if (animationHandle) window.cancelAnimationFrame(animationHandle);
+    };
+  }, [isPlaying, preview, timeline.duration]);
 
   const selectedStateRows = series.filter((row) => row["observation.state"] !== undefined);
   const stageColumns = [
@@ -315,7 +443,7 @@ function App() {
                 <Col><Statistic title="Episodes" value={selected.episodes} /></Col>
                 <Col><Statistic title="Frames" value={selected.frames} /></Col>
                 <Col><Statistic title="Cameras" value={preview?.videos.length || selected.cameras.length} /></Col>
-                <Col><Statistic title="当前帧" value={currentFrame} suffix={`/ ${preview?.episode.frames || "?"}`} /></Col>
+                <Col><Statistic title="当前帧" value={currentFrame} suffix={`/ ${preview ? Math.max(0, timeline.frame_count - 1) : "?"}`} /></Col>
               </Row>
               {loadingEpisode && <Progress percent={60} status="active" showInfo={false} />}
               {preview && <Descriptions size="small" column={2} className="episode-meta">
@@ -326,11 +454,22 @@ function App() {
             </Card>
             {preview && <Card title="多相机同步视频" className="section-card">
               <Row gutter={[12, 12]}>{preview.videos.map((video) => <Col xs={24} md={12} key={video.camera}>
-                <div className="camera-title">{video.camera}</div>
-                <video className="episode-video" controls preload="metadata" src={video.url} ref={(element) => { videoRefs.current[video.camera] = element; }}
-                  onTimeUpdate={(event) => syncTime(event.currentTarget)} onPlay={(event) => syncPlayback(event.currentTarget, true)} onPause={(event) => syncPlayback(event.currentTarget, false)} />
+                <div className="camera-title">{video.camera} · file-{String(video.file_index ?? "?").padStart(3, "0")} · 源时间窗 {videoWindow(video, timeline.duration).start.toFixed(2)}–{videoWindow(video, timeline.duration).end.toFixed(2)} s</div>
+                {video.integrity_status === "duration_mismatch" && <Alert type="warning" showIcon message="该相机视频窗口长度与 Episode 长度不一致" />}
+                <video className="episode-video" playsInline muted preload="metadata" src={video.url} data-camera={video.camera}
+                  onClick={togglePlayback} ref={(element) => { videoRefs.current[video.camera] = element; }}
+                  onLoadedMetadata={(event) => { event.currentTarget.currentTime = videoWindow(video, timeline.duration).start; }} />
               </Col>)}</Row>
-              <div className="video-controls"><span>当前时间 {currentTime.toFixed(2)} s</span><input type="range" min={0} max={preview.episode.duration || 1} step={0.01} value={Math.min(currentTime, preview.episode.duration || 1)} onChange={(event) => seek(Number(event.target.value))} /></div>
+              <div className="video-controls">
+                <Space>
+                  <Button type="primary" onClick={togglePlayback}>{isPlaying ? "暂停" : "播放"}</Button>
+                  <Button onClick={() => seek(currentTime - 1 / fps)}>上一帧</Button>
+                  <Button onClick={() => seek(currentTime + 1 / fps)}>下一帧</Button>
+                </Space>
+                <span>Episode {currentTime.toFixed(2)} / {timeline.duration.toFixed(2)} s · Frame {currentFrame}</span>
+                <input aria-label="Episode 时间轴" type="range" min={0} max={timeline.duration || 1} step={1 / fps}
+                  value={Math.min(currentTime, timeline.duration || 1)} onChange={(event) => seek(Number(event.target.value))} />
+              </div>
             </Card>}
             {preview && <Card title="异常区间与 Stage 对比" className="section-card">
               {intervals.length > 0 && <Alert type="warning" showIcon message={`发现 ${intervals.length} 个异常区间，已覆盖到曲线图中`} />}
@@ -339,11 +478,11 @@ function App() {
             <Card title="state / action 曲线" className="section-card">
               {!series.length && <Alert type="info" showIcon message="暂无曲线数据；请执行标准扫描，或确认该数据集包含 Parquet state/action 字段。" />}
               <Row gutter={[12, 12]}>
-                <Col xs={24} xl={12}><Curve title="State" rows={series} field="observation.state" fps={fps} intervals={intervals} /></Col>
-                <Col xs={24} xl={12}><Curve title="Action" rows={series} field="action" fps={fps} intervals={intervals} /></Col>
-                <Col xs={24} xl={12}><Curve title="末端位置（state 0–2）" rows={selectedStateRows} field="observation.state" fps={fps} dimensions={[0, 1, 2]} intervals={intervals} /></Col>
-                <Col xs={24} xl={12}><Curve title="姿态（state 3–5）" rows={selectedStateRows} field="observation.state" fps={fps} dimensions={[3, 4, 5]} intervals={intervals} /></Col>
-                <Col xs={24} xl={12}><Curve title="关节 / 夹爪（state 6–7）" rows={selectedStateRows} field="observation.state" fps={fps} dimensions={[6, 7]} intervals={intervals} /></Col>
+                <Col xs={24} xl={12}><Curve title="State" rows={series} field="observation.state" fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
+                <Col xs={24} xl={12}><Curve title="Action" rows={series} field="action" fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
+                <Col xs={24} xl={12}><Curve title="末端位置（state 0–2）" rows={selectedStateRows} field="observation.state" fps={fps} dimensions={[0, 1, 2]} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
+                <Col xs={24} xl={12}><Curve title="姿态（state 3–5）" rows={selectedStateRows} field="observation.state" fps={fps} dimensions={[3, 4, 5]} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
+                <Col xs={24} xl={12}><Curve title="关节 / 夹爪（state 6–7）" rows={selectedStateRows} field="observation.state" fps={fps} dimensions={[6, 7]} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
               </Row>
             </Card>
             <Card title="运行治理 Stage" className="section-card">

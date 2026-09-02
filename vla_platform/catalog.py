@@ -432,36 +432,15 @@ class Catalog:
                 # touching image/video payloads.
                 if mode in {"standard", "deep"}:
                     try:
-                        import pyarrow.parquet as pq
-                        episode_files = sorted(root.glob("meta/episodes*.parquet")) + sorted(root.glob("meta/episodes/**/*.parquet"))
-                        task_map = self._load_task_map(root)
                         episode_rows: list[tuple[Any, ...]] = []
-                        for episode_file in episode_files:
-                            parquet = pq.ParquetFile(episode_file)
-                            names = set(parquet.schema.names)
-                            columns = [name for name in ("episode_index", "frame_count", "frames", "length", "instruction", "tasks") if name in names]
-                            if not columns:
-                                continue
-                            if "tasks" not in columns:
-                                columns.append("tasks")
-                            try:
-                                batches = parquet.iter_batches(columns=columns, batch_size=1000)
-                            except Exception:
-                                columns = [name for name in columns if name != "tasks"]
-                                batches = parquet.iter_batches(columns=columns, batch_size=1000)
-                            for batch in batches:
-                                for item in batch.to_pylist():
-                                    index = int(item.get("episode_index", item.get("index", 0)))
-                                    count = int(item.get("frame_count", item.get("frames", item.get("length", 0))) or 0)
-                                    instruction = item.get("instruction")
-                                    if instruction is None:
-                                        tasks = item.get("tasks")
-                                        instruction = tasks[0] if isinstance(tasks, list) and tasks else tasks
-                                    task_index = next((key for key, value in task_map.items() if value == instruction), None)
-                                    episode_rows.append((uid, index, count, count / float(info.get("fps", 1) or 1), instruction, task_index, json.dumps(item, default=str)))
-                                    if len(episode_rows) >= 1000:
-                                        db.executemany("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,task_index,metadata_json) VALUES(?,?,?,?,?,?,?)", episode_rows)
-                                        episode_rows.clear()
+                        for item in self._iter_episode_metadata(root):
+                            episode_rows.append((
+                                uid, item["episode_index"], item["frames"], item["duration"],
+                                item.get("instruction"), item.get("task_index"), item.get("metadata_json"),
+                            ))
+                            if len(episode_rows) >= 1000:
+                                db.executemany("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,task_index,metadata_json) VALUES(?,?,?,?,?,?,?)", episode_rows)
+                                episode_rows.clear()
                         if episode_rows:
                             db.executemany("INSERT OR REPLACE INTO episodes(dataset_uid,episode_index,frames,duration,instruction,task_index,metadata_json) VALUES(?,?,?,?,?,?,?)", episode_rows)
                     except (ImportError, OSError, ValueError):
@@ -591,14 +570,21 @@ class Catalog:
         fps = float(info.get("fps", 1) or 1)
         task_map = cls._load_task_map(root)
         files = sorted(root.glob("meta/episodes*.parquet")) + sorted(root.glob("meta/episodes/**/*.parquet"))
-        logical_columns = (
+        cameras = sorted(
+            name for name, feature in info.get("features", {}).items()
+            if name.startswith("observation.images") or (
+                isinstance(feature, dict) and feature.get("dtype") == "video"
+            )
+        )
+        logical_columns = [
             "episode_index", "frame_count", "frames", "length", "instruction", "tasks",
             "data/chunk_index", "data/file_index", "dataset_from_index", "dataset_to_index",
-            "videos/observation.images.front/chunk_index", "videos/observation.images.front/file_index",
-            "videos/observation.images.front/from_timestamp", "videos/observation.images.front/to_timestamp",
-            "videos/observation.images.wrist/chunk_index", "videos/observation.images.wrist/file_index",
-            "videos/observation.images.wrist/from_timestamp", "videos/observation.images.wrist/to_timestamp",
-        )
+        ]
+        for camera in cameras:
+            logical_columns.extend(
+                f"videos/{camera}/{field}"
+                for field in ("chunk_index", "file_index", "from_timestamp", "to_timestamp")
+            )
         for episode_file in files:
             try:
                 parquet = pq.ParquetFile(episode_file)
@@ -669,16 +655,22 @@ class Catalog:
         if episode is None:
             raise IndexError(episode_index)
         root = Path(dataset["root"])
-        if not episode.get("metadata_json") or not episode.get("frames"):
-            loaded = self._load_episode_metadata(root, episode_index)
-            if loaded:
-                episode = {**episode, **loaded, "dataset_uid": uid}
+        # Always merge the source metadata. Existing catalogs created by older
+        # versions only cached basic episode columns and therefore lack the
+        # per-camera file/time windows needed for concatenated MP4 shards.
+        loaded = self._load_episode_metadata(root, episode_index)
+        if loaded:
+            episode = {**episode, **loaded, "dataset_uid": uid}
         info = self._json(root / "meta" / "info.json")
         metadata: dict[str, Any] = {}
         try:
             metadata = json.loads(episode.get("metadata_json") or "{}")
         except (TypeError, json.JSONDecodeError):
             metadata = {}
+        fps = float(info.get("fps", 1) or 1)
+        frame_count = int(episode.get("frames", 0) or 0)
+        duration = frame_count / fps
+        dataset_from_index = int(metadata.get("dataset_from_index", 0) or 0)
         video_template = info.get("video_path", "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4")
         videos: list[dict[str, Any]] = []
         chunks_size = int(info.get("chunks_size", 1000) or 1000)
@@ -692,40 +684,57 @@ class Catalog:
                 relative = f"videos/{camera}/chunk-{int(chunk):03d}/file-{int(file_index):03d}.mp4"
             path = (root / relative).resolve()
             if path.is_file() and root.resolve() in path.parents:
+                source_start = float(metadata.get(f"{prefix}/from_timestamp", 0) or 0)
+                source_end = float(metadata.get(f"{prefix}/to_timestamp", source_start + duration) or 0)
+                source_duration = max(0.0, source_end - source_start)
+                tolerance = max(1.0 / fps, 1e-6)
                 videos.append({
                     "camera": camera,
                     "relative_path": relative,
                     "url": f"/api/videos/{uid}/{relative}",
-                    "timestamp_start": metadata.get(f"{prefix}/from_timestamp", 0),
-                    "timestamp_end": metadata.get(f"{prefix}/to_timestamp", episode.get("duration", 0)),
+                    "chunk_index": int(chunk),
+                    "file_index": int(file_index),
+                    "source_start": source_start,
+                    "source_end": source_end,
+                    "timestamp_start": source_start,
+                    "timestamp_end": source_end,
+                    "duration": source_duration,
+                    "integrity_status": "pass" if abs(source_duration - duration) <= tolerance else "duration_mismatch",
                 })
 
         stage_results: list[dict[str, Any]] = []
         curation_root = self.data_root / "data_curation"
         for stage_id in range(1, 9):
-            stage_root = curation_root / f"stage{stage_id}" / uid
-            if not stage_root.is_dir():
+            stage_base = curation_root / f"stage{stage_id}"
+            stage_roots = [path for path in [stage_base / uid, *sorted(stage_base.glob(f"{uid}_*"))] if path.is_dir()]
+            if not stage_roots:
                 continue
-            for manifest_path in sorted(stage_root.glob("**/manifest.json")):
-                try:
-                    manifest = self._json(manifest_path)
-                    summary = self._json(manifest_path.parent / "reports" / "summary.json")
-                except OSError:
-                    continue
-                stage_results.append({
-                    "stage_id": stage_id,
-                    "run_id": manifest_path.parent.name,
-                    "stage": manifest.get("stage", f"Stage {stage_id}"),
-                    "detector_version": manifest.get("detector_version"),
-                    "summary": summary,
-                    "records": self._stage_episode_records(manifest_path.parent, episode_index),
-                })
-            # Some detector implementations write audit files without a
-            # manifest (for example the smoke runner); expose them as a run.
-            if not list(stage_root.glob("**/manifest.json")):
-                records = self._stage_episode_records(stage_root, episode_index)
-                if records:
-                    stage_results.append({"stage_id": stage_id, "run_id": "audit", "stage": f"Stage {stage_id}", "records": records})
+            for stage_root in stage_roots:
+                manifests = sorted(stage_root.glob("**/manifest.json"))
+                for manifest_path in manifests:
+                    try:
+                        manifest = self._json(manifest_path)
+                        summary = self._json(manifest_path.parent / "reports" / "summary.json")
+                    except OSError:
+                        continue
+                    stage_results.append({
+                        "stage_id": stage_id,
+                        "run_id": manifest_path.parent.name,
+                        "stage": manifest.get("stage", f"Stage {stage_id}"),
+                        "detector_version": manifest.get("detector_version"),
+                        "coordinate_system": manifest.get("coordinate_system", "episode_frame"),
+                        "summary": summary,
+                        "records": self._stage_episode_records(manifest_path.parent, episode_index),
+                    })
+                # Some detector implementations write audit files without a
+                # manifest (for example the smoke runner); expose them as a run.
+                if not manifests:
+                    records = self._stage_episode_records(stage_root, episode_index)
+                    if records:
+                        stage_results.append({
+                            "stage_id": stage_id, "run_id": stage_root.name, "stage": f"Stage {stage_id}",
+                            "coordinate_system": "episode_frame", "records": records,
+                        })
 
         # Human/automatic annotations are stored separately from immutable
         # stage artifacts.  Surface them as another comparable run instead
@@ -738,13 +747,23 @@ class Catalog:
             result = next((item for item in stage_results
                            if item["stage_id"] == stage_id and item["run_id"] == "annotations"), None)
             if result is None:
-                result = {"stage_id": stage_id, "run_id": "annotations", "stage": f"Stage {stage_id}", "records": []}
+                result = {
+                    "stage_id": stage_id, "run_id": "annotations", "stage": f"Stage {stage_id}",
+                    "coordinate_system": "episode_frame", "records": [],
+                }
                 stage_results.append(result)
             result.setdefault("records", []).append(annotation)
 
         return {
             "dataset": dataset,
             "episode": episode,
+            "timeline": {
+                "coordinate_system": "episode_relative",
+                "frame_count": frame_count,
+                "fps": fps,
+                "duration": duration,
+                "dataset_from_index": dataset_from_index,
+            },
             "videos": videos,
             "stage_results": stage_results,
         }
@@ -794,10 +813,8 @@ class Catalog:
         # the scan to that file is important for datasets with millions of
         # frames; the fallback keeps custom datasets usable.
         episode_meta = next((item for item in self.list_episodes(uid) if item["episode_index"] == episode_index), None)
-        metadata_json = episode_meta.get("metadata_json") if episode_meta else None
-        if not metadata_json:
-            loaded = self._load_episode_metadata(root, episode_index)
-            metadata_json = loaded.get("metadata_json") if loaded else None
+        loaded = self._load_episode_metadata(root, episode_index)
+        metadata_json = loaded.get("metadata_json") if loaded else (episode_meta.get("metadata_json") if episode_meta else None)
         if metadata_json:
             try:
                 metadata = json.loads(metadata_json)
@@ -827,6 +844,14 @@ class Catalog:
                 result.extend(batch.to_pylist())
                 if len(result) >= limit:
                     break
-            return result[:limit]
+            result = result[:limit]
+            fps = float(self._json(root / "meta" / "info.json").get("fps", 1) or 1)
+            for position, row in enumerate(result):
+                frame_index = row.get("frame_index")
+                try:
+                    row["episode_time"] = int(frame_index) / fps if frame_index is not None else position / fps
+                except (TypeError, ValueError):
+                    row["episode_time"] = position / fps
+            return result
         except (ImportError, OSError, ValueError):
             return []
