@@ -72,11 +72,77 @@ parse_args() {
 
 require_cmd() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
 
-pid_alive() { [[ -f "$1" ]] && kill -0 "$(<"$1")" 2>/dev/null; }
+read_pid() {
+  local file="$1" pid
+  [[ -f "$file" ]] || return 1
+  pid="$(<"$file")"
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  printf '%s\n' "$pid"
+}
+
+pid_alive() {
+  local pid
+  pid="$(read_pid "$1")" || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
+process_group_id() { ps -o pgid= -p "$1" 2>/dev/null | tr -d '[:space:]'; }
+process_session_id() { ps -o sid= -p "$1" 2>/dev/null | tr -d '[:space:]'; }
+
+managed_process() {
+  local file="$1" service="$2" pid pgid command
+  pid="$(read_pid "$file")" || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  pgid="$(process_group_id "$pid")"
+  [[ "$pgid" == "$pid" ]] || return 1
+  command="$(ps -o args= -p "$pid" 2>/dev/null)"
+  case "$service" in
+    api) [[ "$command" == *"vla_platform.api:app"* ]] ;;
+    web) [[ "$command" == *"frontend/node_modules/.bin/vite"* && "$command" == *"--strictPort"* ]] ;;
+    *) return 1 ;;
+  esac
+}
 
 cleanup_stale_pid() {
-  local file="$1"
-  if [[ -f "$file" ]] && ! pid_alive "$file"; then rm -f "$file"; fi
+  local file="$1" service="$2"
+  if [[ -f "$file" ]] && ! managed_process "$file" "$service"; then
+    rm -f "$file"
+  fi
+}
+
+terminate_group() {
+  local file="$1" service="$2" pid attempt
+  [[ -f "$file" ]] || return 0
+  if ! managed_process "$file" "$service"; then
+    say "ignoring stale or unsafe ${service} PID file"
+    rm -f "$file"
+    return 0
+  fi
+  pid="$(read_pid "$file")"
+  kill -TERM -- "-$pid" 2>/dev/null || true
+  for attempt in {1..50}; do
+    kill -0 -- "-$pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if kill -0 -- "-$pid" 2>/dev/null; then
+    say "${service} process group ${pid} did not stop; sending SIGKILL"
+    kill -KILL -- "-$pid" 2>/dev/null || true
+  fi
+  rm -f "$file"
+}
+
+wait_for_service() {
+  local file="$1" service="$2" attempt pid
+  for attempt in {1..20}; do
+    if managed_process "$file" "$service"; then
+      sleep 0.1
+      continue
+    fi
+    pid="$(read_pid "$file")" || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    sleep 0.1
+  done
+  managed_process "$file" "$service"
 }
 
 check_data_root() {
@@ -107,38 +173,65 @@ install_dev_deps() {
 
 start_dev() {
   require_cmd bash
+  require_cmd setsid
   [[ -x "${VENV_DIR}/bin/uvicorn" ]] || die "uvicorn not found; run without --skip-install first"
-  require_cmd npm
-  [[ -d "${ROOT_DIR}/frontend/node_modules" ]] || die "frontend dependencies missing; run without --skip-install first"
+  local vite_bin="${ROOT_DIR}/frontend/node_modules/.bin/vite"
+  [[ -x "$vite_bin" ]] || die "Vite not found; run without --skip-install first"
   check_data_root
-  cleanup_stale_pid "$API_PID_FILE"; cleanup_stale_pid "$WEB_PID_FILE"
-  if pid_alive "$API_PID_FILE" || pid_alive "$WEB_PID_FILE"; then
+  cleanup_stale_pid "$API_PID_FILE" api
+  cleanup_stale_pid "$WEB_PID_FILE" web
+  if managed_process "$API_PID_FILE" api || managed_process "$WEB_PID_FILE" web; then
     say "platform is already running"; status_dev; return
   fi
   export VLA_DATA_ROOT="$DATA_ROOT" VLA_CURATION_ROOT="$CURATION_ROOT" VLA_CATALOG_DB="$CATALOG_DB"
   say "starting API at http://${HOST}:${API_PORT}"
-  nohup "${VENV_DIR}/bin/uvicorn" vla_platform.api:app --host "$HOST" --port "$API_PORT" \
-    >"$API_LOG" 2>&1 & echo $! >"$API_PID_FILE"
+  nohup setsid "${VENV_DIR}/bin/uvicorn" vla_platform.api:app --host "$HOST" --port "$API_PORT" \
+    >"$API_LOG" 2>&1 &
+  printf '%s\n' "$!" >"$API_PID_FILE"
   say "starting frontend at http://${HOST}:${WEB_PORT}"
-  (cd "$ROOT_DIR/frontend" && nohup npm run dev -- --host "$HOST" --port "$WEB_PORT" \
-    >"$WEB_LOG" 2>&1 & echo $! >"$WEB_PID_FILE")
-  sleep 1
+  cd "${ROOT_DIR}/frontend"
+  nohup setsid "$vite_bin" --host "$HOST" --port "$WEB_PORT" --strictPort \
+    >"$WEB_LOG" 2>&1 &
+  printf '%s\n' "$!" >"$WEB_PID_FILE"
+  cd "$ROOT_DIR"
+  if ! wait_for_service "$API_PID_FILE" api; then
+    terminate_group "$WEB_PID_FILE" web
+    cleanup_stale_pid "$API_PID_FILE" api
+    tail -n 20 "$API_LOG" >&2 || true
+    die "API failed to start on ${HOST}:${API_PORT}"
+  fi
+  if ! wait_for_service "$WEB_PID_FILE" web; then
+    terminate_group "$API_PID_FILE" api
+    cleanup_stale_pid "$WEB_PID_FILE" web
+    tail -n 20 "$WEB_LOG" >&2 || true
+    die "frontend failed to start on ${HOST}:${WEB_PORT}; Vite strict port mode will not select another port"
+  fi
   status_dev
 }
 
 status_dev() {
-  cleanup_stale_pid "$API_PID_FILE"; cleanup_stale_pid "$WEB_PID_FILE"
-  printf 'api: '; pid_alive "$API_PID_FILE" && printf 'running (pid %s)\n' "$(<"$API_PID_FILE")" || printf 'stopped\n'
-  printf 'web: '; pid_alive "$WEB_PID_FILE" && printf 'running (pid %s)\n' "$(<"$WEB_PID_FILE")" || printf 'stopped\n'
+  local pid
+  cleanup_stale_pid "$API_PID_FILE" api
+  cleanup_stale_pid "$WEB_PID_FILE" web
+  printf 'api: '
+  if managed_process "$API_PID_FILE" api; then
+    pid="$(read_pid "$API_PID_FILE")"
+    printf 'running (pid %s, pgid %s, sid %s, port %s)\n' "$pid" "$(process_group_id "$pid")" "$(process_session_id "$pid")" "$API_PORT"
+  else
+    printf 'stopped\n'
+  fi
+  printf 'web: '
+  if managed_process "$WEB_PID_FILE" web; then
+    pid="$(read_pid "$WEB_PID_FILE")"
+    printf 'running (pid %s, pgid %s, sid %s, port %s)\n' "$pid" "$(process_group_id "$pid")" "$(process_session_id "$pid")" "$WEB_PORT"
+  else
+    printf 'stopped\n'
+  fi
 }
 
 stop_dev() {
-  for file in "$API_PID_FILE" "$WEB_PID_FILE"; do
-    if pid_alive "$file"; then
-      kill "$(<"$file")" 2>/dev/null || true
-      rm -f "$file"
-    fi
-  done
+  terminate_group "$WEB_PID_FILE" web
+  terminate_group "$API_PID_FILE" api
   say "development services stopped"
 }
 
