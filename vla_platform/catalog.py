@@ -746,7 +746,9 @@ class Catalog:
     @staticmethod
     def _stage_source_fingerprint(stage_root: Path, manifest_path: Path | None) -> str:
         values: list[str] = []
-        for path in (stage_root, manifest_path, stage_root / "labels", stage_root / "summary.json"):
+        paths = [stage_root, manifest_path, stage_root / "summary.json", stage_root / "reports" / "summary.json"]
+        paths.extend(sorted((stage_root / "labels").glob("*.parquet")))
+        for path in paths:
             if path is None:
                 continue
             try:
@@ -944,7 +946,10 @@ class Catalog:
                 "SELECT fingerprint FROM stage_index_sources WHERE dataset_uid=? AND stage_id=?",
                 (uid, stage_id),
             ).fetchone()
-            if previous and previous["fingerprint"] == fingerprint:
+            # JSON stages are updated one Episode file at a time. Always walk
+            # their filenames and let stage_index_files skip unchanged files;
+            # the search endpoint itself never touches those artifacts.
+            if stage_id <= 5 and previous and previous["fingerprint"] == fingerprint:
                 count = db.execute(
                     "SELECT COUNT(*) FROM stage_episode_results WHERE dataset_uid=? AND stage_id=?",
                     (uid, stage_id),
@@ -953,6 +958,7 @@ class Catalog:
             if stage_root is None:
                 db.execute("DELETE FROM stage_episode_results WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
                 db.execute("DELETE FROM stage_anomaly_ranges WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
+                db.execute("DELETE FROM stage_index_files WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
             elif stage_id <= 5:
                 db.execute("DELETE FROM stage_episode_results WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
                 db.execute("DELETE FROM stage_anomaly_ranges WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
@@ -962,7 +968,11 @@ class Catalog:
                     "DELETE FROM stage_episode_results WHERE dataset_uid=? AND stage_id=? AND artifact_status!='available'",
                     (uid, stage_id),
                 )
-                current_paths = {str(path): path for path in stage_root.glob("episode_*.json")}
+                current_paths = {
+                    str(path): path
+                    for directory in (stage_root, stage_root / "episodes", stage_root / "labels")
+                    for path in directory.glob("episode_*.json")
+                }
                 previous_files = {
                     row["source_path"]: row for row in db.execute(
                         "SELECT source_path,mtime_ns,size,episode_index FROM stage_index_files WHERE dataset_uid=? AND stage_id=?",
@@ -970,10 +980,16 @@ class Catalog:
                     ).fetchall()
                 }
                 for deleted in set(previous_files) - set(current_paths):
+                    deleted_episode = previous_files[deleted]["episode_index"]
                     db.execute(
                         "DELETE FROM stage_episode_results WHERE dataset_uid=? AND stage_id=? AND source_path=?",
                         (uid, stage_id, deleted),
                     )
+                    if deleted_episode is not None:
+                        db.execute(
+                            "DELETE FROM stage_anomaly_ranges WHERE dataset_uid=? AND stage_id=? AND episode_index=?",
+                            (uid, stage_id, int(deleted_episode)),
+                        )
                     db.execute(
                         "DELETE FROM stage_index_files WHERE dataset_uid=? AND stage_id=? AND source_path=?",
                         (uid, stage_id, deleted),
@@ -1034,7 +1050,11 @@ class Catalog:
         dataset_uids: list[str] | None = None,
         progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
-        datasets = [row for row in self.list_datasets() if not dataset_uids or row["uid"] in dataset_uids]
+        datasets = [
+            row for row in self.list_datasets()
+            if not dataset_uids or row["uid"] in dataset_uids
+            or self._collection_name(Path(row["root"]), row["uid"]) in dataset_uids
+        ]
         total = len(datasets) * 9
         current = indexed_episodes = skipped_stages = 0
         for dataset in datasets:
@@ -1057,6 +1077,43 @@ class Catalog:
             "stages_skipped": skipped_stages,
         }
 
+    def get_episode_search_entry(self, uid: str, episode_index: int) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM episode_search WHERE dataset_uid=? AND episode_index=?",
+                (uid, episode_index),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def search_index_stats(self) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT COUNT(*) AS episodes, COUNT(DISTINCT dataset_uid) AS datasets, "
+                "MAX(indexed_at) AS indexed_at FROM episode_search"
+            ).fetchone()
+        return dict(row)
+
+    def search_stage_facets(self) -> dict[str, Any]:
+        with self._connect() as db:
+            verdict_rows = db.execute("""SELECT stage_id,verdict,COUNT(*) AS count
+                FROM stage_episode_results GROUP BY stage_id,verdict ORDER BY stage_id,verdict""").fetchall()
+            status_rows = db.execute("""SELECT stage_id,artifact_status,COUNT(*) AS count
+                FROM stage_episode_results GROUP BY stage_id,artifact_status
+                ORDER BY stage_id,artifact_status""").fetchall()
+        stages: dict[str, dict[str, list[dict[str, Any]]]] = {
+            str(stage_id): {"verdicts": [], "artifact_statuses": []}
+            for stage_id in range(1, 9)
+        }
+        for row in verdict_rows:
+            stages[str(row["stage_id"])]["verdicts"].append({
+                "value": row["verdict"], "count": int(row["count"]),
+            })
+        for row in status_rows:
+            stages[str(row["stage_id"])]["artifact_statuses"].append({
+                "value": row["artifact_status"], "count": int(row["count"]),
+            })
+        return {"stages": stages}
+
     def search_episodes(
         self,
         query: str = "",
@@ -1070,10 +1127,13 @@ class Catalog:
         params: list[Any] = []
         normalized_query = query.strip().casefold()
         if normalized_query:
-            where.append("e.normalized_text LIKE ?")
-            params.append(f"%{normalized_query}%")
+            escaped_query = normalized_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            where.append("e.normalized_text LIKE ? ESCAPE '\\'")
+            params.append(f"%{escaped_query}%")
         if dataset_uids:
-            where.append(f"e.dataset_uid IN ({','.join('?' for _ in dataset_uids)})")
+            placeholders = ",".join("?" for _ in dataset_uids)
+            where.append(f"(e.dataset_uid IN ({placeholders}) OR e.collection_name IN ({placeholders}))")
+            params.extend(dataset_uids)
             params.extend(dataset_uids)
         for stage_filter in stage_filters or []:
             clauses = ["s.dataset_uid=e.dataset_uid", "s.episode_index=e.episode_index", "s.stage_id=?"]
@@ -1081,12 +1141,15 @@ class Catalog:
             verdicts = list(stage_filter.get("verdicts") or [])
             statuses = list(stage_filter.get("artifact_statuses") or [])
             excluded = list(stage_filter.get("exclude_verdicts") or [])
+            alternatives: list[str] = []
             if verdicts:
-                clauses.append(f"s.verdict IN ({','.join('?' for _ in verdicts)})")
+                alternatives.append(f"s.verdict IN ({','.join('?' for _ in verdicts)})")
                 values.extend(verdicts)
             if statuses:
-                clauses.append(f"s.artifact_status IN ({','.join('?' for _ in statuses)})")
+                alternatives.append(f"s.artifact_status IN ({','.join('?' for _ in statuses)})")
                 values.extend(statuses)
+            if alternatives:
+                clauses.append(f"({' OR '.join(alternatives)})")
             if excluded:
                 clauses.append(f"s.verdict NOT IN ({','.join('?' for _ in excluded)})")
                 values.extend(excluded)
@@ -1097,25 +1160,45 @@ class Catalog:
             where.append(f"EXISTS (SELECT 1 FROM stage_episode_results s WHERE {' AND '.join(clauses)})")
             params.extend(values)
         where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        order_params: list[Any] = []
         order_sql = {
             "episode": "e.collection_name,e.dataset_uid,e.episode_index",
             "duration_asc": "e.duration,e.dataset_uid,e.episode_index",
             "duration_desc": "e.duration DESC,e.dataset_uid,e.episode_index",
         }.get(sort, "e.collection_name,e.task_name,e.episode_index")
+        if sort == "relevance" and normalized_query:
+            order_sql = """CASE
+                WHEN lower(COALESCE(e.instruction,''))=? THEN 0
+                WHEN lower(COALESCE(e.task_name,''))=? THEN 1
+                WHEN lower(e.collection_name)=? OR lower(e.dataset_uid)=? THEN 2
+                ELSE 3 END,e.collection_name,e.task_name,e.episode_index"""
+            order_params = [normalized_query] * 4
         offset = (page - 1) * page_size
         with self._connect() as db:
             total = int(db.execute(f"SELECT COUNT(*) FROM episode_search e {where_sql}", params).fetchone()[0])
-            facets = db.execute(f"""SELECT COUNT(DISTINCT e.dataset_uid),
-                COUNT(DISTINCT e.dataset_uid || ':' || COALESCE(e.task_index,-1))
+            facets = db.execute(f"""SELECT COUNT(DISTINCT e.collection_name),
+                COUNT(DISTINCT e.collection_name || ':' || COALESCE(e.task_name,e.task_index,-1))
                 FROM episode_search e {where_sql}""", params).fetchone()
             rows = [dict(row) for row in db.execute(f"""SELECT e.* FROM episode_search e
-                {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?""", [*params, page_size, offset]).fetchall()]
+                {where_sql} ORDER BY {order_sql} LIMIT ? OFFSET ?""",
+                [*params, *order_params, page_size, offset]).fetchall()]
             if rows:
-                dataset_values = sorted({row["dataset_uid"] for row in rows})
-                stage_rows = [dict(row) for row in db.execute(f"""SELECT * FROM stage_episode_results
-                    WHERE dataset_uid IN ({','.join('?' for _ in dataset_values)})""", dataset_values).fetchall()]
+                page_clause = " OR ".join("(dataset_uid=? AND episode_index=?)" for _ in rows)
+                page_params = [value for row in rows for value in (row["dataset_uid"], row["episode_index"])]
+                stage_rows = [dict(value) for value in db.execute(
+                    f"SELECT * FROM stage_episode_results WHERE {page_clause}", page_params
+                ).fetchall()]
+                range_rows = db.execute(
+                    f"""SELECT dataset_uid,episode_index,stage_id,COUNT(*) AS range_count
+                    FROM stage_anomaly_ranges WHERE {page_clause}
+                    GROUP BY dataset_uid,episode_index,stage_id""", page_params,
+                ).fetchall()
+                range_counts = {
+                    (value["dataset_uid"], value["episode_index"], value["stage_id"]): value["range_count"]
+                    for value in range_rows
+                }
             else:
-                stage_rows = []
+                stage_rows, range_counts = [], {}
         stage_map: dict[tuple[str, int], list[dict[str, Any]]] = {}
         wanted = {(row["dataset_uid"], row["episode_index"]) for row in rows}
         for stage in stage_rows:
@@ -1124,6 +1207,7 @@ class Catalog:
                 continue
             stage["reason_codes"] = json.loads(stage.pop("reason_codes") or "[]")
             stage["details"] = json.loads(stage.pop("details_json") or "{}")
+            stage["range_count"] = int(range_counts.get((*key, stage["stage_id"]), 0))
             stage_map.setdefault(key, []).append(stage)
         for row in rows:
             key = (row["dataset_uid"], row["episode_index"])
@@ -1132,6 +1216,18 @@ class Catalog:
             row["title"] = f"【{row['collection_name']}】{title_text}"
             row["thumbnail_url"] = f"/api/thumbnails/{row['dataset_uid']}/{row['episode_index']}"
             row["thumbnail_status"] = "unknown"
+            match_reasons: list[str] = []
+            if normalized_query:
+                for label, value in (
+                    ("数据集", row.get("collection_name")),
+                    ("子数据集", row.get("dataset_uid")),
+                    ("Task", row.get("task_name")),
+                    ("Instruction", row.get("instruction")),
+                    ("Episode", f"episode {row['episode_index']}"),
+                ):
+                    if normalized_query in str(value or "").casefold():
+                        match_reasons.append(label)
+            row["match_reasons"] = match_reasons
         return {
             "query": query, "page": page, "page_size": page_size, "total": total,
             "dataset_count": int(facets[0] or 0), "task_count": int(facets[1] or 0),

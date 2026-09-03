@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from .catalog import Catalog
 from .pipeline import PipelineRunner
+from .thumbnail import ThumbnailManager
 from .video_proxy import VideoProxyManager
 
 
@@ -43,8 +44,17 @@ except (OSError, Exception) as exc:
     else:
         raise exc
 VIDEO_PROXY_ROOT = Path(os.environ.get("VLA_VIDEO_PROXY_ROOT", str(DB_PATH.parent / "video_proxy")))
+THUMBNAIL_ROOT = Path(os.environ.get("VLA_THUMBNAIL_ROOT", str(CURATION_ROOT / "_catalog" / "thumbnails")))
+try:
+    THUMBNAIL_ROOT.mkdir(parents=True, exist_ok=True)
+except OSError:
+    THUMBNAIL_ROOT = DB_PATH.parent / "thumbnails"
+    THUMBNAIL_ROOT.mkdir(parents=True, exist_ok=True)
 runner = PipelineRunner(catalog, CURATION_ROOT)
 proxy_manager = VideoProxyManager(VIDEO_PROXY_ROOT)
+thumbnail_manager = ThumbnailManager(
+    THUMBNAIL_ROOT, workers=int(os.environ.get("VLA_THUMBNAIL_WORKERS", "2"))
+)
 catalog.recover_interrupted_scans()
 app = FastAPI(title="VLA Data Governance Platform", version="0.1.0")
 scan_tasks: dict[str, dict[str, Any]] = {}
@@ -56,6 +66,9 @@ scan_lock = threading.Lock()
 # asyncio primitive because TestClient and production workers can use
 # different event loops over the lifetime of this module.
 scan_execution_lock = threading.Lock()
+search_index_tasks: dict[str, dict[str, Any]] = {}
+search_index_lock = threading.Lock()
+search_index_execution_lock = threading.Lock()
 
 
 def _persist_scan(scan_id: str, task: dict[str, Any]) -> None:
@@ -110,12 +123,159 @@ class ReviewRequest(BaseModel):
     comment: str | None = None
 
 
+class SearchStageFilter(BaseModel):
+    stage_id: int = Field(ge=1, le=8)
+    verdicts: list[str] = Field(default_factory=list)
+    artifact_statuses: list[str] = Field(default_factory=list)
+    exclude_verdicts: list[str] = Field(default_factory=list)
+    min_score: float | None = None
+    max_score: float | None = None
+
+
+class EpisodeSearchRequest(BaseModel):
+    query: str = Field(default="", max_length=500)
+    datasets: list[str] = Field(default_factory=list)
+    stage_filters: list[SearchStageFilter] = Field(default_factory=list)
+    sort: Literal["relevance", "episode", "duration_asc", "duration_desc"] = "relevance"
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=24, ge=1, le=30)
+
+
+class SearchIndexRequest(BaseModel):
+    datasets: list[str] = Field(default_factory=list)
+
+
+class ThumbnailItem(BaseModel):
+    dataset_uid: str
+    episode_index: int = Field(ge=0)
+
+
+class ThumbnailPrewarmRequest(BaseModel):
+    episodes: list[ThumbnailItem] = Field(default_factory=list, max_length=30)
+
+
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
     return {
         "ok": True, "data_root": str(DATA_ROOT), "catalog": str(DB_PATH),
-        "video_proxy_root": str(VIDEO_PROXY_ROOT),
+        "video_proxy_root": str(VIDEO_PROXY_ROOT), "thumbnail_root": str(THUMBNAIL_ROOT),
     }
+
+
+async def _run_search_index(task_id: str, dataset_uids: list[str]) -> None:
+    task = search_index_tasks[task_id]
+    try:
+        await asyncio.to_thread(search_index_execution_lock.acquire)
+        try:
+            task.update(status="running", started_at=time.time())
+
+            def progress(update: dict[str, Any]) -> None:
+                with search_index_lock:
+                    task.update(update)
+
+            result = await asyncio.to_thread(
+                catalog.sync_search_index, dataset_uids or None, progress
+            )
+            with search_index_lock:
+                task.update(status="succeeded", result=result, finished_at=time.time())
+        finally:
+            search_index_execution_lock.release()
+    except Exception as exc:
+        with search_index_lock:
+            task.update(status="failed", error=str(exc), finished_at=time.time())
+
+
+@app.post("/api/search/index", status_code=202)
+async def build_search_index(body: SearchIndexRequest | None = None) -> dict[str, Any]:
+    body = body or SearchIndexRequest()
+    missing = [uid for uid in body.datasets if not catalog.get_dataset(uid)]
+    if missing:
+        raise HTTPException(404, f"datasets not indexed: {', '.join(missing)}")
+    task_id = f"search-index-{uuid.uuid4().hex[:12]}"
+    task = {
+        "task_id": task_id, "status": "queued", "datasets": body.datasets,
+        "current": 0, "total": 0, "created_at": time.time(), "error": None,
+    }
+    search_index_tasks[task_id] = task
+    asyncio.create_task(_run_search_index(task_id, body.datasets))
+    return task
+
+
+@app.get("/api/search/index")
+async def search_index_summary() -> dict[str, Any]:
+    return catalog.search_index_stats()
+
+
+@app.get("/api/search/facets")
+async def search_facets() -> dict[str, Any]:
+    return catalog.search_stage_facets()
+
+
+@app.get("/api/search/index/{task_id}")
+async def search_index_status(task_id: str) -> dict[str, Any]:
+    task = search_index_tasks.get(task_id)
+    if not task:
+        raise HTTPException(404, "search index task not found")
+    with search_index_lock:
+        return dict(task)
+
+
+@app.post("/api/search/episodes")
+async def search_episodes(body: EpisodeSearchRequest) -> dict[str, Any]:
+    result = await asyncio.to_thread(
+        catalog.search_episodes,
+        body.query,
+        body.datasets or None,
+        [value.model_dump() for value in body.stage_filters],
+        body.sort,
+        body.page,
+        body.page_size,
+    )
+    for item in result["items"]:
+        try:
+            thumbnail = thumbnail_manager.inspect(
+                catalog, item["dataset_uid"], int(item["episode_index"])
+            )
+            item["thumbnail_status"] = thumbnail["status"]
+            item["thumbnail_url"] = thumbnail["url"]
+            item["primary_camera"] = thumbnail["camera"]
+        except (FileNotFoundError, IndexError, OSError, ValueError) as exc:
+            item["thumbnail_status"] = "unavailable"
+            item["thumbnail_error"] = str(exc)
+    return result
+
+
+@app.post("/api/thumbnails/prewarm", status_code=202)
+async def prewarm_thumbnails(body: ThumbnailPrewarmRequest) -> dict[str, Any]:
+    results = []
+    for item in body.episodes:
+        try:
+            results.append(thumbnail_manager.request(
+                catalog, item.dataset_uid, item.episode_index
+            ))
+        except (FileNotFoundError, IndexError, OSError, ValueError) as exc:
+            results.append({
+                "dataset_uid": item.dataset_uid,
+                "episode_index": item.episode_index,
+                "status": "unavailable",
+                "error": str(exc),
+            })
+    return {"items": results}
+
+
+@app.get("/api/thumbnails/{dataset_uid}/{episode_index}")
+async def thumbnail(dataset_uid: str, episode_index: int):
+    try:
+        status = thumbnail_manager.request(catalog, dataset_uid, episode_index)
+        path = thumbnail_manager.resolve(catalog, dataset_uid, episode_index)
+    except (FileNotFoundError, IndexError, OSError, ValueError):
+        raise HTTPException(404, "thumbnail source not found") from None
+    if path is None:
+        return JSONResponse(status, status_code=202, headers={"Cache-Control": "no-store"})
+    return FileResponse(
+        path, media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 def _safe_scan_root(root: str | None) -> str | None:

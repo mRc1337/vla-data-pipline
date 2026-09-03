@@ -30,25 +30,31 @@ class ThumbnailManager:
         if not dataset:
             raise FileNotFoundError(uid)
         root = Path(dataset["root"])
-        metadata = catalog._load_episode_metadata(root, episode_index)
-        if metadata is None:
-            raise IndexError(episode_index)
-        info = catalog._json(root / "meta" / "info.json")
-        camera = catalog._primary_camera(list(dataset.get("cameras") or []))
-        if not camera:
-            raise FileNotFoundError(f"{uid} has no video camera")
-        prefix = f"videos/{camera}"
-        chunks_size = int(info.get("chunks_size", 1000) or 1000)
-        chunk = int(metadata.get(f"{prefix}/chunk_index", episode_index // chunks_size))
-        file_index = int(metadata.get(f"{prefix}/file_index", episode_index % chunks_size))
-        source_start = float(metadata.get(f"{prefix}/from_timestamp", 0) or 0)
-        template = info.get(
-            "video_path", "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
-        )
-        try:
-            relative = str(template.format(video_key=camera, chunk_index=chunk, file_index=file_index))
-        except (KeyError, ValueError):
-            relative = f"videos/{camera}/chunk-{chunk:03d}/file-{file_index:03d}.mp4"
+        indexed = catalog.get_episode_search_entry(uid, episode_index)
+        if indexed and indexed.get("primary_camera") and indexed.get("video_relative_path"):
+            camera = str(indexed["primary_camera"])
+            relative = str(indexed["video_relative_path"])
+            source_start = float(indexed.get("video_from_timestamp") or 0)
+        else:
+            metadata = catalog._load_episode_metadata(root, episode_index)
+            if metadata is None:
+                raise IndexError(episode_index)
+            info = catalog._json(root / "meta" / "info.json")
+            camera = catalog._primary_camera(list(dataset.get("cameras") or []))
+            if not camera:
+                raise FileNotFoundError(f"{uid} has no video camera")
+            prefix = f"videos/{camera}"
+            chunks_size = int(info.get("chunks_size", 1000) or 1000)
+            chunk = int(metadata.get(f"{prefix}/chunk_index", episode_index // chunks_size))
+            file_index = int(metadata.get(f"{prefix}/file_index", episode_index % chunks_size))
+            source_start = float(metadata.get(f"{prefix}/from_timestamp", 0) or 0)
+            template = info.get(
+                "video_path", "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
+            )
+            try:
+                relative = str(template.format(video_key=camera, chunk_index=chunk, file_index=file_index))
+            except (KeyError, ValueError):
+                relative = f"videos/{camera}/chunk-{chunk:03d}/file-{file_index:03d}.mp4"
         source = (root / relative).resolve()
         if not source.is_file() or root.resolve() not in source.parents:
             raise FileNotFoundError(source)
@@ -71,20 +77,44 @@ class ThumbnailManager:
         key = f"{uid}:{episode_index}:{source['fingerprint']}"
         with self._lock:
             if target.is_file() and target.stat().st_size:
-                status = "ready"
+                self._tasks[key] = {
+                    "status": "ready", "error": None, "target": str(target),
+                    "camera": source["camera"],
+                }
             else:
                 existing = self._tasks.get(key)
-                status = existing["status"] if existing else "queued"
-                if existing is None or status == "failed":
+                if existing is None or existing["status"] == "failed":
                     self._tasks[key] = {
                         "status": "queued", "error": None, "target": str(target),
                         "camera": source["camera"],
                     }
                     self._executor.submit(self._generate, key, source, target)
-            task = dict(self._tasks.get(key) or {"status": status, "error": None, "camera": source["camera"]})
+            task = dict(self._tasks[key])
         return {
             "dataset_uid": uid, "episode_index": episode_index,
             "status": task["status"], "error": task.get("error"),
+            "camera": source["camera"],
+            "url": f"/api/thumbnails/{uid}/{episode_index}?v={source['fingerprint']}",
+        }
+
+    def inspect(self, catalog: Any, uid: str, episode_index: int) -> dict[str, Any]:
+        """Report cache state without scheduling FFmpeg work."""
+        source = self._source(catalog, uid, episode_index)
+        target = self._target(uid, episode_index, source["fingerprint"])
+        key = f"{uid}:{episode_index}:{source['fingerprint']}"
+        with self._lock:
+            task = self._tasks.get(key)
+            if target.is_file() and target.stat().st_size:
+                status, error = "ready", None
+            elif task:
+                status, error = task["status"], task.get("error")
+            else:
+                status, error = "not_generated", None
+        return {
+            "dataset_uid": uid,
+            "episode_index": episode_index,
+            "status": status,
+            "error": error,
             "camera": source["camera"],
             "url": f"/api/thumbnails/{uid}/{episode_index}?v={source['fingerprint']}",
         }

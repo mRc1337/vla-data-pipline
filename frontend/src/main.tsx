@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import ReactECharts from "echarts-for-react";
 import {
-  Alert, Button, Card, Collapse, Descriptions, InputNumber, Layout,
-  List, Progress, Row, Col, Segmented, Select, Space, Statistic, Table, Tag, message,
+  Alert, Button, Card, Collapse, Descriptions, Empty, Input, InputNumber, Layout,
+  List, Pagination, Progress, Row, Col, Segmented, Select, Space, Spin, Statistic, Table, Tag, message,
 } from "antd";
 import "./style.css";
 
@@ -54,11 +54,138 @@ type SeriesRow = Record<string, unknown>;
 type SeriesView = "raw" | "valid" | "repaired" | "diff";
 type ScanTask = { scan_id: string; status: string; current: number; total: number; datasets: number; skipped: number; eta_seconds: number | null };
 type PlaybackStatus = "idle" | "seeking" | "buffering" | "stalled" | "playing" | "paused" | "error";
+type SearchStageBadge = {
+  stage_id: number; artifact_status: string; verdict: string; anomaly_count: number;
+  range_count: number; severity?: string | null; score?: number | null; reason_codes: string[];
+};
+type EpisodeSearchItem = {
+  dataset_uid: string; collection_name: string; task_index?: number | null; task_name?: string | null;
+  episode_index: number; instruction?: string | null; frame_count: number; duration: number;
+  camera_count: number; primary_camera?: string | null; title: string; thumbnail_url: string;
+  thumbnail_status: string; thumbnail_error?: string; match_reasons: string[]; stage_badges: SearchStageBadge[];
+};
+type EpisodeSearchResponse = {
+  query: string; page: number; page_size: number; total: number;
+  dataset_count: number; task_count: number; items: EpisodeSearchItem[];
+};
+type SearchIndexTask = {
+  task_id: string; status: string; current: number; total: number; phase?: string;
+  dataset_uid?: string; error?: string | null; result?: { datasets: number; episodes: number };
+};
+type SearchStageFacets = Record<string, {
+  verdicts: Array<{ value: string; count: number }>;
+  artifact_statuses: Array<{ value: string; count: number }>;
+}>;
 
 const playbackStatusLabels: Record<PlaybackStatus, string> = {
   idle: "待播放", seeking: "正在定位", buffering: "正在缓冲",
   stalled: "读取停滞", playing: "播放中", paused: "已暂停", error: "播放失败",
 };
+
+const stageFilterOptions: Record<number, Array<{ label: string; value: string }>> = {
+  1: [
+    { label: "通过", value: "pass" }, { label: "有突变", value: "anomaly" },
+    { label: "Episode 已过滤", value: "filtered" },
+  ],
+  2: [
+    { label: "通过", value: "pass" }, { label: "趋势不一致", value: "fail" },
+    { label: "无法评分", value: "unscored" },
+  ],
+  3: [
+    { label: "通过", value: "pass" }, { label: "有极值", value: "anomaly" },
+    { label: "Episode 已过滤", value: "filtered" },
+  ],
+  4: [
+    { label: "通过", value: "pass" }, { label: "警告", value: "warning" },
+    { label: "失败", value: "fail" },
+  ],
+  5: [
+    { label: "已对齐", value: "aligned" }, { label: "非训练候选", value: "not_candidate" },
+  ],
+  6: [
+    { label: "已完成", value: "complete" }, { label: "需复核", value: "needs_review" },
+  ],
+  7: [
+    { label: "通过", value: "pass" }, { label: "失败", value: "fail" },
+    { label: "跳过", value: "skip" },
+  ],
+  8: [
+    { label: "保留", value: "retain" },
+    { label: "排除窗口", value: "exclude_affected_sample_windows" },
+    { label: "排除 Episode", value: "exclude_episode_from_training" },
+  ],
+};
+
+const artifactFilterOptions = [
+  { label: "已有产物", value: "status:available" },
+  { label: "该 Episode 待处理", value: "status:episode_pending" },
+  { label: "前序阶段已过滤", value: "status:upstream_filtered" },
+  { label: "未生成产物", value: "status:not_generated" },
+];
+
+function searchStatusLabel(value: string): string {
+  const labels: Record<string, string> = {
+    pass: "通过", anomaly: "有异常", filtered: "Episode 已过滤", fail: "失败",
+    unscored: "无法评分", warning: "警告", aligned: "已对齐", not_candidate: "非训练候选",
+    complete: "已完成", needs_review: "需复核", insufficient_confidence: "低置信度",
+    skip: "跳过", retain: "保留", exclude_affected_sample_windows: "排除窗口",
+    exclude_episode_from_training: "排除 Episode", available: "已有产物",
+    episode_pending: "该 Episode 待处理", upstream_filtered: "前序阶段已过滤",
+    not_generated: "未生成产物",
+  };
+  return labels[value] || value;
+}
+
+function stageBadgePresentation(stage: SearchStageBadge): { text: string; color?: string } {
+  const id = stage.stage_id;
+  if (stage.artifact_status === "not_generated") return { text: `S${id} 未生成` };
+  if (stage.artifact_status === "episode_pending") return { text: `S${id} 待处理`, color: "gold" };
+  if (stage.artifact_status === "upstream_filtered") return { text: `S${id} 前序过滤`, color: "orange" };
+  if (id === 1 && stage.verdict === "anomaly") return { text: `S1 突变 ${stage.anomaly_count}帧`, color: "orange" };
+  if (id === 3 && stage.verdict === "anomaly") return { text: `S3 极值 ${stage.range_count || stage.anomaly_count}区间`, color: "orange" };
+  if (id === 6 && stage.severity === "warning") return { text: "S6 需复核", color: "gold" };
+  if (id === 7 && stage.verdict !== "pass") return { text: `S7 ${stage.verdict}`, color: stage.verdict === "fail" ? "red" : "gold" };
+  if (id === 8 && stage.verdict === "exclude_affected_sample_windows") return { text: "S8 排除窗口", color: "orange" };
+  if (id === 8 && stage.verdict === "exclude_episode_from_training") return { text: "S8 排除 Episode", color: "red" };
+  if (["fail", "filtered", "not_candidate"].includes(stage.verdict)) return { text: `S${id} ${stage.verdict}`, color: "red" };
+  if (["warning", "unscored", "needs_review"].includes(stage.verdict)) return { text: `S${id} ${stage.verdict}`, color: "gold" };
+  if (["pass", "complete", "aligned", "retain"].includes(stage.verdict)) {
+    return { text: `S${id} ${searchStatusLabel(stage.verdict)}`, color: "green" };
+  }
+  return { text: `S${id} ${searchStatusLabel(stage.verdict)}`, color: "gold" };
+}
+
+function EpisodeSearchCard({ item, onOpen }: { item: EpisodeSearchItem; onOpen: () => void }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [item.thumbnail_url]);
+  const showImage = item.thumbnail_status === "ready" && !imageFailed;
+  return <Card hoverable className="episode-search-card" onClick={onOpen} cover={
+    <div className="episode-cover">
+      {showImage
+        ? <img loading="lazy" decoding="async" src={item.thumbnail_url} alt={`${item.title} 主视角首帧`} onError={() => setImageFailed(true)} />
+        : <div className="episode-cover-placeholder">
+          <span>{item.collection_name.slice(0, 2).toUpperCase()}</span>
+          <small>{item.thumbnail_status === "unavailable" ? "无可用主视角" : item.thumbnail_status === "failed" ? "封面生成失败" : "封面生成中"}</small>
+        </div>}
+      <span className="episode-duration">{item.duration.toFixed(1)}s</span>
+    </div>
+  }>
+    <Card.Meta title={<span title={item.title}>{item.title}</span>} description={
+      <>
+        <div className="episode-card-line">
+          Episode {String(item.episode_index).padStart(4, "0")} · {item.frame_count} 帧 · {item.camera_count} 相机
+        </div>
+        {item.dataset_uid !== item.collection_name && <div className="episode-card-line" title={item.dataset_uid}>子数据集：{item.dataset_uid}</div>}
+        {item.task_name && <div className="episode-card-line" title={item.task_name}>Task：{item.task_name}</div>}
+        {item.match_reasons.length > 0 && <div className="episode-card-tags"><Tag color="blue">命中 {item.match_reasons.join(" / ")}</Tag></div>}
+        <div className="episode-card-tags">{item.stage_badges.map((stage) => {
+          const badge = stageBadgePresentation(stage);
+          return <Tag key={stage.stage_id} color={badge.color}>{badge.text}</Tag>;
+        })}</div>
+      </>
+    } />
+  </Card>;
+}
 
 // The catalog indexes physical LeRobot roots. Public datasets commonly put
 // one task in each root (for example arcap/open_bottle), so group those roots
@@ -781,15 +908,148 @@ function App() {
   const lastFollowerSync = useRef(0);
   const lastUiUpdate = useRef(0);
   const lastHardSeek = useRef<Record<string, number>>({});
+  const workbenchRef = useRef<HTMLDivElement>(null);
+  const navigationTarget = useRef<EpisodeSearchItem | undefined>(undefined);
+  const initialSearchStarted = useRef(false);
+  const searchSequence = useRef(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchDatasets, setSearchDatasets] = useState<string[]>([]);
+  const [searchStageValues, setSearchStageValues] = useState<Record<number, string[]>>({});
+  const [searchSort, setSearchSort] = useState("relevance");
+  const [searchResult, setSearchResult] = useState<EpisodeSearchResponse>();
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchIndexTask, setSearchIndexTask] = useState<SearchIndexTask>();
+  const [searchIndexAvailable, setSearchIndexAvailable] = useState<boolean>();
+  const [searchStageFacets, setSearchStageFacets] = useState<SearchStageFacets>({});
 
   const refresh = () => fetch("/api/datasets").then((response) => response.json()).then(setDatasets)
     .catch(() => message.error("后端未启动"));
 
   const chooseCollection = (collection: DatasetCollection) => {
+    navigationTarget.current = undefined;
     setSelectedCollectionId(collection.id);
     setSelected(collection.datasets.length === 1 ? collection.datasets[0] : undefined);
     setTasks([]); setTaskIndex(undefined); setEpisodes([]); setEpisodeIndex(undefined);
     setPreview(undefined); setSeries([]);
+  };
+
+  const makeSearchBody = (
+    page = 1,
+    overrides?: { query?: string; datasets?: string[]; stages?: Record<number, string[]>; sort?: string },
+  ) => {
+    const stages = overrides?.stages ?? searchStageValues;
+    return {
+      query: overrides?.query ?? searchQuery,
+      datasets: overrides?.datasets ?? searchDatasets,
+      stage_filters: Object.entries(stages).flatMap(([stageId, values]) => {
+        if (!values.length) return [];
+        return [{
+          stage_id: Number(stageId),
+          verdicts: values.filter((value) => !value.startsWith("status:")),
+          artifact_statuses: values.filter((value) => value.startsWith("status:")).map((value) => value.slice(7)),
+        }];
+      }),
+      sort: overrides?.sort ?? searchSort,
+      page,
+      page_size: 24,
+    };
+  };
+
+  const executeSearch = async (
+    page = 1,
+    prewarm = true,
+    overrides?: { query?: string; datasets?: string[]; stages?: Record<number, string[]>; sort?: string },
+  ) => {
+    const sequence = ++searchSequence.current;
+    const body = makeSearchBody(page, overrides);
+    setSearchLoading(true);
+    try {
+      const response = await fetch("/api/search/episodes", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "Episode 搜索失败");
+      if (sequence !== searchSequence.current) return;
+      let result = payload as EpisodeSearchResponse;
+      setSearchResult(result);
+      setSearchLoading(false);
+      if (!prewarm || !result.items.length) return;
+      const prewarmResponse = await fetch("/api/thumbnails/prewarm", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ episodes: result.items.map((item) => ({
+          dataset_uid: item.dataset_uid, episode_index: item.episode_index,
+        })) }),
+      });
+      if (!prewarmResponse.ok) return;
+      const deadline = Date.now() + 30000;
+      while (sequence === searchSequence.current && Date.now() < deadline
+        && result.items.some((item) => ["not_generated", "queued", "generating"].includes(item.thumbnail_status))) {
+        await new Promise((resolve) => window.setTimeout(resolve, 800));
+        const poll = await fetch("/api/search/episodes", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+        });
+        if (!poll.ok || sequence !== searchSequence.current) return;
+        result = await poll.json() as EpisodeSearchResponse;
+        setSearchResult(result);
+      }
+    } catch (error) {
+      if (sequence === searchSequence.current) {
+        setSearchLoading(false);
+        message.error(error instanceof Error ? error.message : "Episode 搜索失败");
+      }
+    }
+  };
+
+  const rebuildSearchIndex = async () => {
+    try {
+      const response = await fetch("/api/search/index", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ datasets: searchDatasets }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || "搜索索引任务创建失败");
+      let task = payload as SearchIndexTask;
+      setSearchIndexTask(task);
+      while (!["succeeded", "failed"].includes(task.status)) {
+        await new Promise((resolve) => window.setTimeout(resolve, 600));
+        const status = await fetch(`/api/search/index/${encodeURIComponent(task.task_id)}`);
+        const statusPayload = await status.json();
+        if (!status.ok) throw new Error(statusPayload.detail || "搜索索引状态读取失败");
+        task = statusPayload as SearchIndexTask;
+        setSearchIndexTask(task);
+      }
+      if (task.status !== "succeeded") throw new Error(task.error || "搜索索引构建失败");
+      setSearchIndexAvailable(true);
+      fetch("/api/search/facets").then((response) => response.json()).then((payload) => setSearchStageFacets(payload.stages || {}));
+      await executeSearch(1);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "搜索索引构建失败");
+    }
+  };
+
+  const resetSearch = () => {
+    const emptyStages: Record<number, string[]> = {};
+    setSearchQuery(""); setSearchDatasets([]); setSearchStageValues(emptyStages); setSearchSort("relevance");
+    void executeSearch(1, true, { query: "", datasets: [], stages: emptyStages, sort: "relevance" });
+  };
+
+  const openSearchEpisode = (item: EpisodeSearchItem) => {
+    const dataset = datasets.find((value) => value.uid === item.dataset_uid);
+    if (!dataset) { message.error(`目录中未找到子数据集 ${item.dataset_uid}`); return; }
+    navigationTarget.current = item;
+    setSelectedCollectionId(item.collection_name);
+    if (selected?.uid === dataset.uid) {
+      const nextTask = item.task_index ?? undefined;
+      if (taskIndex === nextTask) {
+        setEpisodeIndex(item.episode_index);
+        navigationTarget.current = undefined;
+        window.setTimeout(() => workbenchRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+      } else {
+        setTaskIndex(nextTask);
+      }
+    } else {
+      setSelected(dataset);
+    }
   };
 
   const scan = async (mode: "quick" | "standard" | "deep" = "quick") => {
@@ -817,21 +1077,51 @@ function App() {
   useEffect(() => { void refresh(); }, []);
 
   useEffect(() => {
+    if (!datasets.length || initialSearchStarted.current) return;
+    initialSearchStarted.current = true;
+    fetch("/api/search/index").then((response) => response.json()).then((stats) => {
+      const available = Number(stats.episodes || 0) > 0;
+      setSearchIndexAvailable(available);
+      if (available) {
+        fetch("/api/search/facets").then((response) => response.json()).then((payload) => setSearchStageFacets(payload.stages || {}));
+        void executeSearch(1);
+      }
+    }).catch(() => setSearchIndexAvailable(false));
+  }, [datasets]);
+
+  useEffect(() => {
     if (!selected) { setTasks([]); setTaskIndex(undefined); return; }
+    let cancelled = false;
     setTasks([]); setTaskIndex(undefined); setEpisodes([]); setEpisodeIndex(undefined);
     fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/tasks`)
-      .then((response) => response.json()).then(setTasks)
-      .catch(() => message.error("Task 列表读取失败"));
+      .then((response) => response.json()).then((items: DatasetTask[]) => {
+        if (cancelled) return;
+        setTasks(items);
+        const target = navigationTarget.current;
+        if (target?.dataset_uid === selected.uid) setTaskIndex(target.task_index ?? undefined);
+      })
+      .catch(() => { if (!cancelled) message.error("Task 列表读取失败"); });
+    return () => { cancelled = true; };
   }, [selected]);
 
   useEffect(() => {
-    if (!selected || taskIndex === undefined) { setEpisodes([]); setEpisodeIndex(undefined); return; }
+    if (!selected) { setEpisodes([]); setEpisodeIndex(undefined); return; }
+    let cancelled = false;
     setPreview(undefined); setSeries([]); setEpisodeIndex(undefined);
-    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes?task_index=${taskIndex}`)
+    const query = taskIndex === undefined ? "" : `?task_index=${taskIndex}`;
+    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes${query}`)
       .then((response) => response.json()).then((items: Episode[]) => {
+        if (cancelled) return;
         setEpisodes(items);
-        if (items.length) setEpisodeIndex(items[0].episode_index);
-      }).catch(() => message.error("Episode 列表读取失败"));
+        const target = navigationTarget.current;
+        if (target?.dataset_uid === selected.uid
+          && (target.task_index == null || target.task_index === taskIndex)) {
+          setEpisodeIndex(target.episode_index);
+          navigationTarget.current = undefined;
+          window.setTimeout(() => workbenchRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+        } else if (items.length) setEpisodeIndex(items[0].episode_index);
+      }).catch(() => { if (!cancelled) message.error("Episode 列表读取失败"); });
+    return () => { cancelled = true; };
   }, [selected, taskIndex]);
 
   useEffect(() => {
@@ -1140,6 +1430,20 @@ function App() {
     : preview?.curation?.has_repairs
       ? [{ label: "原始", value: "raw" }, { label: "修复后", value: "repaired" }, { label: "差值", value: "diff" }]
       : [{ label: "原始数据", value: "raw" }];
+  const searchOptionsForStage = (stageId: number) => {
+    const options = new Map<string, { label: string; value: string }>();
+    [...stageFilterOptions[stageId], ...artifactFilterOptions].forEach((option) => options.set(option.value, option));
+    (searchStageFacets[String(stageId)]?.verdicts || []).forEach((item) => {
+      const existing = options.get(item.value);
+      options.set(item.value, { value: item.value, label: `${existing?.label || searchStatusLabel(item.value)} (${item.count})` });
+    });
+    (searchStageFacets[String(stageId)]?.artifact_statuses || []).forEach((item) => {
+      const value = `status:${item.value}`;
+      const existing = options.get(value);
+      options.set(value, { value, label: `${existing?.label || searchStatusLabel(item.value)} (${item.count})` });
+    });
+    return Array.from(options.values());
+  };
 
   return <Layout className="shell">
     <Layout.Header>
@@ -1151,6 +1455,60 @@ function App() {
       </Space>
     </Layout.Header>
     <Layout.Content>
+      <Card className="search-panel" title="Episode 搜索" extra={<Space>
+        {searchIndexTask && <Tag color={searchIndexTask.status === "succeeded" ? "green" : searchIndexTask.status === "failed" ? "red" : "blue"}>
+          索引 {searchIndexTask.status}{searchIndexTask.total ? ` ${searchIndexTask.current}/${searchIndexTask.total}` : ""}
+        </Tag>}
+        <Button loading={searchIndexTask?.status === "queued" || searchIndexTask?.status === "running"} onClick={() => void rebuildSearchIndex()}>
+          更新搜索索引
+        </Button>
+      </Space>}>
+        <div className="search-primary-row">
+          <Input.Search
+            allowClear value={searchQuery} placeholder="搜索数据集、子数据集、Task、Instruction 或 Episode 编号…"
+            enterButton="搜索" onChange={(event) => setSearchQuery(event.target.value)} onSearch={() => void executeSearch(1)}
+          />
+          <Button onClick={resetSearch}>重置</Button>
+        </div>
+        <div className="search-filter-grid">
+          <Select mode="multiple" allowClear maxTagCount="responsive" value={searchDatasets}
+            placeholder="数据集" onChange={setSearchDatasets}
+            options={collections.map((collection) => ({
+              value: collection.name, label: `${collection.name} · ${collection.episodes} episodes`,
+            }))} />
+          {Array.from({ length: 8 }, (_, index) => index + 1).map((stageId) => <Select
+            key={stageId} mode="multiple" allowClear maxTagCount={1}
+            value={searchStageValues[stageId] || []} placeholder={`Stage ${stageId}`}
+            options={searchOptionsForStage(stageId)}
+            onChange={(values) => setSearchStageValues((current) => ({ ...current, [stageId]: values }))}
+          />)}
+          <Select value={searchSort} onChange={setSearchSort} options={[
+            { value: "relevance", label: "相关性" }, { value: "episode", label: "Episode 顺序" },
+            { value: "duration_asc", label: "时长从短到长" }, { value: "duration_desc", label: "时长从长到短" },
+          ]} />
+        </div>
+        {searchIndexTask && ["queued", "running"].includes(searchIndexTask.status) && <Alert className="search-index-alert" type="info" showIcon
+          message={`正在建立 Episode 与 Stage 搜索索引${searchIndexTask.dataset_uid ? `：${searchIndexTask.dataset_uid}` : ""}`}
+          description="索引任务只读取紧凑元数据和 Stage 产物，不解码视频；搜索结果会在完成后自动刷新。" />}
+        {searchIndexAvailable === false && !searchIndexTask && <Alert className="search-index-alert" type="warning" showIcon
+          message="尚未建立 Episode 搜索索引"
+          description="点击“更新搜索索引”后才会读取紧凑元数据；不会解码或复制视频。" />}
+        <Spin spinning={searchLoading}>
+          {searchResult && <>
+            <div className="search-summary">
+              找到 <strong>{searchResult.total}</strong> 个 Episode · {searchResult.task_count} 个 Task · {searchResult.dataset_count} 个数据集
+            </div>
+            {searchResult.items.length
+              ? <Row gutter={[16, 20]}>{searchResult.items.map((item) => <Col xs={24} sm={12} md={8} xl={6} key={`${item.dataset_uid}:${item.episode_index}`}>
+                <EpisodeSearchCard item={item} onOpen={() => openSearchEpisode(item)} />
+              </Col>)}</Row>
+              : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有符合当前条件的 Episode" />}
+            {searchResult.total > searchResult.page_size && <Pagination className="search-pagination"
+              current={searchResult.page} pageSize={searchResult.page_size} total={searchResult.total}
+              showSizeChanger={false} onChange={(page) => void executeSearch(page)} />}
+          </>}
+        </Spin>
+      </Card>
       <Row gutter={16}>
         <Col xs={24} lg={7}>
           <Card title="数据集目录" extra={<Tag>{collections.length}</Tag>}>
@@ -1166,16 +1524,17 @@ function App() {
             <Alert type="info" showIcon message="该集合包含多个物理数据集，请先选择其中一个，再选择 Task 和 Episode。" />
             <Select showSearch virtual optionFilterProp="label" placeholder="选择子数据集 / Task 集合" style={{ width: "100%", marginTop: 12 }}
               options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${item.uid} · ${item.episodes} episodes · ${item.frames} frames` }))}
-              onChange={(uid) => setSelected(selectedCollection.datasets.find((item) => item.uid === uid))} />
+              onChange={(uid) => { navigationTarget.current = undefined; setSelected(selectedCollection.datasets.find((item) => item.uid === uid)); }} />
           </Card>}
-          {selected && <>
+          {selected && <div ref={workbenchRef}>
             <Card title={`Episode 预览 / ${selectedCollection?.name || selected.uid}`} extra={<Space>
               {selectedCollection && selectedCollection.datasets.length > 1 && <Select showSearch virtual optionFilterProp="label" value={selected.uid}
                 placeholder="选择子数据集" style={{ width: 300 }} options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${item.uid} · ${item.episodes} episodes` }))}
-                onChange={(uid) => { setSelected(selectedCollection.datasets.find((item) => item.uid === uid)); setTaskIndex(undefined); }} />}
-              <Select allowClear showSearch virtual optionFilterProp="label" placeholder="选择 Task" value={taskIndex} options={taskOptions} onChange={setTaskIndex} style={{ width: 380 }} />
-              <Select disabled={taskIndex === undefined} showSearch virtual optionFilterProp="label" placeholder={taskIndex === undefined ? "先选择 Task" : "选择 Episode"} value={episodeIndex} options={episodeOptions} onChange={setEpisodeIndex} style={{ width: 360 }} />
-              {episodeIndex !== undefined && <InputNumber disabled={taskIndex === undefined} min={0} max={Math.max(0, selected.episodes - 1)} value={episodeIndex} onChange={(value) => value !== null && setEpisodeIndex(value)} />}
+                onChange={(uid) => { navigationTarget.current = undefined; setSelected(selectedCollection.datasets.find((item) => item.uid === uid)); setTaskIndex(undefined); }} />}
+              <Select allowClear showSearch virtual optionFilterProp="label" placeholder="选择 Task" value={taskIndex} options={taskOptions}
+                onChange={(value) => { navigationTarget.current = undefined; setTaskIndex(value); }} style={{ width: 380 }} />
+              <Select showSearch virtual optionFilterProp="label" placeholder="选择 Episode" value={episodeIndex} options={episodeOptions} onChange={setEpisodeIndex} style={{ width: 360 }} />
+              {episodeIndex !== undefined && <InputNumber min={0} max={Math.max(0, selected.episodes - 1)} value={episodeIndex} onChange={(value) => value !== null && setEpisodeIndex(value)} />}
             </Space>}>
               <Row gutter={16}>
                 <Col><Statistic title="Episodes" value={selected.episodes} /></Col>
@@ -1262,7 +1621,7 @@ function App() {
               </Row>
             </Card>
             {preview && <StageVisualizations stages={preview.stage_results} timeline={timeline} onSeek={seek} />}
-          </>}
+          </div>}
         </Col>
       </Row>
     </Layout.Content>

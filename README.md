@@ -74,6 +74,32 @@ curl -X POST http://localhost:8000/api/catalog/scan
 cd frontend && npm install && npm run dev
 ```
 
+### Episode 搜索与视频卡片
+
+页面顶部提供 Episode 级搜索，可按数据集、子数据集、Task、Instruction、Episode
+编号及 Stage 1–8 的实际标签组合筛选。不同 Stage 之间为 AND，同一 Stage 选中的
+多个状态为 OR；`not_generated`、`episode_pending` 和 `upstream_filtered` 会与真正的
+通过状态分开显示。每页最多返回 24 个结果。
+
+首次使用或 Stage 产物更新后，点击页面中的“更新搜索索引”。索引任务只读取
+LeRobot 元数据、Parquet 标签和 Stage JSON，不解码视频；搜索请求之后只查询
+SQLite。也可以直接调用接口：
+
+```bash
+curl -X POST http://localhost:8000/api/search/index \
+  -H 'content-type: application/json' -d '{}'
+
+curl -X POST http://localhost:8000/api/search/episodes \
+  -H 'content-type: application/json' \
+  -d '{"query":"mug","datasets":["libero_plus"],"stage_filters":[{"stage_id":1,"verdicts":["pass","anomaly"]}],"page":1,"page_size":24}'
+```
+
+结果以视频网站式卡片展示。封面通过 Episode 元数据中的 `file_index` 和
+`from_timestamp` 截取主视角第一帧，而不是物理 MP4 的第一帧。浏览器只预热当前
+页封面，后端最多并行运行两个低优先级 FFmpeg 进程；缓存位于
+`data_curation/_catalog/thumbnails/`，源视频或起始时间变化后由指纹自动失效。
+点击卡片会切换到对应的“数据集 → Task → Episode”并定位下方工作台。
+
 生产/隔离部署可使用 `docker compose up --build`。PostgreSQL 和 Redis
 已在 Compose 中预留给平台元数据与 worker；默认本地 profile 使用 SQLite
 和 asyncio，方便单机离线验证，切换 Celery/RQ 不改变 Stage 插件接口。
