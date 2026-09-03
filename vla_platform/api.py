@@ -8,7 +8,7 @@ import asyncio
 import json
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from .catalog import Catalog
 from .pipeline import PipelineRunner
+from .video_proxy import VideoProxyManager
 
 
 DATA_ROOT = Path(os.environ.get("VLA_DATA_ROOT", "/mnt/data/embodied_datasets/public_datasets_staging"))
@@ -41,7 +42,9 @@ except (OSError, Exception) as exc:
         catalog = Catalog(DB_PATH, DATA_ROOT)
     else:
         raise exc
+VIDEO_PROXY_ROOT = Path(os.environ.get("VLA_VIDEO_PROXY_ROOT", str(DB_PATH.parent / "video_proxy")))
 runner = PipelineRunner(catalog, CURATION_ROOT)
+proxy_manager = VideoProxyManager(VIDEO_PROXY_ROOT)
 catalog.recover_interrupted_scans()
 app = FastAPI(title="VLA Data Governance Platform", version="0.1.0")
 scan_tasks: dict[str, dict[str, Any]] = {}
@@ -109,7 +112,10 @@ class ReviewRequest(BaseModel):
 
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
-    return {"ok": True, "data_root": str(DATA_ROOT), "catalog": str(DB_PATH)}
+    return {
+        "ok": True, "data_root": str(DATA_ROOT), "catalog": str(DB_PATH),
+        "video_proxy_root": str(VIDEO_PROXY_ROOT),
+    }
 
 
 def _safe_scan_root(root: str | None) -> str | None:
@@ -272,11 +278,61 @@ async def episode_preview(uid: str, episode_index: int) -> dict[str, Any]:
 
 
 @app.get("/api/datasets/{uid}/episodes/{episode_index}/series")
-async def series(uid: str, episode_index: int, fields: str = "observation.state,action", limit: int = Query(2000, ge=1, le=10000)) -> dict[str, Any]:
+async def series(
+    uid: str,
+    episode_index: int,
+    fields: str = "observation.state,action",
+    limit: int = Query(2000, ge=1, le=10000),
+    view: Literal["raw", "valid", "repaired", "diff"] = "raw",
+) -> dict[str, Any]:
     try:
-        values = catalog.episode_series(uid, episode_index, [f.strip() for f in fields.split(",")], limit)
+        values = catalog.episode_series(
+            uid, episode_index, [f.strip() for f in fields.split(",")], limit, view
+        )
     except FileNotFoundError: raise HTTPException(404, "dataset not indexed")
-    return {"dataset_uid": uid, "episode_index": episode_index, "fields": fields.split(","), "rows": values}
+    return {
+        "dataset_uid": uid, "episode_index": episode_index,
+        "fields": fields.split(","), "view": view, "rows": values,
+    }
+
+
+def _prewarm_video_proxies(uid: str, episode_index: int, distance_limit: int) -> None:
+    for distance in range(1, distance_limit + 1):
+        for nearby in (episode_index + distance, episode_index - distance):
+            if nearby < 0:
+                continue
+            try:
+                proxy_manager.request(catalog, uid, nearby)
+            except (FileNotFoundError, IndexError, OSError, RuntimeError, ValueError):
+                continue
+
+
+@app.post("/api/datasets/{uid}/episodes/{episode_index}/video-proxies", status_code=202)
+async def create_video_proxies(
+    uid: str, episode_index: int, prewarm: int = Query(2, ge=0, le=2)
+) -> dict[str, Any]:
+    try:
+        task = proxy_manager.request(catalog, uid, episode_index)
+    except (FileNotFoundError, IndexError):
+        raise HTTPException(404, "episode not found") from None
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(500, str(exc)) from exc
+    # The dedicated executor is intentionally single-worker by default. Queue
+    # nearby episodes after responding so metadata reads and future encodes do
+    # not delay the selected episode's UI request.
+    if prewarm:
+        asyncio.create_task(asyncio.to_thread(
+            _prewarm_video_proxies, uid, episode_index, prewarm,
+        ))
+    return task
+
+
+@app.get("/api/video-proxy-jobs/{job_id}")
+async def video_proxy_status(job_id: str) -> dict[str, Any]:
+    task = proxy_manager.status(job_id)
+    if not task:
+        raise HTTPException(404, "video proxy job not found")
+    return task
 
 
 @app.get("/api/datasets/{uid}/annotations")
@@ -361,19 +417,34 @@ async def task_events(task_id: str):
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
-@app.get("/api/videos/{uid}/{relative:path}")
-async def video(uid: str, relative: str, request: Request):
-    try: path = catalog.resolve_path(uid, relative)
-    except (FileNotFoundError, PermissionError): raise HTTPException(404, "video not found")
+def _range_file_response(path: Path, request: Request, *, immutable: bool = False):
     size = path.stat().st_size
     range_header = request.headers.get("range")
-    if not range_header: return FileResponse(path, media_type="video/mp4", headers={"Accept-Ranges": "bytes"})
+    headers = {"Accept-Ranges": "bytes"}
+    if immutable:
+        headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    if not range_header:
+        return FileResponse(path, media_type="video/mp4", headers=headers)
     try:
-        start, end = range_header.replace("bytes=", "").split("-")
-        start, end = int(start), int(end or size - 1)
+        unit, value = range_header.split("=", 1)
+        if unit.strip().lower() != "bytes" or "," in value:
+            raise ValueError
+        start_text, end_text = value.split("-", 1)
+        if not start_text:
+            suffix = int(end_text)
+            if suffix <= 0:
+                raise ValueError
+            start, end = max(0, size - suffix), size - 1
+        else:
+            start, end = int(start_text), int(end_text or size - 1)
         if start < 0 or end >= size or start > end: raise ValueError
-    except ValueError: return JSONResponse({"detail": "invalid range"}, status_code=416)
+    except (ValueError, TypeError):
+        return JSONResponse(
+            {"detail": "invalid range"}, status_code=416,
+            headers={**headers, "Content-Range": f"bytes */{size}"},
+        )
     length = end - start + 1
+
     def iterator():
         with path.open("rb") as fh:
             fh.seek(start); remaining = length
@@ -381,5 +452,30 @@ async def video(uid: str, relative: str, request: Request):
                 chunk = fh.read(min(1024 * 1024, remaining))
                 if not chunk: break
                 remaining -= len(chunk); yield chunk
+    headers.update({"Content-Range": f"bytes {start}-{end}/{size}", "Content-Length": str(length)})
     return StreamingResponse(iterator(), status_code=206, media_type="video/mp4",
-        headers={"Accept-Ranges": "bytes", "Content-Range": f"bytes {start}-{end}/{size}", "Content-Length": str(length)})
+                             headers=headers)
+
+
+@app.get("/api/video-proxies/files/{relative:path}")
+async def video_proxy_file(relative: str, request: Request):
+    try:
+        path = proxy_manager.resolve_file(relative)
+    except (FileNotFoundError, PermissionError):
+        raise HTTPException(404, "video proxy not found") from None
+    # mtime is the LRU signal. Proxy filenames contain the immutable source
+    # signature, so touching a cache file cannot invalidate its identity.
+    try:
+        path.touch()
+    except OSError:
+        pass
+    return _range_file_response(path, request, immutable=True)
+
+
+@app.get("/api/videos/{uid}/{relative:path}")
+async def video(uid: str, relative: str, request: Request):
+    try:
+        path = catalog.resolve_path(uid, relative)
+    except (FileNotFoundError, PermissionError):
+        raise HTTPException(404, "video not found") from None
+    return _range_file_response(path, request)

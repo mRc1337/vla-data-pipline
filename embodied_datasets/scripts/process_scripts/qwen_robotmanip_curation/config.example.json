@@ -4,7 +4,7 @@
     "action_key": "action",
     "embodiment": null,
     "action_mode": "absolute",
-    "stage1_policy": "frame",
+    "stage1_exclusion": "frame",
     "median_kernels": [5, 5],
     "savgol_window": 11,
     "savgol_polyorder": 3,
@@ -13,7 +13,7 @@
     "stage2_da_threshold": 0.65,
     "stage2_max_lag_seconds": 0.5,
     "stage2_min_active_steps": 10,
-    "stage3_alpha": 0.1,
+    "stage3_alpha": 0.15,
     "calibration_samples": 200000,
     "allow_positional_mapping": false,
     "gripper_indices": {"observation.state": [], "action": []},
@@ -25,8 +25,18 @@
     "libero_plus*": {
       "embodiment": "libero_panda_eef",
       "action_mode": "delta",
+      "stage1_exclusion": "frame",
       "state_action_map": [[0, 0], [1, 1], [2, 2]],
       "gripper_indices": {"observation.state": [6, 7], "action": [6]}
+    },
+    "mobile_aloha/part-00[0-2]-*": {
+      "embodiment": "mobile_aloha",
+      "action_mode": "absolute",
+      "stage1_exclusion": "frame",
+      "gripper_indices": {
+        "observation.state": [6, 13],
+        "action": [6, 13]
+      }
     },
     "robodojo_real_piper_lerobot_v30": {
       "embodiment": "piper_bimanual",

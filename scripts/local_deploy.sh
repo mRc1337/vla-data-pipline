@@ -10,6 +10,7 @@ VENV_DIR="${VLA_VENV_DIR:-${ROOT_DIR}/.venv}"
 DATA_ROOT="${VLA_DATA_ROOT:-/mnt/data/embodied_datasets/public_datasets_staging}"
 CURATION_ROOT="${VLA_CURATION_ROOT:-${DATA_ROOT}/data_curation}"
 CATALOG_DB="${VLA_CATALOG_DB:-${RUNTIME_DIR}/catalog.sqlite3}"
+VIDEO_PROXY_ROOT="${VLA_VIDEO_PROXY_ROOT:-${RUNTIME_DIR}/video_proxy}"
 HOST="${VLA_HOST:-127.0.0.1}"
 API_PORT="${VLA_API_PORT:-8000}"
 WEB_PORT="${VLA_WEB_PORT:-5173}"
@@ -184,6 +185,7 @@ start_dev() {
     say "platform is already running"; status_dev; return
   fi
   export VLA_DATA_ROOT="$DATA_ROOT" VLA_CURATION_ROOT="$CURATION_ROOT" VLA_CATALOG_DB="$CATALOG_DB"
+  export VLA_VIDEO_PROXY_ROOT="$VIDEO_PROXY_ROOT"
   say "starting API at http://${HOST}:${API_PORT}"
   nohup setsid "${VENV_DIR}/bin/uvicorn" vla_platform.api:app --host "$HOST" --port "$API_PORT" \
     >"$API_LOG" 2>&1 &

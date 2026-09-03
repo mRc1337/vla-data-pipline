@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Qwen-RobotManip stages 1-3 with LeRobot v3 input and output datasets.
+"""Qwen-RobotManip stages 1-3 as validity masks over immutable LeRobot v3 data.
 
-Each stage writes a complete, independently loadable LeRobot v3 dataset plus
-an ``audit/`` sidecar.  The source dataset is always read-only.
+Stages write labels, step-validity masks, and episode filters.  Videos and
+source Parquet files always remain immutable and are referenced by manifest.
 """
 
 from __future__ import annotations
@@ -26,9 +26,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from scipy.ndimage import median_filter
 from scipy.signal import savgol_filter
-from lerobot.datasets.lerobot_dataset import LeRobotDataset
-
-
 PAPER = "https://arxiv.org/abs/2606.17846"
 DEFAULT_OUTPUT_ROOT = pathlib.Path(
     "/mnt/data/embodied_datasets/public_datasets_staging/data_curation"
@@ -43,7 +40,7 @@ DEFAULTS: dict[str, Any] = {
     "action_key": "action",
     "embodiment": None,
     "action_mode": "absolute",
-    "stage1_policy": "frame",
+    "stage1_exclusion": "frame",
     "median_kernels": [5, 5],
     "savgol_window": 11,
     "savgol_polyorder": 3,
@@ -68,6 +65,9 @@ class Dataset:
     dataset_id: str
     info: dict[str, Any]
     cfg: dict[str, Any]
+    accepted_episodes: frozenset[int] | None = None
+    invalid_frames: frozenset[tuple[int, int]] = frozenset()
+    manifest_path: pathlib.Path | None = None
 
     @property
     def fps(self) -> float:
@@ -115,8 +115,8 @@ def dataset_config(config: dict[str, Any], dataset_id: str) -> dict[str, Any]:
         cfg["embodiment"] = dataset_id
     if cfg["action_mode"] not in {"absolute", "delta"}:
         raise ValueError(f"{dataset_id}: action_mode must be absolute or delta")
-    if cfg["stage1_policy"] not in {"frame", "episode"}:
-        raise ValueError(f"{dataset_id}: stage1_policy must be frame or episode")
+    if cfg["stage1_exclusion"] not in {"frame", "episode"}:
+        raise ValueError(f"{dataset_id}: stage1_exclusion must be frame or episode")
     return cfg
 
 
@@ -160,7 +160,12 @@ def load_dataset(path: pathlib.Path, config: dict[str, Any], dataset_id: str | N
     if not info_path.is_file():
         raise FileNotFoundError(f"completed LeRobot metadata not found: {info_path}")
     dataset_id = dataset_id or path.name
-    return Dataset(path, dataset_id, json.loads(info_path.read_text()), dataset_config(config, dataset_id))
+    info = json.loads(info_path.read_text())
+    if info.get("codebase_version") != "v3.0":
+        raise ValueError(
+            f"{dataset_id}: expected LeRobot v3.0 input, got {info.get('codebase_version')!r}"
+        )
+    return Dataset(path, dataset_id, info, dataset_config(config, dataset_id))
 
 
 def flattened_names(feature: dict[str, Any] | None, dim: int) -> list[str | None]:
@@ -191,6 +196,84 @@ def parquet_files(ds: Dataset) -> list[pathlib.Path]:
     return files
 
 
+def read_episode_filter(path: pathlib.Path) -> frozenset[int]:
+    if not path.is_file():
+        raise FileNotFoundError(f"episode filter not found: {path}")
+    table = pq.read_table(path, columns=["episode_index", "accepted"])
+    return frozenset(
+        int(row["episode_index"])
+        for row in table.to_pylist()
+        if bool(row["accepted"])
+    )
+
+
+def read_invalid_frames(path: pathlib.Path) -> frozenset[tuple[int, int]]:
+    if not path.is_file():
+        raise FileNotFoundError(f"step validity file not found: {path}")
+    table = pq.read_table(
+        path,
+        columns=["episode_index", "frame_index", "valid"],
+        filters=[("valid", "=", False)],
+    )
+    return frozenset(
+        (int(row["episode_index"]), int(row["frame_index"]))
+        for row in table.to_pylist()
+    )
+
+
+def _resolve_manifest_path(manifest_dir: pathlib.Path, value: str | None) -> pathlib.Path | None:
+    if not value:
+        return None
+    path = pathlib.Path(value)
+    return path.resolve() if path.is_absolute() else (manifest_dir / path).resolve()
+
+
+def dataset_from_manifest(
+    manifest_path: pathlib.Path,
+    config: dict[str, Any],
+    dataset_id: str | None = None,
+    _seen: frozenset[pathlib.Path] = frozenset(),
+) -> Dataset:
+    """Open a logical stage view while keeping the original dataset immutable."""
+    manifest_path = manifest_path.resolve()
+    if manifest_path in _seen:
+        raise ValueError(f"cyclic parent_manifest chain at {manifest_path}")
+    manifest = json.loads(manifest_path.read_text())
+    if manifest.get("format") != "vla_curation_filter":
+        legacy = manifest.get("format") == "vla_curation_overlay" or bool(manifest.get("repair_files"))
+        detail = "; rerun the preceding stages to create vla_curation_filter schema v2" if legacy else ""
+        raise ValueError(f"unsupported curation manifest: {manifest_path}{detail}")
+    manifest_dir = manifest_path.parent
+    parent_path = _resolve_manifest_path(manifest_dir, manifest.get("parent_manifest"))
+    if parent_path:
+        parent = dataset_from_manifest(
+            parent_path, config, dataset_id or manifest.get("dataset_id"), _seen | {manifest_path}
+        )
+        source_path = parent.path
+        invalid_frames = set(parent.invalid_frames)
+    else:
+        source_path = pathlib.Path(manifest["source_dataset"]).resolve()
+        parent = load_dataset(source_path, config, dataset_id or manifest.get("dataset_id"))
+        invalid_frames = set()
+    for value in manifest.get("validity_files", []):
+        validity_path = _resolve_manifest_path(manifest_dir, value)
+        if validity_path is not None:
+            invalid_frames.update(read_invalid_frames(validity_path))
+    filter_path = _resolve_manifest_path(manifest_dir, manifest.get("episode_filter"))
+    accepted = read_episode_filter(filter_path) if filter_path else parent.accepted_episodes
+    if accepted is not None and parent.accepted_episodes is not None:
+        accepted = frozenset(accepted & parent.accepted_episodes)
+    return Dataset(
+        source_path,
+        dataset_id or str(manifest.get("dataset_id") or parent.dataset_id),
+        parent.info,
+        parent.cfg,
+        accepted,
+        frozenset(invalid_frames),
+        manifest_path,
+    )
+
+
 def arrow_numpy(array: pa.Array) -> np.ndarray:
     if pa.types.is_fixed_size_list(array.type):
         size = array.type.list_size
@@ -216,7 +299,19 @@ def iter_episodes(
     last_episode: int | None = None
 
     def emit(parts: dict[str, list[np.ndarray]]) -> dict[str, np.ndarray]:
-        return {key: np.concatenate(value, axis=0) for key, value in parts.items()}
+        episode = {key: np.concatenate(value, axis=0) for key, value in parts.items()}
+        episode_index = int(episode["episode_index"][0])
+        episode["_step_valid"] = np.asarray([
+            (episode_index, int(frame_index)) not in ds.invalid_frames
+            for frame_index in episode["frame_index"]
+        ], dtype=bool)
+        return episode
+
+    def accepted(episode_index: int) -> bool:
+        return ds.accepted_episodes is None or episode_index in ds.accepted_episodes
+
+    def maybe_emit(parts: dict[str, list[np.ndarray]], episode_index: int) -> dict[str, np.ndarray] | None:
+        return emit(parts) if accepted(episode_index) else None
 
     for file in parquet_files(ds):
         pf = pq.ParquetFile(file)
@@ -251,14 +346,18 @@ def iter_episodes(
                         pending[key].append(value)
                 else:
                     assert pending is not None
-                    yield emit(pending)
-                    yielded += 1
-                    if max_episodes is not None and yielded >= max_episodes:
-                        return
+                    emitted = maybe_emit(pending, pending_episode)
+                    if emitted is not None:
+                        yield emitted
+                        yielded += 1
+                        if max_episodes is not None and yielded >= max_episodes:
+                            return
                     pending_episode = episode
                     pending = {key: [value] for key, value in piece.items()}
     if pending is not None and (max_episodes is None or yielded < max_episodes):
-        yield emit(pending)
+        emitted = maybe_emit(pending, int(pending_episode))
+        if emitted is not None:
+            yield emitted
 
 
 def normalized_signal(x: np.ndarray, cfg: dict[str, Any], key: str) -> np.ndarray:
@@ -401,167 +500,6 @@ def write_json(path: pathlib.Path, value: Any) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
-AUTO_FEATURES = {"timestamp", "frame_index", "episode_index", "index", "task_index"}
-
-
-def output_features(info: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Convert v3 metadata features back to ``LeRobotDataset.create`` specs."""
-    result: dict[str, dict[str, Any]] = {}
-    for key, source in info.get("features", {}).items():
-        if key in AUTO_FEATURES:
-            continue
-        shape = tuple(source.get("shape") or ())
-        names = source.get("names")
-        if source.get("dtype") in {"video", "image"} and len(shape) == 3:
-            # Stored v3 metadata is channel-first; add_frame accepts HWC.
-            if names and str(names[0]).lower() in {"channel", "channels"}:
-                shape = (shape[1], shape[2], shape[0])
-                names = ["height", "width", "channel"]
-        result[key] = {"dtype": source["dtype"], "shape": shape, "names": names}
-    return result
-
-
-def numpy_value(value: Any, image_like: bool = False) -> Any:
-    if isinstance(value, str):
-        return value
-    if hasattr(value, "detach"):
-        value = value.detach().cpu().numpy()
-    array = np.asarray(value)
-    if not image_like:
-        return array
-    if array.ndim == 3 and array.shape[0] in (1, 3, 4):
-        array = np.transpose(array, (1, 2, 0))
-    if np.issubdtype(array.dtype, np.floating):
-        array = np.clip(np.rint(array * 255.0), 0, 255).astype(np.uint8)
-    return array
-
-
-def read_failed_dimensions(
-    path: pathlib.Path,
-) -> dict[tuple[int, int], tuple[list[int], list[int]]]:
-    if not path.is_file():
-        return {}
-    table = pq.read_table(
-        path,
-        columns=["episode_index", "frame_index", "failed_state_dimensions", "failed_action_dimensions"],
-    )
-    result = {}
-    for row in table.to_pylist():
-        result[(int(row["episode_index"]), int(row["frame_index"]))] = (
-            [int(value) for value in row["failed_state_dimensions"]],
-            [int(value) for value in row["failed_action_dimensions"]],
-        )
-    return result
-
-
-def read_rejected_episodes(path: pathlib.Path) -> set[int]:
-    if not path.is_file():
-        return set()
-    table = pq.read_table(path, columns=["episode_index", "reject_episode"])
-    return {
-        int(row["episode_index"])
-        for row in table.to_pylist()
-        if bool(row["reject_episode"])
-    }
-
-
-def interpolate_dimensions(values: np.ndarray, bad: np.ndarray) -> np.ndarray:
-    """Repair only flagged cells while retaining the episode's frame grid."""
-    result = np.asarray(values).copy()
-    positions = np.arange(len(result))
-    for dim in range(result.shape[1]):
-        replace = bad[:, dim] | ~np.isfinite(result[:, dim])
-        if not replace.any():
-            continue
-        valid = ~replace & np.isfinite(result[:, dim])
-        if valid.any():
-            result[replace, dim] = np.interp(
-                positions[replace], positions[valid], result[valid, dim]
-            )
-        else:
-            result[:, dim] = 0
-    return result
-
-
-def materialize_lerobot_v3(
-    ds: Dataset,
-    output_path: pathlib.Path,
-    frame_flags_path: pathlib.Path | None = None,
-    rejected_episodes_path: pathlib.Path | None = None,
-    max_episodes: int | None = None,
-) -> dict[str, int]:
-    """Write a full v3 dataset, preserving every user feature and video view.
-
-    Frame flags repair the named state/action cells by temporal interpolation.
-    Episode flags remove whole episodes.  The official writer rebuilds indexes,
-    metadata, per-episode/global statistics, and video containers together.
-    """
-    if ds.info.get("codebase_version") != "v3.0":
-        raise ValueError(f"{ds.dataset_id}: expected LeRobot v3.0 input")
-    failed = read_failed_dimensions(frame_flags_path) if frame_flags_path else {}
-    rejected = read_rejected_episodes(rejected_episodes_path) if rejected_episodes_path else set()
-    features = output_features(ds.info)
-    video_keys = {key for key, value in features.items() if value["dtype"] == "video"}
-    image_keys = {key for key, value in features.items() if value["dtype"] == "image"}
-    source = LeRobotDataset(repo_id=ds.path.name, root=ds.path)
-    limit = source.num_episodes if max_episodes is None else min(source.num_episodes, max_episodes)
-    kept_episodes = [episode_index for episode_index in range(limit) if episode_index not in rejected]
-    if not kept_episodes:
-        raise ValueError(f"{ds.dataset_id}: materialization would produce an empty dataset")
-    writer = LeRobotDataset.create(
-        repo_id=output_path.name,
-        fps=int(ds.fps) if video_keys else ds.fps,
-        root=output_path,
-        features=features,
-        robot_type=ds.info.get("robot_type"),
-        use_videos=bool(video_keys),
-    )
-    written_episodes = written_frames = repaired_frames = 0
-    for episode_index in kept_episodes:
-        meta = source.meta.episodes[episode_index]
-        start = int(meta["dataset_from_index"])
-        stop = int(meta["dataset_to_index"])
-        rows = [source[index] for index in range(start, stop)]
-        state = np.stack([numpy_value(row[ds.state_key]) for row in rows])
-        action = np.stack([numpy_value(row[ds.action_key]) for row in rows])
-        state_bad = np.zeros(state.shape, dtype=bool)
-        action_bad = np.zeros(action.shape, dtype=bool)
-        for row_index, row in enumerate(rows):
-            frame_index = int(numpy_value(row["frame_index"]).item())
-            state_dims, action_dims = failed.get((episode_index, frame_index), ([], []))
-            state_bad[row_index, state_dims] = True
-            action_bad[row_index, action_dims] = True
-        if state_bad.any() or action_bad.any():
-            repaired_frames += int((state_bad.any(axis=1) | action_bad.any(axis=1)).sum())
-            state = interpolate_dimensions(state, state_bad)
-            action = interpolate_dimensions(action, action_bad)
-        for row_index, row in enumerate(rows):
-            frame: dict[str, Any] = {"task": row["task"]}
-            for key in features:
-                if key == ds.state_key:
-                    frame[key] = state[row_index]
-                elif key == ds.action_key:
-                    frame[key] = action[row_index]
-                else:
-                    frame[key] = numpy_value(row[key], key in video_keys or key in image_keys)
-            writer.add_frame(frame)
-            written_frames += 1
-        writer.save_episode()
-        written_episodes += 1
-    writer.finalize()
-    reopened = LeRobotDataset(repo_id=output_path.name, root=output_path)
-    if reopened.meta.info.codebase_version != "v3.0":
-        raise RuntimeError(f"materialized output is not LeRobot v3.0: {output_path}")
-    if reopened.num_episodes != written_episodes or len(reopened) != written_frames:
-        raise RuntimeError(f"materialized output count mismatch: {output_path}")
-    return {
-        "output_episodes": written_episodes,
-        "output_frames": written_frames,
-        "repaired_frames": repaired_frames,
-        "removed_episodes": len(rejected & set(range(limit))),
-    }
-
-
 STAGE1_FRAME_SCHEMA = pa.schema([
     ("episode_index", pa.int64()), ("frame_index", pa.int64()), ("index", pa.int64()),
     ("failed_state_dimensions", pa.list_(pa.int32())), ("failed_action_dimensions", pa.list_(pa.int32())),
@@ -570,16 +508,42 @@ STAGE1_FRAME_SCHEMA = pa.schema([
 ])
 STAGE1_EPISODE_SCHEMA = pa.schema([
     ("episode_index", pa.int64()), ("num_frames", pa.int64()), ("flagged_frames", pa.int64()),
-    ("flag_fraction", pa.float64()), ("reject_episode", pa.bool_()),
+    ("valid_frames", pa.int64()), ("flag_fraction", pa.float64()),
+    ("exclusion_policy", pa.string()), ("reject_episode", pa.bool_()),
 ])
 THRESHOLD_SCHEMA = pa.schema([
     ("feature", pa.string()), ("dimension", pa.int32()), ("name", pa.string()),
     ("metric", pa.string()), ("threshold", pa.float64()), ("exempt_gripper", pa.bool_()),
 ])
+EPISODE_FILTER_SCHEMA = pa.schema([
+    ("episode_index", pa.int64()), ("num_frames", pa.int64()),
+    ("accepted", pa.bool_()), ("reason_code", pa.string()),
+])
+STEP_VALIDITY_SCHEMA = pa.schema([
+    ("episode_index", pa.int64()), ("frame_index", pa.int64()), ("index", pa.int64()),
+    ("stage1_valid", pa.bool_()), ("stage2_valid", pa.bool_()),
+    ("stage3_valid", pa.bool_()), ("valid", pa.bool_()),
+    ("reason_codes", pa.list_(pa.string())),
+])
+
+
+def causal_chunk_validity(step_valid: np.ndarray) -> np.ndarray:
+    """Mask every action-chunk step after the first invalid supervision step."""
+    return np.logical_and.accumulate(np.asarray(step_valid, dtype=bool))
+
+
+def causal_loss_mask(step_valid: np.ndarray, embodiment_slot_mask: np.ndarray) -> np.ndarray:
+    """Compose the paper's causal step mask with the per-dimension slot mask."""
+    causal = causal_chunk_validity(step_valid)
+    slots = np.asarray(embodiment_slot_mask, dtype=bool)
+    if slots.ndim != 1:
+        raise ValueError("embodiment_slot_mask must be one-dimensional")
+    return causal[:, None] & slots[None, :]
 
 
 def run_stage1(ds: Dataset, local_dir: pathlib.Path, max_episodes: int | None) -> dict[str, Any]:
     started = utc_now()
+    labels_dir = local_dir / "labels"
     state_dim = feature_dim(ds.info, ds.state_key)
     action_dim = feature_dim(ds.info, ds.action_key)
     total = int(ds.info.get("total_frames") or 0)
@@ -604,13 +568,16 @@ def run_stage1(ds: Dataset, local_dir: pathlib.Path, max_episodes: int | None) -
                 float(ds.cfg["stage1_quantile_floor"]),
             )
 
-    local_dir.mkdir(parents=True, exist_ok=True)
+    labels_dir.mkdir(parents=True, exist_ok=True)
     flagged_frames = 0
     rejected_episodes = 0
     frame_count = 0
-    with ParquetRows(local_dir / "frame_flags.parquet", STAGE1_FRAME_SCHEMA) as fw, ParquetRows(
-        local_dir / "episode_summary.parquet", STAGE1_EPISODE_SCHEMA
-    ) as ew:
+    output_episodes = output_frames = 0
+    with ParquetRows(labels_dir / "frame_flags.parquet", STAGE1_FRAME_SCHEMA) as fw, ParquetRows(
+        labels_dir / "episode_summary.parquet", STAGE1_EPISODE_SCHEMA
+    ) as ew, ParquetRows(labels_dir / "episode_filter.parquet", EPISODE_FILTER_SCHEMA) as filter_writer, ParquetRows(
+        labels_dir / "step_validity.parquet", STEP_VALIDITY_SCHEMA
+    ) as validity_writer:
         for episode in iter_episodes(ds, [ds.state_key, ds.action_key], max_episodes):
             eid = int(episode["episode_index"][0])
             n = len(episode["frame_index"])
@@ -625,16 +592,17 @@ def run_stage1(ds: Dataset, local_dir: pathlib.Path, max_episodes: int | None) -
                 flags = (residual > thresholds[(key, "residual")]) & (
                     (acceleration > thresholds[(key, "acceleration")]) | (jerk > thresholds[(key, "jerk")])
                 )
-                for index in gripper_indices(ds, key, dim):
-                    if 0 <= index < dim:
-                        flags[:, index] = False
                 flags |= ~np.isfinite(episode[key])
                 feature_flags[key] = flags
             union = feature_flags[ds.state_key].any(axis=1) | feature_flags[ds.action_key].any(axis=1)
             indices = np.flatnonzero(union)
             flagged_frames += len(indices)
-            reject_episode = bool(len(indices) and ds.cfg["stage1_policy"] == "episode")
+            exclusion = str(ds.cfg["stage1_exclusion"])
+            reject_episode = bool(len(indices) and exclusion == "episode")
             rejected_episodes += int(reject_episode)
+            frame_valid = ~union
+            if reject_episode:
+                frame_valid[:] = False
             for row in indices:
                 failed_state = np.flatnonzero(feature_flags[ds.state_key][row]).astype(int).tolist()
                 failed_action = np.flatnonzero(feature_flags[ds.action_key][row]).astype(int).tolist()
@@ -656,29 +624,54 @@ def run_stage1(ds: Dataset, local_dir: pathlib.Path, max_episodes: int | None) -
                     "max_jerk_ratio": ratios["jerk"],
                     "flagged_frame": True,
                 })
+            for row in range(n):
+                reasons: list[str] = []
+                if union[row]:
+                    reasons.append("stage1_sudden_change")
+                if reject_episode:
+                    reasons.append("stage1_episode_rejected")
+                validity_writer.append({
+                    "episode_index": eid,
+                    "frame_index": int(episode["frame_index"][row]),
+                    "index": int(episode["index"][row]),
+                    "stage1_valid": bool(frame_valid[row]),
+                    "stage2_valid": True,
+                    "stage3_valid": True,
+                    "valid": bool(frame_valid[row]),
+                    "reason_codes": reasons,
+                })
             ew.append({
                 "episode_index": eid, "num_frames": n, "flagged_frames": len(indices),
-                "flag_fraction": float(len(indices) / max(n, 1)), "reject_episode": reject_episode,
+                "valid_frames": int(frame_valid.sum()),
+                "flag_fraction": float(len(indices) / max(n, 1)),
+                "exclusion_policy": exclusion, "reject_episode": reject_episode,
             })
-    with ParquetRows(local_dir / "thresholds.parquet", THRESHOLD_SCHEMA) as tw:
+            filter_writer.append({
+                "episode_index": eid, "num_frames": n, "accepted": not reject_episode,
+                "reason_code": "stage1_sudden_change" if reject_episode else None,
+            })
+            if not reject_episode:
+                output_episodes += 1
+                output_frames += int(frame_valid.sum())
+    with ParquetRows(labels_dir / "thresholds.parquet", THRESHOLD_SCHEMA) as tw:
         for key, dim in ((ds.state_key, state_dim), (ds.action_key, action_dim)):
             names = flattened_names(ds.info["features"].get(key), dim)
-            exempt = gripper_indices(ds, key, dim)
             for metric in ("residual", "acceleration", "jerk"):
                 for index, value in enumerate(thresholds[(key, metric)]):
                     tw.append({
                         "feature": key, "dimension": index,
                         "name": names[index], "metric": metric,
-                        "threshold": float(value), "exempt_gripper": index in exempt,
+                        "threshold": float(value), "exempt_gripper": False,
                     })
     result = {
         "paper": PAPER, "stage": 1, "dataset_id": ds.dataset_id, "source": str(ds.path),
         "started_at": started, "finished_at": utc_now(), "max_episodes": max_episodes,
         "calibration_episodes": calibration_episodes, "processed_frames": frame_count,
         "flagged_frames": flagged_frames, "rejected_episodes": rejected_episodes,
-        "policy": ds.cfg["stage1_policy"], "config": ds.cfg,
+        "output_episodes": output_episodes, "output_frames": output_frames,
+        "invalid_frames": frame_count - output_frames,
+        "exclusion_policy": ds.cfg["stage1_exclusion"], "config": ds.cfg,
     }
-    write_json(local_dir / "run.json", result)
     return result
 
 
@@ -777,6 +770,91 @@ def trend_metric(state: np.ndarray, action: np.ndarray, max_lag: int, min_active
     }
 
 
+def contiguous_valid_slices(step_valid: np.ndarray, minimum_length: int = 1) -> list[slice]:
+    """Return runs of valid source frames without joining across invalid gaps."""
+    valid = np.asarray(step_valid, dtype=bool)
+    padded = np.r_[False, valid, False].astype(np.int8)
+    changes = np.diff(padded)
+    starts = np.flatnonzero(changes == 1)
+    stops = np.flatnonzero(changes == -1)
+    return [slice(int(start), int(stop)) for start, stop in zip(starts, stops)
+            if stop - start >= minimum_length]
+
+
+def stage2_signal_segments(
+    state: np.ndarray,
+    action: np.ndarray,
+    step_valid: np.ndarray,
+    cfg: dict[str, Any],
+    state_key: str,
+    action_key: str,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Prepare Stage 2 signals while preserving physical time semantics.
+
+    Delta actions are integrated before applying the validity mask. Each valid
+    run is then normalized and smoothed independently, so neither smoothing nor
+    finite differences bridge an invalid interval.
+    """
+    raw_state = np.asarray(state, dtype=np.float64)
+    raw_action = np.asarray(action, dtype=np.float64)
+    if cfg["action_mode"] == "delta":
+        raw_action = np.cumsum(fill_nonfinite(raw_action), axis=0)
+    segments: list[tuple[np.ndarray, np.ndarray]] = []
+    for valid_slice in contiguous_valid_slices(step_valid, minimum_length=3):
+        state_segment = smooth(normalized_signal(raw_state[valid_slice], cfg, state_key), cfg)
+        action_segment = smooth(normalized_signal(raw_action[valid_slice], cfg, action_key), cfg)
+        segments.append((state_segment, action_segment))
+    return segments
+
+
+def trend_metric_segments(
+    segments: list[tuple[np.ndarray, np.ndarray]],
+    state_index: int,
+    action_index: int,
+    max_lag: int,
+    min_active: int,
+) -> dict[str, Any]:
+    """Score valid runs independently and aggregate DA by active-step count."""
+    metrics: list[tuple[dict[str, Any], int]] = []
+    for state, action in segments:
+        segment_max_lag = min(max_lag, len(state) - 2)
+        if segment_max_lag < 0:
+            continue
+        metric = trend_metric(
+            state[:, state_index], action[:, action_index], segment_max_lag, min_active=1
+        )
+        weight = int(metric["active_steps"])
+        metrics.append((metric, weight))
+    active_steps = sum(weight for _, weight in metrics)
+    scored = [(metric, weight) for metric, weight in metrics
+              if weight > 0 and metric["directional_agreement"] is not None]
+    if scored:
+        agreement = sum(float(metric["directional_agreement"]) * weight
+                        for metric, weight in scored) / sum(weight for _, weight in scored)
+        lag = int(round(sum(int(metric["lag"]) * weight for metric, weight in scored)
+                        / sum(weight for _, weight in scored)))
+        correlation_values = [(float(metric["correlation"]), weight) for metric, weight in scored
+                              if metric["correlation"] is not None]
+        correlation_value = (sum(value * weight for value, weight in correlation_values)
+                             / sum(weight for _, weight in correlation_values)) if correlation_values else None
+        unconstrained_lag = int(round(
+            sum(int(metric["unconstrained_lag"]) * weight for metric, weight in scored)
+            / sum(weight for _, weight in scored)
+        ))
+    else:
+        agreement = correlation_value = None
+        lag = unconstrained_lag = 0
+    if active_steps < min_active:
+        agreement = None
+    return {
+        "lag": lag,
+        "correlation": correlation_value,
+        "unconstrained_lag": unconstrained_lag,
+        "active_steps": active_steps,
+        "directional_agreement": agreement,
+    }
+
+
 STAGE2_DIM_SCHEMA = pa.schema([
     ("episode_index", pa.int64()), ("state_dimension", pa.int32()), ("action_dimension", pa.int32()),
     ("lag_frames", pa.int32()), ("lag_seconds", pa.float64()), ("correlation", pa.float64()),
@@ -794,6 +872,7 @@ def run_stage2(
     ds: Dataset, local_dir: pathlib.Path, max_episodes: int | None
 ) -> dict[str, Any]:
     started = utc_now()
+    labels_dir = local_dir / "labels"
     state_dim = feature_dim(ds.info, ds.state_key)
     action_dim = feature_dim(ds.info, ds.action_key)
     pairs = state_action_map(ds, state_dim, action_dim)
@@ -805,23 +884,29 @@ def run_stage2(
     max_lag = max(0, int(round(float(ds.cfg["stage2_max_lag_seconds"]) * ds.fps)))
     threshold = float(ds.cfg["stage2_da_threshold"])
     min_active = int(ds.cfg["stage2_min_active_steps"])
-    local_dir.mkdir(parents=True, exist_ok=True)
-    processed = rejected = unscored = 0
-    with ParquetRows(local_dir / "dimension_metrics.parquet", STAGE2_DIM_SCHEMA) as dw, ParquetRows(
-        local_dir / "episode_flags.parquet", STAGE2_EPISODE_SCHEMA
-    ) as ew:
+    labels_dir.mkdir(parents=True, exist_ok=True)
+    processed = rejected = unscored = processed_frames = valid_input_frames = output_frames = 0
+    with ParquetRows(labels_dir / "dimension_metrics.parquet", STAGE2_DIM_SCHEMA) as dw, ParquetRows(
+        labels_dir / "episode_flags.parquet", STAGE2_EPISODE_SCHEMA
+    ) as ew, ParquetRows(labels_dir / "episode_filter.parquet", EPISODE_FILTER_SCHEMA) as filter_writer:
         for episode in iter_episodes(ds, [ds.state_key, ds.action_key], max_episodes):
             eid = int(episode["episode_index"][0])
+            num_frames = len(episode["frame_index"])
+            step_valid = np.asarray(episode["_step_valid"], dtype=bool)
+            num_valid_frames = int(step_valid.sum())
             processed += 1
-            state = smooth(normalized_signal(episode[ds.state_key], ds.cfg, ds.state_key), ds.cfg)
-            action = normalized_signal(episode[ds.action_key], ds.cfg, ds.action_key)
-            if ds.cfg["action_mode"] == "delta":
-                action = np.cumsum(fill_nonfinite(action), axis=0)
-            action = smooth(action, ds.cfg)
+            processed_frames += num_frames
+            valid_input_frames += num_valid_frames
+            segments = stage2_signal_segments(
+                episode[ds.state_key], episode[ds.action_key], step_valid,
+                ds.cfg, ds.state_key, ds.action_key,
+            )
             failed: list[int] = []
             scores: list[float] = []
             for pair_index, (state_index, action_index) in enumerate(pairs):
-                metric = trend_metric(state[:, state_index], action[:, action_index], max_lag, min_active)
+                metric = trend_metric_segments(
+                    segments, state_index, action_index, max_lag, min_active,
+                )
                 da = metric["directional_agreement"]
                 is_failed = bool(da is not None and da < threshold)
                 if da is None:
@@ -843,15 +928,22 @@ def run_stage2(
                 "episode_index": eid, "scored_dimensions": len(scores), "failed_dimensions": failed,
                 "minimum_da": min(scores) if scores else None, "reject_episode": reject_episode,
             })
+            filter_writer.append({
+                "episode_index": eid, "num_frames": num_frames, "accepted": not reject_episode,
+                "reason_code": "state_action_trend_mismatch" if reject_episode else None,
+            })
+            if not reject_episode:
+                output_frames += num_valid_frames
     result = {
         "paper": PAPER, "stage": 2, "dataset_id": ds.dataset_id, "source": str(ds.path),
         "started_at": started, "finished_at": utc_now(), "max_episodes": max_episodes,
         "mapping": [{"state": s, "action": a} for s, a in pairs],
         "processed_episodes": processed, "rejected_episodes": rejected,
+        "processed_frames": processed_frames, "output_episodes": processed - rejected,
+        "valid_input_frames": valid_input_frames, "output_frames": output_frames,
         "unscored_dimension_episodes": unscored,
         "config": ds.cfg,
     }
-    write_json(local_dir / "run.json", result)
     return result
 
 
@@ -906,8 +998,10 @@ def calibrate_stage3(
     }
     for ds in group:
         for episode in iter_episodes(ds, [ds.state_key, ds.action_key], max_episodes):
-            collectors[group[0].state_key].add(episode[ds.state_key])
-            collectors[group[0].action_key].add(episode[ds.action_key])
+            valid = np.asarray(episode["_step_valid"], dtype=bool)
+            if valid.any():
+                collectors[group[0].state_key].add(episode[ds.state_key][valid])
+                collectors[group[0].action_key].add(episode[ds.action_key][valid])
     alpha = float(group[0].cfg["stage3_alpha"])
     result = {}
     for key in (group[0].state_key, group[0].action_key):
@@ -926,17 +1020,22 @@ def run_stage3_dataset(
     max_episodes: int | None,
 ) -> dict[str, Any]:
     started = utc_now()
+    labels_dir = local_dir / "labels"
     state_dim = feature_dim(ds.info, ds.state_key)
     action_dim = feature_dim(ds.info, ds.action_key)
-    local_dir.mkdir(parents=True, exist_ok=True)
-    processed = flagged = 0
-    with ParquetRows(local_dir / "frame_flags.parquet", STAGE3_FRAME_SCHEMA) as fw, ParquetRows(
-        local_dir / "episode_summary.parquet", STAGE3_EPISODE_SCHEMA
-    ) as ew:
+    labels_dir.mkdir(parents=True, exist_ok=True)
+    processed = flagged = processed_frames = output_frames = 0
+    with ParquetRows(labels_dir / "frame_flags.parquet", STAGE3_FRAME_SCHEMA) as fw, ParquetRows(
+        labels_dir / "episode_summary.parquet", STAGE3_EPISODE_SCHEMA
+    ) as ew, ParquetRows(labels_dir / "episode_filter.parquet", EPISODE_FILTER_SCHEMA) as filter_writer, ParquetRows(
+        labels_dir / "step_validity.parquet", STEP_VALIDITY_SCHEMA
+    ) as validity_writer:
         for episode in iter_episodes(ds, [ds.state_key, ds.action_key], max_episodes):
             eid = int(episode["episode_index"][0])
             n = len(episode["frame_index"])
+            stage1_valid = np.asarray(episode["_step_valid"], dtype=bool)
             processed += 1
+            processed_frames += n
             feature_flags: dict[str, np.ndarray] = {}
             for key, dim in ((ds.state_key, state_dim), (ds.action_key, action_dim)):
                 _, _, lower, upper = thresholds[key]
@@ -946,6 +1045,7 @@ def run_stage3_dataset(
                     if 0 <= index < dim:
                         flags[:, index] = False
                 flags |= ~np.isfinite(values)
+                flags &= stage1_valid[:, None]
                 feature_flags[key] = flags
             union = feature_flags[ds.state_key].any(axis=1) | feature_flags[ds.action_key].any(axis=1)
             rows = np.flatnonzero(union)
@@ -960,11 +1060,33 @@ def run_stage3_dataset(
                     "failed_action_dimensions": failed_action,
                     "flagged_frame": True,
                 })
+            stage3_valid = ~union
+            final_valid = stage1_valid & stage3_valid
+            output_frames += int(final_valid.sum())
+            for row in range(n):
+                reasons: list[str] = []
+                if not stage1_valid[row]:
+                    reasons.append("stage1_invalid")
+                if union[row]:
+                    reasons.append("stage3_extreme_value")
+                validity_writer.append({
+                    "episode_index": eid,
+                    "frame_index": int(episode["frame_index"][row]),
+                    "index": int(episode["index"][row]),
+                    "stage1_valid": bool(stage1_valid[row]),
+                    "stage2_valid": True,
+                    "stage3_valid": bool(stage3_valid[row]),
+                    "valid": bool(final_valid[row]),
+                    "reason_codes": reasons,
+                })
             ew.append({
                 "episode_index": eid, "input_frames": n,
-                "flagged_frames": len(rows), "output_frames": n,
+                "flagged_frames": len(rows), "output_frames": int(final_valid.sum()),
             })
-    with ParquetRows(local_dir / "thresholds.parquet", STAGE3_THRESHOLD_SCHEMA) as tw:
+            filter_writer.append({
+                "episode_index": eid, "num_frames": n, "accepted": True, "reason_code": None,
+            })
+    with ParquetRows(labels_dir / "thresholds.parquet", STAGE3_THRESHOLD_SCHEMA) as tw:
         for key, dim in ((ds.state_key, state_dim), (ds.action_key, action_dim)):
             q01, q99, lower, upper = thresholds[key]
             names = flattened_names(ds.info["features"].get(key), dim)
@@ -980,10 +1102,11 @@ def run_stage3_dataset(
         "paper": PAPER, "stage": 3, "dataset_id": ds.dataset_id,
         "embodiment": ds.cfg["embodiment"], "source": str(ds.path), "started_at": started,
         "finished_at": utc_now(), "max_episodes": max_episodes, "processed_episodes": processed,
-        "flagged_frames": flagged,
+        "processed_frames": processed_frames, "flagged_frames": flagged,
+        "output_episodes": processed, "output_frames": output_frames,
+        "invalid_frames": processed_frames - output_frames, "rejected_episodes": 0,
         "config": ds.cfg,
     }
-    write_json(local_dir / "run.json", result)
     return result
 
 
@@ -1001,11 +1124,49 @@ def work_stage(work_root: pathlib.Path, stage: int, ds: Dataset) -> pathlib.Path
     return pathlib.Path(tempfile.mkdtemp(prefix=f"{safe_id(ds.dataset_id)}-", dir=work_root / STAGE_NAMES[stage]))
 
 
-def dataset_at(ds: Dataset, path: pathlib.Path) -> Dataset:
-    info_path = path / "meta" / "info.json"
-    if not info_path.is_file():
-        raise FileNotFoundError(f"LeRobot v3 stage output not found: {info_path}")
-    return Dataset(path.resolve(), ds.dataset_id, json.loads(info_path.read_text()), ds.cfg)
+def write_filter_manifest(
+    local_dir: pathlib.Path,
+    ds: Dataset,
+    stage: int,
+    result: dict[str, Any],
+) -> None:
+    labels = sorted(path.relative_to(local_dir).as_posix() for path in (local_dir / "labels").glob("*.parquet"))
+    manifest = {
+        "format": "vla_curation_filter",
+        "schema_version": 2,
+        "stage_id": stage,
+        "stage": f"Stage {stage}",
+        "detector_version": "qwen_robotmanip_curation-filter-v2",
+        "coordinate_system": "episode_frame",
+        "dataset_id": ds.dataset_id,
+        "source_dataset": str(ds.path.resolve()),
+        "data_source": str((ds.path / "data").resolve()),
+        "video_source": str((ds.path / "videos").resolve()),
+        "video_policy": "reference_original",
+        "parent_manifest": str(ds.manifest_path) if ds.manifest_path else None,
+        "episode_filter": "labels/episode_filter.parquet",
+        "validity_files": ["labels/step_validity.parquet"] if stage in (1, 3) else [],
+        "repair_files": [],
+        "label_files": labels,
+        "input_format": "lerobot_v3.0" if ds.manifest_path is None else "lerobot_v3.0-filter-manifest",
+        "output_format": "lerobot_v3.0-filter-manifest",
+        "config": ds.cfg,
+        "result": result,
+        "created_at": utc_now(),
+    }
+    write_json(local_dir / "manifest.json", manifest)
+
+
+def previous_filter(
+    ds: Dataset, output_root: pathlib.Path, stages: Iterable[int], config: dict[str, Any]
+) -> Dataset:
+    if ds.manifest_path is not None:
+        return ds
+    for stage in stages:
+        manifest = output_root / STAGE_NAMES[stage] / safe_id(ds.dataset_id) / "manifest.json"
+        if manifest.is_file():
+            return dataset_from_manifest(manifest, config, ds.dataset_id)
+    return ds
 
 
 def execute(
@@ -1020,57 +1181,37 @@ def execute(
     if 1 in stages:
         for ds in datasets:
             local = work_stage(work_root, 1, ds)
-            audit = local / "audit"
-            result = run_stage1(ds, audit, max_episodes)
-            materialized = materialize_lerobot_v3(
-                ds,
-                local / "dataset",
-                frame_flags_path=audit / "frame_flags.parquet",
-                rejected_episodes_path=audit / "episode_summary.parquet",
-                max_episodes=max_episodes,
-            )
-            result.update({"input_format": "lerobot_v3.0", "output_format": "lerobot_v3.0", **materialized})
-            write_json(audit / "run.json", result)
+            result = run_stage1(ds, local, max_episodes)
+            result.update({"input_format": "lerobot_v3.0", "output_format": "lerobot_v3.0-filter-manifest"})
+            write_filter_manifest(local, ds, 1, result)
             destination = output_root / STAGE_NAMES[1] / safe_id(ds.dataset_id)
             publish(local, destination, overwrite)
             shutil.rmtree(local)
-            current[ds.dataset_id] = dataset_at(ds, destination / "dataset")
+            current[ds.dataset_id] = dataset_from_manifest(destination / "manifest.json", {"defaults": ds.cfg, "datasets": {}}, ds.dataset_id)
             print(json.dumps(result, ensure_ascii=False))
             results.append(result)
     if 2 in stages:
         for original in datasets:
             ds = current[original.dataset_id]
-            if ds is original:
-                prior = output_root / STAGE_NAMES[1] / safe_id(ds.dataset_id) / "dataset"
-                if prior.is_dir():
-                    ds = dataset_at(ds, prior)
+            ds = previous_filter(ds, output_root, (1,), {"defaults": original.cfg, "datasets": {}})
             local = work_stage(work_root, 2, ds)
-            audit = local / "audit"
-            result = run_stage2(ds, audit, max_episodes)
-            materialized = materialize_lerobot_v3(
-                ds,
-                local / "dataset",
-                rejected_episodes_path=audit / "episode_flags.parquet",
-                max_episodes=max_episodes,
-            )
-            result.update({"input_format": "lerobot_v3.0", "output_format": "lerobot_v3.0", **materialized})
-            write_json(audit / "run.json", result)
+            result = run_stage2(ds, local, max_episodes)
+            result.update({
+                "input_format": "lerobot_v3.0" if ds.manifest_path is None else "lerobot_v3.0-filter-manifest",
+                "output_format": "lerobot_v3.0-filter-manifest",
+            })
+            write_filter_manifest(local, ds, 2, result)
             destination = output_root / STAGE_NAMES[2] / safe_id(ds.dataset_id)
             publish(local, destination, overwrite)
             shutil.rmtree(local)
-            current[ds.dataset_id] = dataset_at(ds, destination / "dataset")
+            current[ds.dataset_id] = dataset_from_manifest(destination / "manifest.json", {"defaults": ds.cfg, "datasets": {}}, ds.dataset_id)
             print(json.dumps(result, ensure_ascii=False))
             results.append(result)
     if 3 in stages:
         groups: dict[str, list[Dataset]] = {}
         for original in datasets:
             ds = current[original.dataset_id]
-            if ds is original:
-                for previous_stage in (2, 1):
-                    prior = output_root / STAGE_NAMES[previous_stage] / safe_id(ds.dataset_id) / "dataset"
-                    if prior.is_dir():
-                        ds = dataset_at(ds, prior)
-                        break
+            ds = previous_filter(ds, output_root, (2, 1), {"defaults": original.cfg, "datasets": {}})
             groups.setdefault(str(ds.cfg["embodiment"]), []).append(ds)
         for embodiment, group in groups.items():
             alphas = {float(ds.cfg["stage3_alpha"]) for ds in group}
@@ -1079,20 +1220,16 @@ def execute(
             thresholds = calibrate_stage3(group, max_episodes)
             for ds in group:
                 local = work_stage(work_root, 3, ds)
-                audit = local / "audit"
-                result = run_stage3_dataset(ds, thresholds, audit, max_episodes)
-                materialized = materialize_lerobot_v3(
-                    ds,
-                    local / "dataset",
-                    frame_flags_path=audit / "frame_flags.parquet",
-                    max_episodes=max_episodes,
-                )
-                result.update({"input_format": "lerobot_v3.0", "output_format": "lerobot_v3.0", **materialized})
-                write_json(audit / "run.json", result)
+                result = run_stage3_dataset(ds, thresholds, local, max_episodes)
+                result.update({
+                    "input_format": "lerobot_v3.0" if ds.manifest_path is None else "lerobot_v3.0-filter-manifest",
+                    "output_format": "lerobot_v3.0-filter-manifest",
+                })
+                write_filter_manifest(local, ds, 3, result)
                 destination = output_root / STAGE_NAMES[3] / safe_id(ds.dataset_id)
                 publish(local, destination, overwrite)
                 shutil.rmtree(local)
-                current[ds.dataset_id] = dataset_at(ds, destination / "dataset")
+                current[ds.dataset_id] = dataset_from_manifest(destination / "manifest.json", {"defaults": ds.cfg, "datasets": {}}, ds.dataset_id)
                 print(json.dumps(result, ensure_ascii=False))
                 results.append(result)
     write_json(output_root / "latest_run.json", {

@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import ReactECharts from "echarts-for-react";
 import {
   Alert, Button, Card, Collapse, Descriptions, InputNumber, Layout,
-  List, Progress, Row, Col, Select, Space, Statistic, Table, Tag, message,
+  List, Progress, Row, Col, Segmented, Select, Space, Statistic, Table, Tag, message,
 } from "antd";
 import "./style.css";
 
@@ -24,21 +24,41 @@ type VideoRef = {
   timestamp_start?: number; timestamp_end?: number;
   source_start?: number; source_end?: number; duration?: number;
   chunk_index?: number; file_index?: number; integrity_status?: string;
+  is_proxy?: boolean;
+};
+type ProxyVideo = { camera: string; status: "pending" | "ready"; url: string; duration: number; frame_count: number; fps: number };
+type ProxyJob = {
+  job_id: string; dataset_uid: string; episode_index: number;
+  status: "queued" | "generating" | "ready" | "failed";
+  error?: string | null; videos: ProxyVideo[];
 };
 type StageResult = {
   stage_id: number; run_id: string; stage?: string; detector_version?: string;
   coordinate_system?: string;
   summary?: Record<string, unknown>; records?: Array<Record<string, unknown>>;
+  detail?: Record<string, unknown> | null;
+  artifact_status?: "available" | "episode_pending" | "upstream_filtered" | "not_generated";
+  placeholder?: string | null;
+  visualization_spec?: {
+    name?: string; description?: string; visualization?: string; expected_fields?: string[];
+  } | null;
 };
 type EpisodeTimeline = {
   coordinate_system: string; frame_count: number; fps: number; duration: number; dataset_from_index: number;
 };
-type Preview = { dataset: Dataset; episode: Episode; timeline?: EpisodeTimeline; videos: VideoRef[]; stage_results: StageResult[] };
+type Preview = {
+  dataset: Dataset; episode: Episode; timeline?: EpisodeTimeline; videos: VideoRef[]; stage_results: StageResult[];
+  curation?: { format?: string | null; has_repairs?: boolean; has_validity?: boolean };
+};
 type SeriesRow = Record<string, unknown>;
-type Task = { task_id: string; status: string; progress: number; stage_id: number; error?: string };
+type SeriesView = "raw" | "valid" | "repaired" | "diff";
 type ScanTask = { scan_id: string; status: string; current: number; total: number; datasets: number; skipped: number; eta_seconds: number | null };
+type PlaybackStatus = "idle" | "seeking" | "buffering" | "stalled" | "playing" | "paused" | "error";
 
-const stages = Array.from({ length: 8 }, (_, i) => ({ value: i + 1, label: `Stage ${i + 1}` }));
+const playbackStatusLabels: Record<PlaybackStatus, string> = {
+  idle: "待播放", seeking: "正在定位", buffering: "正在缓冲",
+  stalled: "读取停滞", playing: "播放中", paused: "已暂停", error: "播放失败",
+};
 
 // The catalog indexes physical LeRobot roots. Public datasets commonly put
 // one task in each root (for example arcap/open_bottle), so group those roots
@@ -71,6 +91,7 @@ function buildCollections(rows: Dataset[]): DatasetCollection[] {
 }
 
 function numeric(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
   if (Array.isArray(value)) return value.length ? numeric(value[0]) : null;
   const result = Number(value);
   return Number.isFinite(result) ? result : null;
@@ -82,33 +103,144 @@ function vector(value: unknown): number[] {
   return result === null ? [] : [result];
 }
 
+function featureElementNames(dataset: Dataset | undefined, field: string, width: number): string[] {
+  const feature = dataset?.schema?.[field] as { names?: unknown } | undefined;
+  const names = Array.isArray(feature?.names) ? feature.names : [];
+  return Array.from({ length: width }, (_, index) => (
+    typeof names[index] === "string" && names[index] ? names[index] : `${field}[${index}]`
+  ));
+}
+
+type FrameInterval = { start: number; end: number };
+
+function stageFrameIntervals(results: StageResult[], timeline: EpisodeTimeline): FrameInterval[] {
+  const frameIntervals: Array<{ start: number; end: number }> = [];
+  const addRecord = (stage: StageResult, record: Record<string, unknown>, endExclusive = false) => {
+      const status = String(record.status || record.label || record.decision || "warning").toLowerCase();
+      if (["pass", "ok", "clean", "valid"].includes(status)) return;
+      if (record.valid === true && record.flagged_frame !== true) return;
+      if (record.flagged_frame === false || record.failed === false && record.frame_index !== undefined) return;
+      const coordinate = String(record.coordinate_system || stage.coordinate_system || "episode_frame");
+      let start = numeric(record.frame_start ?? record.start_frame ?? record.frame_index);
+      let end = numeric(record.frame_end ?? record.end_frame ?? record.frame_index ?? start);
+      if (start === null) {
+        const timestamp = numeric(record.timestamp_start ?? record.start_timestamp ?? record.timestamp);
+        if (timestamp !== null) start = timestamp * timeline.fps;
+      }
+      if (end === null) {
+        const timestamp = numeric(record.timestamp_end ?? record.end_timestamp ?? record.timestamp);
+        if (timestamp !== null) end = timestamp * timeline.fps;
+      }
+      if (start === null || end === null) return;
+      if (endExclusive && end > start) end -= 1;
+      if (["dataset_frame", "global_frame"].includes(coordinate)) {
+        start -= timeline.dataset_from_index;
+        end -= timeline.dataset_from_index;
+      }
+      start = Math.min(Math.max(start, 0), Math.max(0, timeline.frame_count - 1));
+      end = Math.min(Math.max(end, start), Math.max(0, timeline.frame_count - 1));
+      frameIntervals.push({ start, end });
+  };
+  results.forEach((stage) => {
+    (stage.records || []).forEach((record) => addRecord(stage, record));
+    if (stage.stage_id === 7) {
+      const frames = Array.isArray(stage.detail?.frames) ? stage.detail.frames : [];
+      frames.forEach((frame) => {
+        if (frame && typeof frame === "object" && String((frame as Record<string, unknown>).decision) === "fail") {
+          addRecord(stage, frame as Record<string, unknown>);
+        }
+      });
+    }
+    if (stage.stage_id === 8) {
+      const ranges = Array.isArray(stage.detail?.invalid_ranges) ? stage.detail.invalid_ranges : [];
+      ranges.forEach((range) => {
+        if (range && typeof range === "object") addRecord(stage, range as Record<string, unknown>, true);
+      });
+    }
+  });
+  frameIntervals.sort((left, right) => left.start - right.start || left.end - right.end);
+  const merged: Array<{ start: number; end: number }> = [];
+  frameIntervals.forEach((interval) => {
+    const previous = merged[merged.length - 1];
+    if (previous && interval.start <= previous.end + 1) {
+      previous.end = Math.max(previous.end, interval.end);
+    } else {
+      merged.push({ ...interval });
+    }
+  });
+  return merged;
+}
+
 function stageIntervals(results: StageResult[], timeline: EpisodeTimeline): Array<[{ xAxis: number }, { xAxis: number }]> {
-  const intervals: Array<[{ xAxis: number }, { xAxis: number }]> = [];
-  results.forEach((stage) => (stage.records || []).forEach((record) => {
-    const status = String(record.status || record.label || "warning").toLowerCase();
-    if (["pass", "ok", "clean"].includes(status)) return;
-    if (record.flagged_frame === false || record.failed === false && record.frame_index !== undefined) return;
-    const coordinate = String(record.coordinate_system || stage.coordinate_system || "episode_frame");
-    let start = numeric(record.frame_start ?? record.start_frame ?? record.frame_index);
-    let end = numeric(record.frame_end ?? record.end_frame ?? record.frame_index ?? start);
-    if (start === null) {
-      const timestamp = numeric(record.timestamp_start ?? record.start_timestamp ?? record.timestamp);
-      if (timestamp !== null) start = timestamp * timeline.fps;
+  return stageFrameIntervals(results, timeline).map(({ start, end }) => [
+    { xAxis: start / timeline.fps },
+    { xAxis: Math.min(timeline.frame_count, end + 1) / timeline.fps },
+  ]);
+}
+
+function stageAnomalyTypes(stage: StageResult): string[] {
+  const labels = new Set<string>();
+  const reasonLabels: Record<string, string> = {
+    stage1_sudden_change: "突变",
+    stage1_episode_rejected: "Stage 1 整条 Episode 过滤",
+    stage1_invalid: "继承的 Stage 1 无效帧",
+    state_action_trend_mismatch: "State-Action 趋势不一致",
+    stage3_extreme_value: "极值",
+  };
+  (stage.records || []).forEach((record) => {
+    const reasons = Array.isArray(record.reason_codes) ? record.reason_codes : [];
+    reasons.forEach((reason) => labels.add(reasonLabels[String(reason)] || String(reason)));
+    if (record.reason_code) labels.add(reasonLabels[String(record.reason_code)] || String(record.reason_code));
+    const stateDims = Array.isArray(record.failed_state_dimensions) ? record.failed_state_dimensions : [];
+    const actionDims = Array.isArray(record.failed_action_dimensions) ? record.failed_action_dimensions : [];
+    if (record.flagged_frame === true) {
+      const kind = stage.stage_id === 1 ? "突变" : stage.stage_id === 3 ? "极值" : "帧异常";
+      if (stateDims.length) labels.add(`${kind} · state[${stateDims.join(", ")}]`);
+      if (actionDims.length) labels.add(`${kind} · action[${actionDims.join(", ")}]`);
+      if (!stateDims.length && !actionDims.length) labels.add(kind);
     }
-    if (end === null) {
-      const timestamp = numeric(record.timestamp_end ?? record.end_timestamp ?? record.timestamp);
-      if (timestamp !== null) end = timestamp * timeline.fps;
+    if (record.failed === true && stage.stage_id === 2) labels.add("State-Action 趋势不一致");
+    if (record.accepted === false || record.reject_episode === true) {
+      labels.add(stage.stage_id === 2 ? "State-Action 趋势不一致" : `Stage ${stage.stage_id} Episode 过滤`);
     }
-    if (start === null || end === null) return;
-    if (["dataset_frame", "global_frame"].includes(coordinate)) {
-      start -= timeline.dataset_from_index;
-      end -= timeline.dataset_from_index;
-    }
-    start = Math.min(Math.max(start, 0), Math.max(0, timeline.frame_count - 1));
-    end = Math.min(Math.max(end, start), Math.max(0, timeline.frame_count - 1));
-    intervals.push([{ xAxis: start / timeline.fps }, { xAxis: end / timeline.fps }]);
-  }));
-  return intervals;
+  });
+  return Array.from(labels);
+}
+
+function recordsFrom(stage: StageResult, fileName: string): Array<Record<string, unknown>> {
+  return (stage.records || []).filter((record) => String(record.file || "").endsWith(`/${fileName}`));
+}
+
+function firstRecordFrom(stage: StageResult, fileName: string): Record<string, unknown> | undefined {
+  return recordsFrom(stage, fileName)[0];
+}
+
+function artifactStatusTag(status: StageResult["artifact_status"]) {
+  if (status === "available") return <Tag color="green">已有产物</Tag>;
+  if (status === "episode_pending") return <Tag color="gold">该 Episode 待处理</Tag>;
+  if (status === "upstream_filtered") return <Tag color="orange">前序阶段已过滤</Tag>;
+  return <Tag>暂无产物</Tag>;
+}
+
+function resultTag(value: unknown) {
+  const status = String(value ?? "unknown").toLowerCase();
+  if (["pass", "passed", "complete", "available", "retain", "true"].includes(status)) {
+    return <Tag color="green">{String(value)}</Tag>;
+  }
+  if (["fail", "failed", "invalid", "exclude_episode_from_training", "false"].includes(status)) {
+    return <Tag color="red">{String(value)}</Tag>;
+  }
+  return <Tag color="gold">{String(value ?? "unknown")}</Tag>;
+}
+
+function fixed(value: unknown, digits = 4, suffix = ""): string {
+  const number = numeric(value);
+  return number === null ? "—" : `${number.toFixed(digits)}${suffix}`;
+}
+
+function vectorText(value: unknown, digits = 5): string {
+  const values = vector(value);
+  return values.length ? `[${values.map((item) => item.toFixed(digits)).join(", ")}]` : "—";
 }
 
 function videoWindow(video: VideoRef, episodeDuration: number): { start: number; end: number; duration: number } {
@@ -120,37 +252,81 @@ function videoWindow(video: VideoRef, episodeDuration: number): { start: number;
   return { start, end: Math.max(start, end), duration: Math.max(0, end - start) };
 }
 
-function Curve({ title, rows, field, dimensions, fps, intervals = [], playhead, onSeek }: {
-  title: string; rows: SeriesRow[]; field: string; dimensions?: number[]; fps: number;
+const MEDIA_WAIT_TIMEOUT_MS = 30_000;
+
+function waitForMediaEvent(video: HTMLVideoElement, eventName: "loadedmetadata", timeout = MEDIA_WAIT_TIMEOUT_MS): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let timer = 0;
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      video.removeEventListener(eventName, onReady);
+      video.removeEventListener("error", onError);
+    };
+    const onReady = () => { cleanup(); resolve(); };
+    const onError = () => { cleanup(); reject(new Error(`视频 ${video.dataset.camera || "unknown"} 加载失败`)); };
+    video.addEventListener(eventName, onReady, { once: true });
+    video.addEventListener("error", onError, { once: true });
+    timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error(`等待视频 ${video.dataset.camera || "unknown"} ${eventName} 超时`));
+    }, timeout);
+  });
+}
+
+async function seekMedia(video: HTMLVideoElement, target: number, tolerance = 0.1): Promise<void> {
+  if (video.readyState < HTMLMediaElement.HAVE_METADATA) await waitForMediaEvent(video, "loadedmetadata");
+  // With preload="metadata", some browsers do not emit `seeked` until a
+  // play request starts fetching media bytes. Set all target positions first,
+  // then let the following play() calls drive loading instead of deadlocking
+  // while waiting for `seeked` here.
+  if (Math.abs(video.currentTime - target) > tolerance) video.currentTime = target;
+}
+
+function withTimeout<T>(promise: Promise<T>, messageText: string, timeout = MEDIA_WAIT_TIMEOUT_MS): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(messageText)), timeout);
+    promise.then(
+      (value) => { window.clearTimeout(timer); resolve(value); },
+      (error) => { window.clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
+function mediaErrorText(video: HTMLVideoElement): string {
+  const code = video.error?.code;
+  const detail = video.error?.message;
+  return `视频 ${video.dataset.camera || "unknown"} 播放失败${code ? `（错误码 ${code}）` : ""}${detail ? `：${detail}` : ""}`;
+}
+
+function Curve({ title, rows, field, elementNames, fps, intervals = [], playhead, onSeek }: {
+  title: string; rows: SeriesRow[]; field: string; elementNames: string[]; fps: number;
   intervals?: Array<[{ xAxis: number }, { xAxis: number }]>;
   playhead?: number;
   onSeek?: (time: number) => void;
 }) {
   const first = rows.find((row) => vector(row[field]).length);
   const width = first ? vector(first[field]).length : 0;
-  const dimensionKey = dimensions?.join(",") || `all:${width}`;
-  const indexes = useMemo(
-    () => dimensions || Array.from({ length: width }, (_, i) => i),
-    [dimensionKey, width],
-  );
-  const chartSeries = useMemo(() => indexes.map((dimension) => ({
+  const availableDimensions = useMemo(() => Array.from({ length: width }, (_, index) => index), [width]);
+  const selectionKey = `${field}:${width}:${elementNames.join("|")}`;
+  const [selectedDimensions, setSelectedDimensions] = useState<number[]>(availableDimensions);
+  useEffect(() => setSelectedDimensions(availableDimensions), [availableDimensions, selectionKey]);
+  const chartSeries = useMemo(() => selectedDimensions.map((dimension) => ({
     dimension,
     data: rows.map((row, index) => {
       const values = vector(row[field]);
       const timestamp = numeric(row.episode_time ?? row.timestamp) ?? index / fps;
       return [timestamp, values[dimension] ?? null];
     }),
-  })), [field, fps, indexes, rows]);
+  })), [field, fps, rows, selectedDimensions]);
   const option = useMemo(() => ({
     animation: false,
-    title: { text: title, left: 8, textStyle: { fontSize: 13 } },
     tooltip: { trigger: "axis" },
-    legend: { type: "scroll", top: 24 },
-    grid: { left: 48, right: 18, top: 58, bottom: 32 },
+    legend: { type: "scroll", top: 4 },
+    grid: { left: 48, right: 18, top: 38, bottom: 32 },
     xAxis: { type: "value", name: "s", min: 0 },
     yAxis: { type: "value" },
     series: chartSeries.map(({ dimension, data }, seriesIndex) => ({
-      name: `${field}[${dimension}]`, type: "line", showSymbol: false,
+      name: elementNames[dimension] || `${field}[${dimension}]`, type: "line", showSymbol: false,
       data,
       markArea: seriesIndex === 0 && intervals.length ? {
         silent: true, itemStyle: { color: "rgba(245, 63, 63, .16)" }, data: intervals,
@@ -160,7 +336,7 @@ function Curve({ title, rows, field, dimensions, fps, intervals = [], playhead, 
         label: { show: false }, data: [{ xAxis: playhead }],
       } : undefined,
     })),
-  }), [chartSeries, field, intervals, playhead, title]);
+  }), [chartSeries, elementNames, field, intervals, playhead]);
   if (!rows.length || !width) return <Card size="small" title={title}><Alert type="info" showIcon message="该字段暂无可绘制数据，请先运行 standard 扫描或检查 Parquet schema。" /></Card>;
   const onEvents = onSeek ? {
     click: (params: { value?: unknown }) => {
@@ -168,7 +344,408 @@ function Curve({ title, rows, field, dimensions, fps, intervals = [], playhead, 
       if (Number.isFinite(value)) onSeek(value);
     },
   } : undefined;
-  return <ReactECharts option={option} onEvents={onEvents} style={{ height: 270, cursor: onSeek ? "crosshair" : undefined }} notMerge lazyUpdate />;
+  const options = availableDimensions.map((dimension) => ({
+    value: dimension, label: elementNames[dimension] || `${field}[${dimension}]`,
+  }));
+  return <Card size="small" title={title} extra={<Select<number[]> mode="multiple" allowClear
+    className="curve-element-select" maxTagCount="responsive" optionFilterProp="label"
+    placeholder="选择要显示的元素" value={selectedDimensions} options={options}
+    onChange={setSelectedDimensions} />}>
+    {!selectedDimensions.length && <Alert type="info" showIcon message="请选择至少一个元素进行可视化" />}
+    <ReactECharts option={option} onEvents={onEvents} style={{ height: 270, cursor: onSeek ? "crosshair" : undefined }} notMerge lazyUpdate />
+  </Card>;
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+function StageVisualizations({ stages, timeline, onSeek }: {
+  stages: StageResult[]; timeline: EpisodeTimeline; onSeek: (time: number) => void;
+}) {
+  const rows = Array.from({ length: 8 }, (_, offset) => {
+    const stageId = offset + 1;
+    const matches = stages.filter((item) => item.stage_id === stageId);
+    const available = matches.find((item) => item.artifact_status === "available")
+      || matches.find((item) => item.artifact_status === "upstream_filtered")
+      || matches.find((item) => item.artifact_status === "episode_pending")
+      || matches[0];
+    if (stageId <= 3 && available) {
+      return {
+        ...available,
+        records: matches.flatMap((item) => item.records || []),
+      };
+    }
+    return available || {
+      stage_id: stageId, run_id: "placeholder", artifact_status: "not_generated" as const,
+      stage: `Stage ${stageId}`, placeholder: `未发现 Stage ${stageId} 产物`,
+    };
+  });
+  const items = rows.map((stage) => {
+        const spec = stage.visualization_spec || {};
+        const label = <Space wrap>
+          <Tag color="blue">Stage {stage.stage_id}</Tag>
+          <span>{stage.stage || spec.name}</span>
+          {artifactStatusTag(stage.artifact_status)}
+        </Space>;
+        if (stage.stage_id <= 3) {
+          if (stage.artifact_status !== "available") {
+            const children = <>
+              <Alert type={stage.artifact_status === "not_generated" ? "warning" : "info"} showIcon
+                message={stage.placeholder || "该 Episode 尚无可读取产物"}
+                description="当前状态来自实际 Stage 目录与 Manifest，不将缺失产物解释为检测通过。" />
+              <Descriptions size="small" column={1} className="stage-details">
+                <Descriptions.Item label="检测目标">{spec.description || "等待阶段产物"}</Descriptions.Item>
+                <Descriptions.Item label="产物生成后展示">{spec.visualization || "检测状态、异常位置与审计证据"}</Descriptions.Item>
+                <Descriptions.Item label="预期字段"><Space size={[4, 4]} wrap>{(spec.expected_fields || []).map((field) => <Tag key={field}>{field}</Tag>)}</Space></Descriptions.Item>
+              </Descriptions>
+            </>;
+            return { key: String(stage.stage_id), label, children };
+          }
+          const frameFlagRecords = recordsFrom(stage, "frame_flags.parquet");
+          const validityRecords = recordsFrom(stage, "step_validity.parquet").filter((record) => (
+            record[`stage${stage.stage_id}_valid`] === false
+          ));
+          const annotationRecords = (stage.records || []).filter((record) => !record.file);
+          const anomalyStage = { ...stage, records: [...frameFlagRecords, ...validityRecords, ...annotationRecords] };
+          const types = stageAnomalyTypes(anomalyStage);
+          const ranges = stageFrameIntervals([anomalyStage], timeline);
+          const rejected = (stage.records || []).some((record) => (
+            record.reject_episode === true || record.accepted === false
+          ));
+          const summaryRecord = firstRecordFrom(stage, "episode_summary.parquet");
+          const filterRecord = firstRecordFrom(stage, "episode_filter.parquet");
+          const flaggedFrames = numeric(summaryRecord?.flagged_frames) ?? frameFlagRecords.length;
+          const resultTag = rejected
+            ? <Tag color="red">Episode 已过滤</Tag>
+            : flaggedFrames > 0 || ranges.length > 0
+              ? <Tag color="orange">发现异常</Tag>
+              : <Tag color="green">检测通过</Tag>;
+
+          if (stage.stage_id === 2) {
+            const episodeFlags = firstRecordFrom(stage, "episode_flags.parquet");
+            const metrics = recordsFrom(stage, "dimension_metrics.parquet");
+            const failedMetrics = metrics.filter((record) => record.failed === true);
+            const minimumDa = numeric(episodeFlags?.minimum_da);
+            const config = (stage.summary?.config || {}) as Record<string, unknown>;
+            const threshold = numeric(config.stage2_da_threshold);
+            const stage2Rejected = rejected || episodeFlags?.reject_episode === true || failedMetrics.length > 0;
+            const children = <>
+              <Alert type={stage2Rejected ? "error" : "success"} showIcon
+                message={stage2Rejected ? "State-Action 趋势不一致，Episode 被过滤" : "State-Action 趋势一致，Episode 通过"}
+                description="Stage 2 是 Episode/维度级判定，不生成帧级异常区间。下表直接读取 dimension_metrics.parquet。" />
+              <Descriptions size="small" column={{ xs: 1, md: 3 }} className="stage-details">
+                <Descriptions.Item label="检测结果">{stage2Rejected ? <Tag color="red">未通过</Tag> : <Tag color="green">通过</Tag>}</Descriptions.Item>
+                <Descriptions.Item label="最小方向一致率">{minimumDa === null ? "—" : minimumDa.toFixed(4)}</Descriptions.Item>
+                <Descriptions.Item label="判定阈值">{threshold === null ? "—" : threshold.toFixed(4)}</Descriptions.Item>
+                <Descriptions.Item label="参与评分维度">{String(episodeFlags?.scored_dimensions ?? metrics.length)}</Descriptions.Item>
+                <Descriptions.Item label="失败维度">{vector(episodeFlags?.failed_dimensions).join(", ") || "无"}</Descriptions.Item>
+                <Descriptions.Item label="Episode 过滤记录">{
+                  filterRecord?.accepted === false ? "已过滤" : filterRecord?.accepted === true ? "保留" : "—"
+                }</Descriptions.Item>
+              </Descriptions>
+              <Table size="small" pagination={false} rowKey={(record, index) => `${record.state_dimension}-${record.action_dimension}-${index}`}
+                dataSource={metrics} scroll={{ x: 720 }} locale={{ emptyText: "产物中没有维度级指标" }} columns={[
+                  { title: "State 维度", dataIndex: "state_dimension", key: "state" },
+                  { title: "Action 维度", dataIndex: "action_dimension", key: "action" },
+                  { title: "方向一致率", dataIndex: "directional_agreement", key: "da", render: (value) => numeric(value)?.toFixed(4) ?? "—" },
+                  { title: "时延（帧）", dataIndex: "lag_frames", key: "lag" },
+                  { title: "活跃步数", dataIndex: "active_steps", key: "steps" },
+                  { title: "结果", dataIndex: "failed", key: "failed", render: (value) => value === true ? <Tag color="red">失败</Tag> : <Tag color="green">通过</Tag> },
+                ]} />
+            </>;
+            return { key: String(stage.stage_id), label, children };
+          }
+
+          const config = (stage.summary?.config || {}) as Record<string, unknown>;
+          const children = <>
+            <Alert type={rejected ? "error" : ranges.length ? "warning" : "success"} showIcon
+              message={rejected
+                ? "检测到异常，整条 Episode 已过滤"
+                : ranges.length
+                  ? `发现 ${ranges.length} 个异常区间，已覆盖到 State/Action 曲线中`
+                  : "检测完成，当前 Episode 未发现异常"} />
+            <Descriptions size="small" column={{ xs: 1, md: 3 }} className="stage-details">
+              <Descriptions.Item label="检测结果">{resultTag}</Descriptions.Item>
+              <Descriptions.Item label="异常类型">
+                {types.length
+                  ? <Space size={[4, 4]} wrap>{types.map((type) => <Tag color="orange" key={type}>{type}</Tag>)}</Space>
+                  : <Tag color="green">无异常</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="异常位置">
+                {ranges.length ? <Space size={[4, 4]} wrap>{ranges.map((range) => {
+                  const text = range.start === range.end ? `Frame ${range.start}` : `Frame ${range.start}–${range.end}`;
+                  return <Button type="link" danger size="small" key={`${range.start}-${range.end}`}
+                    onClick={() => onSeek(range.start / timeline.fps)}>{text}</Button>;
+                })}</Space> : rejected ? <Tag color="red">整条 Episode 被过滤</Tag> : <Tag color="green">无帧级异常</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="输入帧数">{String(summaryRecord?.num_frames ?? summaryRecord?.input_frames ?? filterRecord?.num_frames ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="异常帧数">{String(flaggedFrames)}</Descriptions.Item>
+              <Descriptions.Item label="输出有效帧">{String(summaryRecord?.valid_frames ?? summaryRecord?.output_frames ?? "—")}</Descriptions.Item>
+              {stage.stage_id === 1 && <Descriptions.Item label="过滤策略">{String(summaryRecord?.exclusion_policy ?? config.stage1_exclusion ?? "—")}</Descriptions.Item>}
+              {stage.stage_id === 3 && <Descriptions.Item label="边界扩展系数 α">{String(config.stage3_alpha ?? "—")}</Descriptions.Item>}
+            </Descriptions>
+          </>;
+          return { key: String(stage.stage_id), label, children };
+        }
+        if (stage.stage_id === 4 && stage.artifact_status === "available") {
+          const episodeSummary = firstRecordFrom(stage, "episode_summary.parquet");
+          const transform = firstRecordFrom(stage, "kinematic_transform.parquet");
+          const frameFlags = recordsFrom(stage, "frame_flags.parquet");
+          const stageValidity = recordsFrom(stage, "step_validity.parquet").filter((record) => record.stage4_valid === false);
+          const ranges = stageFrameIntervals([{ ...stage, records: [...frameFlags, ...stageValidity] }], timeline);
+          const accepted = episodeSummary?.accepted !== false;
+          const strategy = (stage.summary?.kinematic_strategy || {}) as Record<string, unknown>;
+          const thresholds = (strategy.thresholds || {}) as Record<string, unknown>;
+          const children = <>
+            <Alert type={accepted ? ranges.length ? "warning" : "success" : "error"} showIcon
+              message={accepted
+                ? ranges.length ? `发现 ${ranges.length} 个运动学异常区间` : "运动学一致性检测通过"
+                : "运动学一致性检测未通过，Episode 已过滤"}
+              description="位置与姿态误差均直接来自 Stage 4 的 episode_summary.parquet。" />
+            <Descriptions size="small" column={{ xs: 1, md: 3 }} className="stage-details">
+              <Descriptions.Item label="状态">{resultTag(episodeSummary?.status ?? accepted)}</Descriptions.Item>
+              <Descriptions.Item label="检测帧数">{String(episodeSummary?.s4_evaluated_frames ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="软/硬异常帧">{String(episodeSummary?.s4_soft_mismatch_frames ?? "—")} / {String(episodeSummary?.s4_hard_mismatch_frames ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="位置误差 中位/P95/最大" span={2}>
+                {fixed(episodeSummary?.position_error_median_m, 6, " m")} / {fixed(episodeSummary?.position_error_p95_m, 6, " m")} / {fixed(episodeSummary?.position_error_max_m, 6, " m")}
+              </Descriptions.Item>
+              <Descriptions.Item label="硬异常比例">{fixed((numeric(episodeSummary?.s4_hard_mismatch_ratio) ?? 0) * 100, 3, "%")}</Descriptions.Item>
+              <Descriptions.Item label="姿态误差 中位/P95/最大" span={2}>
+                {fixed(episodeSummary?.orientation_error_median_deg, 4, "°")} / {fixed(episodeSummary?.orientation_error_p95_deg, 4, "°")} / {fixed(episodeSummary?.orientation_error_max_deg, 4, "°")}
+              </Descriptions.Item>
+              <Descriptions.Item label="模型">{String(episodeSummary?.model ?? strategy.robot_model ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="Base 世界坐标" span={2}>{vectorText(transform?.base_world_xyz_m ?? [episodeSummary?.base_world_x_m, episodeSummary?.base_world_y_m, episodeSummary?.base_world_z_m])}</Descriptions.Item>
+              <Descriptions.Item label="软/硬位置阈值">{fixed(thresholds.soft_position_m, 4, " m")} / {fixed(thresholds.hard_position_m, 4, " m")}</Descriptions.Item>
+              <Descriptions.Item label="异常位置" span={3}>
+                {ranges.length ? <Space size={[4, 4]} wrap>{ranges.map((range) => <Button type="link" danger size="small"
+                  key={`${range.start}-${range.end}`} onClick={() => onSeek(range.start / timeline.fps)}>
+                  {range.start === range.end ? `Frame ${range.start}` : `Frame ${range.start}–${range.end}`}
+                </Button>)}</Space> : <Tag color="green">无 Stage 4 异常帧</Tag>}
+              </Descriptions.Item>
+            </Descriptions>
+          </>;
+          return { key: String(stage.stage_id), label, children };
+        }
+        if (stage.stage_id === 5 && stage.artifact_status === "available") {
+          const transform = firstRecordFrom(stage, "episode_transform.parquet");
+          const transformation = (stage.summary?.transformation || {}) as Record<string, unknown>;
+          const candidate = transform?.s4_training_candidate !== false;
+          const children = <>
+            <Alert type={candidate ? "success" : "warning"} showIcon
+              message={candidate ? "坐标系对齐产物可用于训练" : "上游运动学结果不满足训练候选条件"}
+              description="Stage 5 对当前 Episode 应用固定世界坐标到 Panda base 的平移；该产物没有帧级异常标签。" />
+            <Descriptions size="small" column={{ xs: 1, md: 2 }} className="stage-details">
+              <Descriptions.Item label="Base 世界坐标">{vectorText(transform?.base_world_xyz_m)}</Descriptions.Item>
+              <Descriptions.Item label="Base 世界旋转">{vectorText(transform?.base_rotation_world)}</Descriptions.Item>
+              <Descriptions.Item label="Stage 4 已评估">{resultTag(transform?.s4_evaluated)}</Descriptions.Item>
+              <Descriptions.Item label="训练候选">{resultTag(transform?.s4_training_candidate)}</Descriptions.Item>
+              <Descriptions.Item label="位置变换" span={2}>{String(transformation.position_transform || "—")}</Descriptions.Item>
+              <Descriptions.Item label="姿态变换" span={2}>{String(transformation.orientation_transform || "—")}</Descriptions.Item>
+              <Descriptions.Item label="Action 处理" span={2}>{String(transformation.action_transform || "—")}</Descriptions.Item>
+              <Descriptions.Item label="全量已转换行数">{String(stage.summary?.rows_transformed ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="视频策略">{String(stage.summary?.videos ?? "—")}</Descriptions.Item>
+            </Descriptions>
+          </>;
+          return { key: String(stage.stage_id), label, children };
+        }
+        if (stage.stage_id === 6 && stage.artifact_status === "available" && stage.detail) {
+          const detail = stage.detail;
+          const task = (detail.task || {}) as Record<string, unknown>;
+          const scene = (detail.scene || {}) as Record<string, unknown>;
+          const segmentation = (detail.temporal_segmentation || {}) as Record<string, unknown>;
+          const quality = (detail.quality || {}) as Record<string, unknown>;
+          const segments = (Array.isArray(segmentation.segments) ? segmentation.segments : []) as Array<Record<string, unknown>>;
+          const objects = (Array.isArray(scene.objects) ? scene.objects : []) as Array<Record<string, unknown>>;
+          const counts = (stage.summary?.counts || {}) as Record<string, unknown>;
+          const children = <>
+            <Alert type="info" showIcon message="当前 Stage 6 产物是语义子任务与场景证据"
+              description="产物未提供独立的 instruction-consistency 数值分数，因此页面展示可审查证据，不虚构 pass/fail。" />
+            <Descriptions size="small" column={{ xs: 1, md: 3 }} className="stage-details">
+              <Descriptions.Item label="状态">{String(detail.status || "unknown")}</Descriptions.Item>
+              <Descriptions.Item label="模型">{String(detail.model || "—")}</Descriptions.Item>
+              <Descriptions.Item label="全量进度">{String(counts.complete ?? "—")} / {String(stage.summary?.total_episodes ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="原始指令" span={3}>{stringList(task.original_instructions).join("；") || "未提供"}</Descriptions.Item>
+              <Descriptions.Item label="场景摘要" span={3}>{String(scene.summary || scene.description || "未提供")}</Descriptions.Item>
+            </Descriptions>
+            <Row gutter={[12, 12]} className="stage-details">
+              <Col xs={24} lg={12}>
+                <Card size="small" title="预期任务计划">
+                  <List size="small" dataSource={stringList(task.expected_task_plan)} locale={{ emptyText: "未提供任务计划" }}
+                    renderItem={(item, index) => <List.Item><Tag>{index + 1}</Tag>{item}</List.Item>} />
+                </Card>
+              </Col>
+              <Col xs={24} lg={12}>
+                <Card size="small" title="场景对象">
+                  <Space size={[4, 6]} wrap>{objects.map((object, index) => <Tag key={`${String(object.name)}-${index}`}
+                    color={object.confidence === "high" ? "green" : object.confidence === "medium" ? "gold" : "default"}>
+                    {String(object.name || "unnamed")} · {String(object.task_role || object.category || "object")}
+                  </Tag>)}</Space>
+                  {!objects.length && <span>未提供对象列表</span>}
+                </Card>
+              </Col>
+            </Row>
+            <Card size="small" title="语义子任务时间轴（点击区间跳转视频）" className="stage-details">
+              {segments.length ? <div className="semantic-timeline">{segments.map((segment, index) => {
+                const start = numeric(segment.start_frame) ?? 0;
+                const end = numeric(segment.end_frame_exclusive) ?? start + 1;
+                const width = Math.max(4, (Math.max(1, end - start) / Math.max(1, timeline.frame_count)) * 100);
+                return <button type="button" className={`semantic-segment phase-${String(segment.temporal_phase || "unknown")}`}
+                  style={{ flexBasis: `${width}%` }} key={`${start}-${end}-${index}`}
+                  title={`${String(segment.subtask_label || "subtask")} · Frame ${start}–${Math.max(start, end - 1)}`}
+                  onClick={() => onSeek(start / timeline.fps)}>
+                  <span>{index + 1}. {String(segment.subtask_label || "subtask")}</span>
+                  <small>F{start}–{Math.max(start, end - 1)}</small>
+                </button>;
+              })}</div> : <Alert type="info" showIcon message="该 Episode 没有语义分段" />}
+              {segments.length > 0 && <Table size="small" pagination={false} rowKey={(segment) => `${segment.start_frame}-${segment.end_frame_exclusive}`}
+                dataSource={segments} scroll={{ x: 900 }} columns={[
+                  { title: "帧区间", key: "range", width: 110, render: (_v, segment) => {
+                    const start = numeric(segment.start_frame) ?? 0;
+                    const end = (numeric(segment.end_frame_exclusive) ?? start + 1) - 1;
+                    return <Button type="link" size="small" onClick={() => onSeek(start / timeline.fps)}>F{start}–{end}</Button>;
+                  } },
+                  { title: "阶段", dataIndex: "temporal_phase", key: "phase", width: 120, render: (value) => <Tag>{String(value || "unknown")}</Tag> },
+                  { title: "语义子任务", dataIndex: "subtask_label", key: "label", width: 280 },
+                  { title: "对象 / 目标", key: "objects", width: 210, render: (_v, segment) => [
+                    ...stringList(segment.manipulated_objects), ...(segment.destination ? [String(segment.destination)] : []),
+                  ].join(" → ") || "—" },
+                  { title: "置信度", dataIndex: "confidence", key: "confidence", width: 90, render: (value) => <Tag color={value === "high" ? "green" : "gold"}>{String(value || "—")}</Tag> },
+                  { title: "证据帧", key: "evidence", render: (_v, segment) => <Space size={[2, 2]} wrap>{stringList(segment.evidence_frames).map((frame) => <Button
+                    type="link" size="small" key={frame} onClick={() => onSeek(Number(frame) / timeline.fps)}>F{frame}</Button>)}</Space> },
+                ]} />}
+            </Card>
+            {stringList(quality.uncertainties).length > 0 && <Alert className="stage-details" type="warning" showIcon
+              message="模型不确定性" description={stringList(quality.uncertainties).join("；")} />}
+          </>;
+          return { key: String(stage.stage_id), label, children };
+        }
+        if (stage.stage_id === 7 && stage.artifact_status === "available" && stage.detail) {
+          const detail = stage.detail;
+          const frames = (Array.isArray(detail.frames) ? detail.frames : []) as Array<Record<string, unknown>>;
+          const episodeSummary = (detail.summary || {}) as Record<string, unknown>;
+          const model = (detail.model || {}) as Record<string, unknown>;
+          const counts = (stage.summary?.decision_counts || {}) as Record<string, unknown>;
+          const decision = String(detail.decision || "unknown");
+          const chartOption = {
+            animation: false,
+            tooltip: { trigger: "axis" },
+            legend: { top: 4 },
+            grid: { left: 48, right: 18, top: 42, bottom: 42 },
+            xAxis: { type: "category", name: "Frame", data: frames.map((frame) => String(frame.frame_index ?? "—")) },
+            yAxis: { type: "value", min: 0, max: 1 },
+            series: [
+              { name: "IoU", type: "line", data: frames.map((frame) => numeric(frame.iou)), connectNulls: false },
+              { name: "Render coverage", type: "line", data: frames.map((frame) => numeric(frame.render_coverage)), connectNulls: false },
+              { name: "SAM2 score", type: "line", data: frames.map((frame) => numeric(frame.sam2_score)), connectNulls: false },
+            ],
+          };
+          const children = <>
+            <Alert type={decision === "fail" ? "error" : decision === "pass" ? "success" : "warning"} showIcon
+              message={<Space wrap>视频－状态一致性判定 {resultTag(decision)}</Space>}
+              description={String(detail.reason || "产物未提供判定原因")} />
+            {detail.filtering_authorized === false && <Alert className="stage-details" type="info" showIcon
+              message="当前产物是审计结果，尚未授权自动过滤"
+              description={detail.thresholds_calibrated === false ? "阈值尚未完成标定，insufficient_confidence 不等同于检测失败。" : undefined} />}
+            <Descriptions size="small" column={{ xs: 1, md: 3 }} className="stage-details">
+              <Descriptions.Item label="模型">{String(model.variant || model.type || stage.summary?.model || "—")}</Descriptions.Item>
+              <Descriptions.Item label="采样帧">{String(episodeSummary.sampled_frames ?? frames.length)}</Descriptions.Item>
+              <Descriptions.Item label="通过/失败/低置信度">{String(episodeSummary.pass_frames ?? "—")} / {String(episodeSummary.fail_frames ?? "—")} / {String(episodeSummary.insufficient_confidence_frames ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="中位 IoU">{fixed(episodeSummary.median_iou)}</Descriptions.Item>
+              <Descriptions.Item label="中位 SAM2 分数">{fixed(episodeSummary.median_sam2_score)}</Descriptions.Item>
+              <Descriptions.Item label="全量进度">{String(stage.summary?.episode_count ?? "—")} / {String(stage.summary?.requested_episode_count ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="全量判定统计" span={3}>
+                <Space wrap><Tag color="green">pass {String(counts.pass ?? 0)}</Tag><Tag color="red">fail {String(counts.fail ?? 0)}</Tag><Tag color="gold">insufficient {String(counts.insufficient_confidence ?? 0)}</Tag></Space>
+              </Descriptions.Item>
+            </Descriptions>
+            {frames.length > 0 ? <>
+              <Card size="small" title="采样帧一致性分数（点击跳转视频）" className="stage-details">
+                <ReactECharts option={chartOption} style={{ height: 260 }} notMerge lazyUpdate onEvents={{
+                  click: (params: { dataIndex?: number }) => {
+                    const frame = frames[params.dataIndex ?? -1];
+                    const index = numeric(frame?.frame_index);
+                    if (index !== null) onSeek(index / timeline.fps);
+                  },
+                }} />
+              </Card>
+              <Table size="small" pagination={false} rowKey={(frame, index) => `${frame.frame_index}-${index}`}
+                dataSource={frames} scroll={{ x: 900 }} columns={[
+                  { title: "帧", dataIndex: "frame_index", key: "frame", render: (value) => <Button type="link" size="small" onClick={() => onSeek(Number(value) / timeline.fps)}>F{String(value)}</Button> },
+                  { title: "判定", dataIndex: "decision", key: "decision", render: resultTag },
+                  { title: "IoU", dataIndex: "iou", key: "iou", render: (value) => fixed(value) },
+                  { title: "Render coverage", dataIndex: "render_coverage", key: "render", render: (value) => fixed(value) },
+                  { title: "SAM2", dataIndex: "sam2_score", key: "sam2", render: (value) => fixed(value) },
+                  { title: "原因", dataIndex: "reason", key: "reason" },
+                ]} />
+            </> : <Alert className="stage-details" type="warning" showIcon message="该 Episode 没有可评分采样帧" />}
+          </>;
+          return { key: String(stage.stage_id), label, children };
+        }
+        if (stage.stage_id === 8 && stage.artifact_status === "available" && stage.detail) {
+          const detail = stage.detail;
+          const cameras = (Array.isArray(detail.per_camera_results) ? detail.per_camera_results : []) as Array<Record<string, unknown>>;
+          const ranges = (Array.isArray(detail.invalid_ranges) ? detail.invalid_ranges : []) as Array<Record<string, unknown>>;
+          const limitations = stringList(detail.known_limitations);
+          const dispositions = (stage.summary?.disposition_counts || {}) as Record<string, unknown>;
+          const disposition = String(detail.data_disposition || "unknown");
+          const rejected = disposition === "exclude_episode_from_training";
+          const partial = disposition === "exclude_affected_sample_windows";
+          const dispositionText = rejected ? "整条 Episode 排除" : partial ? "排除受影响窗口" : disposition === "retain" ? "保留" : disposition;
+          const children = <>
+            <Alert type={rejected ? "error" : partial ? "warning" : "success"} showIcon
+              message={`视频质量处置：${dispositionText}`}
+              description={detail.filtering_authorized === false ? "当前为审计模式，产物中的处置建议尚未授权自动修改训练集。" : undefined} />
+            <Descriptions size="small" column={{ xs: 1, md: 3 }} className="stage-details">
+              <Descriptions.Item label="状态">{resultTag(detail.status)}</Descriptions.Item>
+              <Descriptions.Item label="总帧数">{String(detail.total_frames ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="无效帧">{String(detail.invalid_frames ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="冗余静止帧">{String(detail.redundant_static_frames ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="受保护关键帧">{String(detail.protected_keyframes ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="全量进度">{String(stage.summary?.episode_count ?? "—")} / {String(stage.summary?.total_episodes ?? "—")}</Descriptions.Item>
+              <Descriptions.Item label="全量处置统计" span={3}>
+                <Space wrap><Tag color="green">保留 {String(dispositions.retain ?? 0)}</Tag><Tag color="red">整条排除 {String(dispositions.exclude_episode_from_training ?? 0)}</Tag><Tag color="orange">窗口排除 {String(dispositions.exclude_affected_sample_windows ?? 0)}</Tag></Space>
+              </Descriptions.Item>
+              <Descriptions.Item label="异常区间" span={3}>
+                {ranges.length ? <Space size={[4, 4]} wrap>{ranges.map((range, index) => {
+                  const start = numeric(range.start_frame) ?? 0;
+                  const endExclusive = numeric(range.end_frame) ?? start + 1;
+                  const reasons = stringList(range.reasons).join(", ") || "video_quality";
+                  return <Button type="link" danger size="small" key={`${start}-${endExclusive}-${index}`}
+                    onClick={() => onSeek(start / timeline.fps)}>F{start}–{Math.max(start, endExclusive - 1)} · {reasons}</Button>;
+                })}</Space> : <Tag color="green">无视频质量异常区间</Tag>}
+              </Descriptions.Item>
+            </Descriptions>
+            <Table size="small" pagination={false} rowKey={(camera, index) => `${camera.camera}-${index}`}
+              dataSource={cameras} scroll={{ x: 900 }} locale={{ emptyText: "产物中没有相机统计" }} columns={[
+                { title: "相机", dataIndex: "camera", key: "camera" },
+                { title: "状态", dataIndex: "status", key: "status", render: resultTag },
+                { title: "损坏帧", dataIndex: "corrupted_frames", key: "corrupted" },
+                { title: "黑屏帧", dataIndex: "black_frames", key: "black" },
+                { title: "模糊帧", dataIndex: "blurred_frames", key: "blurred" },
+                { title: "中位亮度", dataIndex: "median_luminance", key: "luminance", render: (value) => fixed(value, 2) },
+                { title: "中位清晰度", dataIndex: "median_blur_score", key: "blur", render: (value) => fixed(value, 2) },
+                { title: "原因", dataIndex: "reason", key: "reason", render: (value) => String(value || "—") },
+              ]} />
+            {limitations.length > 0 && <Alert className="stage-details" type="warning" showIcon
+              message="已知限制" description={limitations.join("；")} />}
+          </>;
+          return { key: String(stage.stage_id), label, children };
+        }
+        const children = <>
+          <Alert type={stage.artifact_status === "not_generated" ? "warning" : "info"} showIcon
+            message={stage.placeholder || "该 Episode 尚无可视化产物"}
+            description="占位只说明数据状态，不代表该 Stage 已通过。" />
+          <Descriptions size="small" column={1} className="stage-details">
+            <Descriptions.Item label="论文/流程目标">{spec.description || "等待阶段产物"}</Descriptions.Item>
+            <Descriptions.Item label="产物生成后展示">{spec.visualization || "指标、异常区间与审计证据"}</Descriptions.Item>
+            <Descriptions.Item label="预期字段"><Space size={[4, 4]} wrap>{(spec.expected_fields || []).map((field) => <Tag key={field}>{field}</Tag>)}</Space></Descriptions.Item>
+          </Descriptions>
+        </>;
+        return { key: String(stage.stage_id), label, children };
+      });
+  return <Card title="Stage 1–8 检测与专项可视化" className="section-card">
+    <Collapse defaultActiveKey={rows.map((stage) => String(stage.stage_id))} items={items} />
+  </Card>;
 }
 
 function App() {
@@ -186,15 +763,24 @@ function App() {
   const [episodeIndex, setEpisodeIndex] = useState<number>();
   const [preview, setPreview] = useState<Preview>();
   const [series, setSeries] = useState<SeriesRow[]>([]);
+  const [seriesView, setSeriesView] = useState<SeriesView>("raw");
+  const [loadingSeries, setLoadingSeries] = useState(false);
   const [scanTask, setScanTask] = useState<ScanTask>();
-  const [stage, setStage] = useState(1);
-  const [task, setTask] = useState<Task>();
   const [loadingEpisode, setLoadingEpisode] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus>("idle");
+  const [playbackError, setPlaybackError] = useState<string>();
+  const [proxyJob, setProxyJob] = useState<ProxyJob>();
+  const [proxyError, setProxyError] = useState<string>();
+  const [useOriginalVideo, setUseOriginalVideo] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [currentFrame, setCurrentFrame] = useState(0);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
-  const syncing = useRef(false);
+  const currentTimeRef = useRef(0);
+  const playbackRequest = useRef(0);
+  const lastFollowerSync = useRef(0);
+  const lastUiUpdate = useRef(0);
+  const lastHardSeek = useRef<Record<string, number>>({});
 
   const refresh = () => fetch("/api/datasets").then((response) => response.json()).then(setDatasets)
     .catch(() => message.error("后端未启动"));
@@ -251,39 +837,91 @@ function App() {
   useEffect(() => {
     if (!selected || episodeIndex === undefined) return;
     let cancelled = false;
-    Object.values(videoRefs.current).forEach((video) => video?.pause());
-    setIsPlaying(false); setLoadingEpisode(true); setCurrentTime(0); setCurrentFrame(0);
-    Promise.all([
-      fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/preview`).then((response) => response.json()),
-      fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/series?fields=timestamp,frame_index,observation.state,action&limit=5000`).then((response) => response.json()),
-    ]).then(([episodePreview, episodeSeries]) => {
+    playbackRequest.current += 1;
+    Object.values(videoRefs.current).forEach((video) => {
+      if (!video) return;
+      video.pause();
+      video.playbackRate = 1;
+    });
+    currentTimeRef.current = 0;
+    lastUiUpdate.current = 0;
+    setIsPlaying(false); setPlaybackStatus("idle"); setPlaybackError(undefined);
+    setLoadingEpisode(true); setCurrentTime(0); setCurrentFrame(0);
+    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/preview`)
+      .then((response) => response.json()).then((episodePreview) => {
       if (cancelled) return;
-      setPreview(episodePreview); setSeries(episodeSeries.rows || []);
+      setPreview(episodePreview);
     }).catch(() => { if (!cancelled) message.error("Episode 预览读取失败"); })
       .finally(() => { if (!cancelled) setLoadingEpisode(false); });
     return () => { cancelled = true; };
   }, [episodeIndex, selected]);
 
-  const run = async () => {
-    if (!selected) return;
-    const response = await fetch("/api/pipelines/run", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ dataset_uid: selected.uid, stage_id: stage }),
-    });
-    setTask(await response.json());
-  };
+  useEffect(() => {
+    const format = preview?.curation?.format;
+    if (format === "vla_curation_filter" && ["repaired", "diff"].includes(seriesView)) {
+      setSeriesView("valid");
+    } else if (format === "vla_curation_overlay" && seriesView === "valid") {
+      setSeriesView("raw");
+    } else if (!format && seriesView !== "raw") {
+      setSeriesView("raw");
+    }
+  }, [preview?.curation?.format, seriesView]);
 
   useEffect(() => {
-    if (!task || ["succeeded", "failed", "cancelled"].includes(task.status)) return undefined;
-    const id = setInterval(() => fetch(`/api/tasks/${task.task_id}`).then((response) => response.json()).then((next: Task) => {
-      setTask(next);
-      if (next.status === "succeeded" && selected && episodeIndex !== undefined) {
-        void fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/preview`)
-          .then((response) => response.json()).then(setPreview);
+    if (!selected || episodeIndex === undefined) return;
+    let cancelled = false;
+    setLoadingSeries(true); setSeries([]);
+    const query = new URLSearchParams({
+      fields: "timestamp,frame_index,observation.state,action",
+      limit: "5000",
+      view: seriesView,
+    });
+    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/series?${query}`)
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "曲线数据读取失败");
+        return payload;
+      })
+      .then((payload) => { if (!cancelled) setSeries(payload.rows || []); })
+      .catch((error) => { if (!cancelled) message.error(error instanceof Error ? error.message : "曲线数据读取失败"); })
+      .finally(() => { if (!cancelled) setLoadingSeries(false); });
+    return () => { cancelled = true; };
+  }, [episodeIndex, selected, seriesView]);
+
+  useEffect(() => {
+    if (!preview) {
+      setProxyJob(undefined); setProxyError(undefined); setUseOriginalVideo(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setProxyJob(undefined); setProxyError(undefined); setUseOriginalVideo(false);
+    const requestProxy = async () => {
+      try {
+        const response = await fetch(
+          `/api/datasets/${encodeURIComponent(preview.dataset.uid)}/episodes/${preview.episode.episode_index}/video-proxies?prewarm=2`,
+          { method: "POST" },
+        );
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "代理视频任务创建失败");
+        let job = payload as ProxyJob;
+        if (!cancelled) setProxyJob(job);
+        while (!cancelled && ["queued", "generating"].includes(job.status)) {
+          await new Promise((resolve) => window.setTimeout(resolve, 750));
+          if (cancelled) return;
+          const statusResponse = await fetch(`/api/video-proxy-jobs/${encodeURIComponent(job.job_id)}`);
+          const statusPayload = await statusResponse.json();
+          if (!statusResponse.ok) throw new Error(statusPayload.detail || "代理视频状态读取失败");
+          job = statusPayload as ProxyJob;
+          if (!cancelled) setProxyJob(job);
+        }
+        if (!cancelled && job.status === "failed") setProxyError(job.error || "代理视频生成失败");
+      } catch (error) {
+        if (!cancelled) setProxyError(error instanceof Error ? error.message : "代理视频生成失败");
       }
-    }), 1000);
-    return () => clearInterval(id);
-  }, [episodeIndex, selected, task]);
+    };
+    void requestProxy();
+    return () => { cancelled = true; };
+  }, [preview?.dataset.uid, preview?.episode.episode_index]);
 
   const fps = Number(preview?.timeline?.fps || ((preview?.dataset.schema?.timestamp as { fps?: number } | undefined)?.fps)
     || ((selected?.schema?.timestamp as { fps?: number } | undefined)?.fps) || 20);
@@ -295,17 +933,39 @@ function App() {
     dataset_from_index: preview?.timeline?.dataset_from_index || 0,
   }), [fps, preview]);
   const intervals = useMemo(() => stageIntervals(preview?.stage_results || [], timeline), [preview, timeline]);
+  const readyProxyVideos = proxyJob?.status === "ready" ? proxyJob.videos : undefined;
+  const activeVideos = useMemo<VideoRef[]>(() => {
+    if (!preview) return [];
+    if (useOriginalVideo) return preview.videos;
+    if (!readyProxyVideos) return [];
+    const byCamera = new Map(readyProxyVideos.map((video) => [video.camera, video]));
+    return preview.videos.flatMap((video) => {
+      const proxy = byCamera.get(video.camera);
+      return proxy?.status === "ready" ? [{
+        ...video, url: proxy.url, source_start: 0, source_end: timeline.duration,
+        timestamp_start: 0, timestamp_end: timeline.duration, duration: timeline.duration,
+        integrity_status: "pass", is_proxy: true,
+      }] : [];
+    });
+  }, [preview, readyProxyVideos, timeline.duration, useOriginalVideo]);
 
   useEffect(() => {
     if (!preview) return;
-    setIsPlaying(false); setCurrentTime(0); setCurrentFrame(0);
+    playbackRequest.current += 1;
+    currentTimeRef.current = 0;
+    lastFollowerSync.current = 0;
+    lastUiUpdate.current = 0;
+    lastHardSeek.current = {};
+    setIsPlaying(false); setPlaybackStatus("idle"); setPlaybackError(undefined);
+    setCurrentTime(0); setCurrentFrame(0);
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      const meta = preview.videos.find((item) => item.camera === video.dataset.camera);
+      video.playbackRate = 1;
+      const meta = activeVideos.find((item) => item.camera === video.dataset.camera);
       if (meta && video.readyState >= 1) video.currentTime = videoWindow(meta, timeline.duration).start;
     });
-  }, [preview, timeline.duration]);
+  }, [activeVideos, preview, timeline.duration]);
   const episodeOptions = useMemo(() => episodes.map((item) => ({
     value: item.episode_index,
     label: `Episode ${item.episode_index} · ${item.frames || "?"} frames${item.instruction ? ` · ${item.instruction.slice(0, 72)}` : ""}`,
@@ -315,63 +975,133 @@ function App() {
     label: `Task ${item.task_index} · ${item.episodes} episodes · ${item.name}`,
   })), [tasks]);
 
+  const pausePlayback = (status: PlaybackStatus = "paused") => {
+    playbackRequest.current += 1;
+    Object.values(videoRefs.current).forEach((video) => {
+      if (!video) return;
+      video.pause();
+      video.playbackRate = 1;
+    });
+    setIsPlaying(false);
+    setPlaybackStatus(status);
+    setCurrentTime(currentTimeRef.current);
+    setCurrentFrame(Math.min(
+      Math.max(0, timeline.frame_count - 1),
+      Math.floor(currentTimeRef.current * fps + 1e-6),
+    ));
+  };
+
   const syncTime = (source: HTMLVideoElement) => {
-    if (syncing.current) return;
-    const sourceMeta = preview?.videos.find((item) => item.camera === source.dataset.camera);
+    const sourceMeta = activeVideos.find((item) => item.camera === source.dataset.camera);
     if (!sourceMeta) return;
     const sourceWindow = videoWindow(sourceMeta, timeline.duration);
     if (source.currentTime < sourceWindow.start) source.currentTime = sourceWindow.start;
-    if (source.currentTime > sourceWindow.end) {
+    if (source.currentTime >= sourceWindow.end - 0.5 / fps) {
       source.currentTime = sourceWindow.end;
-      Object.values(videoRefs.current).forEach((video) => video?.pause());
-      setIsPlaying(false);
+      currentTimeRef.current = timeline.duration;
+      setCurrentTime(timeline.duration);
+      setCurrentFrame(Math.max(0, timeline.frame_count - 1));
+      pausePlayback();
+      return;
     }
     const relativeTime = Math.min(Math.max(source.currentTime - sourceWindow.start, 0), timeline.duration);
-    syncing.current = true;
-    Object.values(videoRefs.current).forEach((video) => {
-      if (!video || video === source) return;
-      const meta = preview?.videos.find((item) => item.camera === video.dataset.camera);
-      if (!meta) return;
-      const window = videoWindow(meta, timeline.duration);
-      const target = Math.min(window.end, window.start + relativeTime);
-      if (Math.abs(video.currentTime - target) > 0.05) video.currentTime = target;
-    });
-    syncing.current = false;
-    setCurrentTime(relativeTime);
-    setCurrentFrame(Math.min(Math.max(0, timeline.frame_count - 1), Math.floor(relativeTime * fps + 1e-6)));
+    const now = performance.now();
+    // The primary camera owns the playback clock. Followers are corrected at
+    // most four times per second: small drift is ignored, medium drift uses a
+    // gentle rate adjustment, and only large drift causes a real seek.
+    if (now - lastFollowerSync.current >= 250) {
+      lastFollowerSync.current = now;
+      Object.values(videoRefs.current).forEach((video) => {
+        if (!video || video === source || video.seeking || video.paused) return;
+        const meta = activeVideos.find((item) => item.camera === video.dataset.camera);
+        if (!meta) return;
+        const window = videoWindow(meta, timeline.duration);
+        const target = Math.min(window.end, window.start + relativeTime);
+        const drift = target - video.currentTime;
+        const camera = video.dataset.camera || "unknown";
+        if (Math.abs(drift) > 0.5 && now - (lastHardSeek.current[camera] || 0) >= 1000) {
+          lastHardSeek.current[camera] = now;
+          video.playbackRate = 1;
+          video.currentTime = target;
+        } else if (Math.abs(drift) > 0.2) {
+          video.playbackRate = Math.min(1.05, Math.max(0.95, 1 + drift * 0.2));
+        } else {
+          video.playbackRate = 1;
+        }
+      });
+    }
+    currentTimeRef.current = relativeTime;
+    if (now - lastUiUpdate.current >= 200) {
+      lastUiUpdate.current = now;
+      setCurrentTime(relativeTime);
+      setCurrentFrame(Math.min(Math.max(0, timeline.frame_count - 1), Math.floor(relativeTime * fps + 1e-6)));
+    }
   };
   const seek = (time: number) => {
     const duration = timeline.duration;
     const relativeTime = Math.min(Math.max(time, 0), duration);
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
-      const meta = preview?.videos.find((item) => item.camera === video.dataset.camera);
+      const meta = activeVideos.find((item) => item.camera === video.dataset.camera);
       if (!meta) return;
       const videoDuration = videoWindow(meta, duration);
       video.currentTime = Math.min(videoDuration.end, videoDuration.start + relativeTime);
     });
+    currentTimeRef.current = relativeTime;
     setCurrentTime(relativeTime);
     setCurrentFrame(Math.min(Math.max(0, timeline.frame_count - 1), Math.floor(relativeTime * fps + 1e-6)));
   };
 
-  const togglePlayback = () => {
-    if (isPlaying) {
-      Object.values(videoRefs.current).forEach((video) => video?.pause());
+  const startPlayback = async () => {
+    if (!activeVideos.length) return;
+    const request = ++playbackRequest.current;
+    const relativeTime = currentTimeRef.current >= timeline.duration - 1 / fps ? 0 : currentTimeRef.current;
+    const videos = Object.values(videoRefs.current).filter((video): video is HTMLVideoElement => Boolean(video));
+    setPlaybackError(undefined);
+    setPlaybackStatus("seeking");
+    currentTimeRef.current = relativeTime;
+    setCurrentTime(relativeTime);
+    setCurrentFrame(Math.min(Math.max(0, timeline.frame_count - 1), Math.floor(relativeTime * fps + 1e-6)));
+    try {
+      await Promise.all(videos.map((video) => {
+        const meta = activeVideos.find((item) => item.camera === video.dataset.camera);
+        if (!meta) return Promise.resolve();
+        const window = videoWindow(meta, timeline.duration);
+        video.playbackRate = 1;
+        return seekMedia(video, Math.min(window.end, window.start + relativeTime));
+      }));
+      if (request !== playbackRequest.current) return;
+      setPlaybackStatus("buffering");
+      await Promise.all(videos.map((video) => withTimeout(
+        video.play(),
+        `等待视频 ${video.dataset.camera || "unknown"} 开始播放超时`,
+      )));
+      if (request !== playbackRequest.current) {
+        videos.forEach((video) => video.pause());
+        return;
+      }
+      setIsPlaying(true);
+      setPlaybackStatus("playing");
+    } catch (error) {
+      if (request !== playbackRequest.current) return;
+      videos.forEach((video) => video.pause());
       setIsPlaying(false);
+      setPlaybackStatus("error");
+      setPlaybackError(error instanceof Error ? error.message : "视频播放失败");
+    }
+  };
+
+  const togglePlayback = () => {
+    if (isPlaying || ["seeking", "buffering"].includes(playbackStatus)) {
+      pausePlayback();
       return;
     }
-    if (currentTime >= timeline.duration - 1 / fps) seek(0);
-    const videos = Object.values(videoRefs.current).filter((video): video is HTMLVideoElement => Boolean(video));
-    void Promise.allSettled(videos.map((video) => video.play())).then((results) => {
-      const allStarted = videos.length > 0 && results.every((result) => result.status === "fulfilled");
-      if (!allStarted) Object.values(videoRefs.current).forEach((video) => video?.pause());
-      setIsPlaying(allStarted);
-    });
+    void startPlayback();
   };
 
   useEffect(() => {
-    if (!isPlaying || !preview?.videos.length) return undefined;
-    const primary = videoRefs.current[preview.videos[0].camera];
+    if (!isPlaying || !activeVideos.length) return undefined;
+    const primary = videoRefs.current[activeVideos[0].camera];
     if (!primary) return undefined;
     type FrameVideo = HTMLVideoElement & {
       requestVideoFrameCallback?: (callback: () => void) => number;
@@ -393,15 +1123,23 @@ function App() {
       if (handle && frameVideo.cancelVideoFrameCallback) frameVideo.cancelVideoFrameCallback(handle);
       if (animationHandle) window.cancelAnimationFrame(animationHandle);
     };
-  }, [isPlaying, preview, timeline.duration]);
+  }, [activeVideos, isPlaying, preview, timeline.duration]);
 
-  const selectedStateRows = series.filter((row) => row["observation.state"] !== undefined);
-  const stageColumns = [
-    { title: "Stage", dataIndex: "stage_id", key: "stage_id", render: (value: number) => <Tag color="blue">Stage {value}</Tag> },
-    { title: "运行", dataIndex: "run_id", key: "run_id", ellipsis: true },
-    { title: "Episode 记录", key: "records", render: (_: unknown, row: StageResult) => row.records?.length || 0 },
-    { title: "汇总", key: "summary", render: (_: unknown, row: StageResult) => Object.entries(row.summary || {}).map(([key, value]) => `${key}: ${String(value)}`).join(" · ") || "—" },
-  ];
+  const stateWidth = vector(series.find((row) => vector(row["observation.state"]).length)?.["observation.state"]).length;
+  const actionWidth = vector(series.find((row) => vector(row.action).length)?.action).length;
+  const stateElementNames = useMemo(
+    () => featureElementNames(preview?.dataset || selected, "observation.state", stateWidth),
+    [preview?.dataset, selected, stateWidth],
+  );
+  const actionElementNames = useMemo(
+    () => featureElementNames(preview?.dataset || selected, "action", actionWidth),
+    [actionWidth, preview?.dataset, selected],
+  );
+  const seriesViewOptions = preview?.curation?.format === "vla_curation_filter"
+    ? [{ label: "原始数据", value: "raw" }, { label: "有效帧", value: "valid" }]
+    : preview?.curation?.has_repairs
+      ? [{ label: "原始", value: "raw" }, { label: "修复后", value: "repaired" }, { label: "差值", value: "diff" }]
+      : [{ label: "原始数据", value: "raw" }];
 
   return <Layout className="shell">
     <Layout.Header>
@@ -453,43 +1191,77 @@ function App() {
               </Descriptions>}
             </Card>
             {preview && <Card title="多相机同步视频" className="section-card">
-              <Row gutter={[12, 12]}>{preview.videos.map((video) => <Col xs={24} md={12} key={video.camera}>
-                <div className="camera-title">{video.camera} · file-{String(video.file_index ?? "?").padStart(3, "0")} · 源时间窗 {videoWindow(video, timeline.duration).start.toFixed(2)}–{videoWindow(video, timeline.duration).end.toFixed(2)} s</div>
+              <Space className="playback-state" wrap>
+                <Tag color={playbackStatus === "error" ? "red" : playbackStatus === "playing" ? "green" : ["buffering", "seeking", "stalled"].includes(playbackStatus) ? "blue" : "default"}>
+                  {playbackStatusLabels[playbackStatus]}
+                </Tag>
+                <Tag color={useOriginalVideo ? "orange" : readyProxyVideos ? "green" : "blue"}>
+                  {useOriginalVideo ? "原始分片" : readyProxyVideos ? "Episode H.264 代理" : "代理生成中"}
+                </Tag>
+                <Button size="small" disabled={useOriginalVideo && !readyProxyVideos}
+                  onClick={() => setUseOriginalVideo((value) => !value)}>
+                  {useOriginalVideo ? "切换到代理视频" : "查看原始视频"}
+                </Button>
+                {(playbackStatus === "buffering" || playbackStatus === "seeking") && <span>正在等待所有相机就绪，请勿连续点击播放。</span>}
+                {playbackStatus === "stalled" && <span>视频分片读取暂时停滞，恢复供数后会自动继续。</span>}
+              </Space>
+              {playbackError && <Alert type="error" showIcon message={playbackError} closable onClose={() => setPlaybackError(undefined)} />}
+              {!useOriginalVideo && !readyProxyVideos && !proxyError && <Alert type="info" showIcon
+                message="正在生成该 Episode 的 H.264 代理视频"
+                description="首次打开需要短暂转码；完成后将从 0 秒直接播放，后续访问复用缓存。" />}
+              {proxyError && !useOriginalVideo && <Alert type="error" showIcon
+                message="代理视频生成失败" description={proxyError}
+                action={<Button size="small" onClick={() => setUseOriginalVideo(true)}>使用原始视频</Button>} />}
+              {!useOriginalVideo && proxyJob && ["queued", "generating"].includes(proxyJob.status)
+                && <Progress percent={proxyJob.status === "generating" ? 65 : 15} status="active" showInfo={false} />}
+              <Row gutter={[12, 12]}>{activeVideos.map((video) => <Col xs={24} md={12} key={video.camera}>
+                <div className="camera-title">{video.camera} · {video.is_proxy
+                  ? `Episode 代理 · 0.00–${timeline.duration.toFixed(2)} s`
+                  : `file-${String(video.file_index ?? "?").padStart(3, "0")} · 源时间窗 ${videoWindow(video, timeline.duration).start.toFixed(2)}–${videoWindow(video, timeline.duration).end.toFixed(2)} s`}</div>
                 {video.integrity_status === "duration_mismatch" && <Alert type="warning" showIcon message="该相机视频窗口长度与 Episode 长度不一致" />}
                 <video className="episode-video" playsInline muted preload="metadata" src={video.url} data-camera={video.camera}
                   onClick={togglePlayback} ref={(element) => { videoRefs.current[video.camera] = element; }}
-                  onLoadedMetadata={(event) => { event.currentTarget.currentTime = videoWindow(video, timeline.duration).start; }} />
+                  onLoadedMetadata={(event) => {
+                    const target = videoWindow(video, timeline.duration).start;
+                    if (Math.abs(event.currentTarget.currentTime - target) > 0.1) event.currentTarget.currentTime = target;
+                  }}
+                  onWaiting={() => { if (isPlaying) setPlaybackStatus("buffering"); }}
+                  onStalled={() => { if (isPlaying) setPlaybackStatus("stalled"); }}
+                  onCanPlay={() => { if (isPlaying) setPlaybackStatus("playing"); }}
+                  onError={(event) => {
+                    const errorText = mediaErrorText(event.currentTarget);
+                    pausePlayback("error");
+                    setPlaybackError(errorText);
+                  }} />
               </Col>)}</Row>
               <div className="video-controls">
                 <Space>
-                  <Button type="primary" onClick={togglePlayback}>{isPlaying ? "暂停" : "播放"}</Button>
-                  <Button onClick={() => seek(currentTime - 1 / fps)}>上一帧</Button>
-                  <Button onClick={() => seek(currentTime + 1 / fps)}>下一帧</Button>
+                  <Button type="primary" onClick={togglePlayback} disabled={!activeVideos.length} danger={playbackStatus === "error"}>
+                    {isPlaying || playbackStatus === "seeking" || playbackStatus === "buffering" ? "暂停" : "播放"}
+                  </Button>
+                  <Button disabled={!activeVideos.length} onClick={() => seek(currentTime - 1 / fps)}>上一帧</Button>
+                  <Button disabled={!activeVideos.length} onClick={() => seek(currentTime + 1 / fps)}>下一帧</Button>
                 </Space>
                 <span>Episode {currentTime.toFixed(2)} / {timeline.duration.toFixed(2)} s · Frame {currentFrame}</span>
                 <input aria-label="Episode 时间轴" type="range" min={0} max={timeline.duration || 1} step={1 / fps}
-                  value={Math.min(currentTime, timeline.duration || 1)} onChange={(event) => seek(Number(event.target.value))} />
+                  disabled={!activeVideos.length} value={Math.min(currentTime, timeline.duration || 1)} onChange={(event) => seek(Number(event.target.value))} />
               </div>
             </Card>}
-            {preview && <Card title="异常区间与 Stage 对比" className="section-card">
-              {intervals.length > 0 && <Alert type="warning" showIcon message={`发现 ${intervals.length} 个异常区间，已覆盖到曲线图中`} />}
-              <Table size="small" pagination={false} rowKey={(row) => `${row.stage_id}-${row.run_id}`} columns={stageColumns} dataSource={preview.stage_results} locale={{ emptyText: "暂无 Stage 产物；可先运行 Stage 或扫描产物目录" }} />
-            </Card>}
-            <Card title="state / action 曲线" className="section-card">
+            <Card title="state / action 曲线" className="section-card" extra={<Segmented
+              value={seriesView}
+              options={seriesViewOptions}
+              onChange={(value) => setSeriesView(value as SeriesView)}
+            />}>
+              {loadingSeries && <Progress percent={60} status="active" showInfo={false} />}
+              {seriesView === "diff" && <Alert type="info" showIcon message="差值 = 修复后 − 原始；未修复位置为 0" />}
+              {seriesView === "valid" && <Alert type="info" showIcon message="无效帧显示为曲线断点；原始 Parquet 和视频未被修改" />}
               {!series.length && <Alert type="info" showIcon message="暂无曲线数据；请执行标准扫描，或确认该数据集包含 Parquet state/action 字段。" />}
               <Row gutter={[12, 12]}>
-                <Col xs={24} xl={12}><Curve title="State" rows={series} field="observation.state" fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
-                <Col xs={24} xl={12}><Curve title="Action" rows={series} field="action" fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
-                <Col xs={24} xl={12}><Curve title="末端位置（state 0–2）" rows={selectedStateRows} field="observation.state" fps={fps} dimensions={[0, 1, 2]} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
-                <Col xs={24} xl={12}><Curve title="姿态（state 3–5）" rows={selectedStateRows} field="observation.state" fps={fps} dimensions={[3, 4, 5]} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
-                <Col xs={24} xl={12}><Curve title="关节 / 夹爪（state 6–7）" rows={selectedStateRows} field="observation.state" fps={fps} dimensions={[6, 7]} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
+                <Col xs={24} xl={12}><Curve title="State" rows={series} field="observation.state" elementNames={stateElementNames} fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
+                <Col xs={24} xl={12}><Curve title="Action" rows={series} field="action" elementNames={actionElementNames} fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
               </Row>
             </Card>
-            <Card title="运行治理 Stage" className="section-card">
-              <Space><Select value={stage} options={stages} onChange={setStage} /><Button type="primary" onClick={() => void run()}>运行 Stage</Button></Space>
-              {task && <p>任务 {task.task_id}: <Tag color={task.status === "succeeded" ? "green" : "blue"}>{task.status}</Tag> {Math.round(task.progress * 100)}% {task.error && <span>{task.error}</span>}</p>}
-              {preview?.stage_results.length ? <Collapse className="stage-details" items={preview.stage_results.map((result) => ({ key: `${result.stage_id}-${result.run_id}`, label: `Stage ${result.stage_id} · ${result.run_id}`, children: <pre>{JSON.stringify(result.records || result.summary || {}, null, 2)}</pre> }))} /> : null}
-            </Card>
+            {preview && <StageVisualizations stages={preview.stage_results} timeline={timeline} onSeek={seek} />}
           </>}
         </Col>
       </Row>

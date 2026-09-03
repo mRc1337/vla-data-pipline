@@ -46,10 +46,32 @@ PostgreSQL、Celery CPU worker 和 Nginx。GPU Stage 可复制 worker 服务并
 - `standard`/`deep` 会把视频和 Parquet 文件的 `size+mtime` 作为文件级指纹；未变化文件直接复用已索引的 codec、分辨率、FPS、行数和完整性结果，新增、修改或删除的文件才会重新处理。
 - `standard` 只读取视频容器头和 Parquet footer/schema/行数；`deep` 额外解码至少一帧并校验 Parquet schema。坏文件会落成 `fail` 记录，不会使整批扫描失败。
 - 扫描范围默认只发现 staging 根下的标准 LeRobot 容器；`root` 可显式限定到嵌套目录或 `data_curation/stageN`，避免在 FUSE/海量目录中递归探测未知树。
-- `GET /api/datasets/{uid}/episodes/{index}/series` 返回有界 Parquet state/action 采样。
+- `GET /api/datasets/{uid}/episodes/{index}/series?view=raw|valid|repaired|diff` 返回有界
+  Parquet state/action 采样。新 `vla_curation_filter` 使用 `valid`：从父 Manifest 链读取
+  `step_validity.parquet`，无效帧以曲线断点显示；旧 overlay 的 `repaired/diff` 仅保留只读兼容。
 - `GET /api/datasets/{uid}/tasks` 返回数据集的子任务名称、task index 和 episode 数量；`GET /api/datasets/{uid}/episodes?task_index=<id>` 按 task 筛选 episode。前端浏览顺序为“数据集 → Task → Episode”。
-- `GET /api/datasets/{uid}/episodes/{index}/preview` 返回 Episode 元数据、instruction、按元数据定位的多相机视频 URL 和 Stage 产物对比；前端工作台提供 Episode 搜索选择、同步播放、当前帧/时间戳、state/action 及位置/姿态/关节曲线。视频通过 `/api/videos/...` 的 HTTP Range 响应播放。
-- `GET /api/videos/{uid}/{relative_path}` 支持 `Range: bytes=start-end`，不会把 MP4 上传到云端。
+- `GET /api/datasets/{uid}/episodes/{index}/preview` 返回 Episode 元数据、instruction、按元数据定位的多相机视频 URL 和 Stage 产物对比；前端工作台提供 Episode 搜索选择、同步播放、当前帧/时间戳及 state/action 曲线。
+- State/Action 曲线按数据集 `features[字段].names` 显示原始元素名称，并支持分别多选；平台不对固定索引赋予末端位置、姿态或关节语义，以兼容跨本体表示。
+- 新格式曲线支持“原始数据 / 有效帧”切换，不显示虚假的修复值或差值；Stage 标签中的相邻异常帧会合并为连续红色区间，单帧异常至少显示一帧宽度。
+- Episode 工作台将 Stage 1–3 异常位置与 Stage 4–8 专项内容合并为一个
+  Stage 1–8 模块；各 Stage 默认展开并可独立折叠，避免长页面持续占用空间。
+  页面顺序为多相机视频、State/Action 曲线、Stage 1–8 模块。当前 Stage 6 原生读取
+  `data_curation/stage6/<dataset>/episode_<index>.json`，展示任务计划、场景对象、
+  语义子任务时间轴、置信度和可点击证据帧；Manifest 中的完成数同时显示为全量进度。
+- Stage 1–3 与 Stage 4–8 使用一致的产物状态标签。Stage 目录不存在、运行存在但当前
+  Episode 尚未产出、Episode 已被前序阶段过滤和产物可用是四种不同状态，缺失产物不会
+  被误报为“无异常”。产物可用时，Stage 1/3 从 `frame_flags.parquet`、
+  `episode_summary.parquet` 报告连续异常区间和帧统计；Stage 2 从
+  `dimension_metrics.parquet`、`episode_flags.parquet` 报告方向一致率、时延、失败维度和
+  Episode 过滤结论，并明确该阶段没有帧级异常区间。
+- Stage 4 从运动学 Parquet 展示位置/姿态误差、软硬异常、Base 标定与异常区间；Stage 5
+  展示逐 Episode 坐标变换和训练候选状态；Stage 7 展示 SAM2/FK 一致性结论、IoU、覆盖率、
+  置信度及可跳转的采样帧；Stage 8 展示处置建议、无效区间和逐相机黑屏/模糊/损坏统计。
+  Stage 4/5/7/8 没有当前 Episode 产物时才显示方法目标、预期可视化和所需字段的占位，
+  “暂无产物”不解释为通过。Stage 6 若目录已存在但尚未生成选中 Episode，则显示“待处理”。
+- `POST /api/datasets/{uid}/episodes/{index}/video-proxies` 按需生成从零开始、帧数固定的 H.264 Episode 代理，`GET /api/video-proxy-jobs/{job_id}` 查询任务状态。前端默认使用代理，并可切回原始分片。
+- 代理默认缓存在本地 `.local-run/video_proxy`，避免 FFmpeg 在 OSS/FUSE 挂载上随机写 MP4；可用 `VLA_VIDEO_PROXY_ROOT` 修改位置。默认单 Worker、每次编码 2 线程、缓存上限 20 GiB，可分别通过 `VLA_PROXY_WORKERS`、`VLA_PROXY_ENCODER_THREADS`、`VLA_PROXY_CACHE_BYTES` 调整。
+- `GET /api/video-proxies/files/{relative_path}` 和 `GET /api/videos/{uid}/{relative_path}` 均支持 `Range: bytes=start-end`，不会把 MP4 上传到云端。
 - `POST /api/pipelines/run` 创建 Stage 任务；`GET /api/tasks/{id}` 轮询状态、进度、错误和汇总。
 - `POST /api/annotations` 新增人工标签版本，自动标签不会被覆盖。
 - `POST /api/exports` 生成带筛选表达式、episode 列表和源数据版本的 manifest；`materialize=true` 才显式复制数据。

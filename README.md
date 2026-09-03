@@ -403,7 +403,11 @@ stage1-5 / check1-3 / unify_representation.py / run_pipeline.py
 
 针对超大规模 `/mnt/data` 数据集，前三阶段另提供 Qwen-RobotManip 实现：
 `embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/`。它以 LeRobot v3.0
-为输入，并为每个阶段输出完整的 LeRobot v3.0 数据集以及独立的 `audit/` 审计信息。
+为输入，并为每个阶段输出 `vla_curation_filter` Manifest、标签、逐帧有效性 Mask
+和 Episode Filter。Stage 1/3 不再插值或替换异常数值；视频和原始 Parquet 始终
+引用原始 LeRobot v3.0 文件，不逐阶段复制、裁剪或重编码。
+治理工作台对新格式提供“原始数据 / 有效帧”视图；无效帧显示为曲线断点，连续异常帧
+合并为红色区间。旧 repair overlay 仍可只读展示，但不会与新流程静默串联。
 默认输出根目录为 `/mnt/data/embodied_datasets/public_datasets_staging/data_curation`，前三阶段分别写入其下已有的 `stage1`、`stage2`、`stage3` 目录。
 该三阶段流程保持输入的原始 feature schema，不依赖下文的 128 维跨本体表示。
 

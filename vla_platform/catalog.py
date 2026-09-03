@@ -9,6 +9,62 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 
+ADVANCED_STAGE_SPECS: dict[int, dict[str, Any]] = {
+    4: {
+        "name": "Kinematic Consistency",
+        "description": "比较关节正运动学计算的末端位置与数据上报的末端位置。",
+        "visualization": "末端位置误差、TCP 中位偏移、残差方差及人工复核状态",
+        "expected_fields": ["median_offset", "offset_magnitude", "residual_variance", "corrected", "flagged_for_manual_review"],
+    },
+    5: {
+        "name": "Orientation Alignment",
+        "description": "应用 base-to-world 变换，检查并展示末端位置与四元数的坐标系对齐。",
+        "visualization": "变换矩阵、对齐前后轨迹和姿态角差",
+        "expected_fields": ["base_to_world_transform", "world_frame_convention", "position_before_after", "orientation_before_after"],
+    },
+    6: {
+        "name": "Instruction Consistency / Semantic Subtasks",
+        "description": "核对语言指令、场景对象与视频动作，并将 Episode 划分为语义子任务。",
+        "visualization": "任务计划、场景摘要、对象、子任务时间轴、置信度和证据帧",
+        "expected_fields": ["task", "scene", "temporal_segmentation", "quality", "inference"],
+    },
+    7: {
+        "name": "Video-State Consistency",
+        "description": "比较状态/FK 投影出的夹爪区域与视频分割结果。",
+        "visualization": "各相机投影覆盖层、采样帧 IoU、平均 IoU 和不一致帧",
+        "expected_fields": ["mean_iou", "sampled_frame_ious", "sampled_frame_indices", "camera", "reason_code"],
+    },
+    8: {
+        "name": "Video Quality Filtering",
+        "description": "检测黑屏、模糊和连续静止视频帧，并保留夹爪事件关键帧。",
+        "visualization": "各相机亮度/清晰度曲线、黑屏/模糊/静止区间和过滤统计",
+        "expected_fields": ["num_black", "num_blurry", "num_still", "frame_reasons", "dropped_frame_indices"],
+    },
+}
+
+CURATION_STAGE_SPECS: dict[int, dict[str, Any]] = {
+    1: {
+        "name": "Sudden Change Detection",
+        "description": "检测 state/action 中偏离局部平滑趋势的突变帧，并按配置过滤帧或整条 Episode。",
+        "visualization": "异常类型、连续异常帧区间、受影响维度和 Episode 过滤结果",
+        "expected_fields": ["flagged_frames", "failed_state_dimensions", "failed_action_dimensions", "exclusion_policy", "reject_episode"],
+    },
+    2: {
+        "name": "State-Action Trend Alignment",
+        "description": "按映射维度比较 state 与 action 的方向一致率，并在 Episode 级决定是否过滤。",
+        "visualization": "各映射维度的方向一致率、时延、失败维度和 Episode 过滤结果",
+        "expected_fields": ["directional_agreement", "lag_frames", "failed_dimensions", "minimum_da", "reject_episode"],
+    },
+    3: {
+        "name": "Extreme Value Detection",
+        "description": "使用同本体数据联合标定的分位数边界检测 state/action 极值帧。",
+        "visualization": "连续极值帧区间、受影响维度、有效帧数和标定参数",
+        "expected_fields": ["flagged_frames", "failed_state_dimensions", "failed_action_dimensions", "output_frames", "alpha"],
+    },
+    **ADVANCED_STAGE_SPECS,
+}
+
+
 class Catalog:
     """SQLite-backed index for immutable local LeRobot datasets."""
 
@@ -623,27 +679,136 @@ class Catalog:
 
     @staticmethod
     def _stage_episode_records(stage_root: Path, episode_index: int) -> list[dict[str, Any]]:
-        """Read small per-episode audit files without touching source videos."""
+        """Read small per-episode label files without touching source videos."""
         records: list[dict[str, Any]] = []
         try:
             import pyarrow.parquet as pq
         except ImportError:
             return records
-        for path in stage_root.glob("**/audit/*.parquet"):
+        paths = [
+            path
+            for directory in ("labels", "audit")
+            for path in stage_root.glob(f"**/{directory}/*.parquet")
+        ]
+        for path in sorted(set(paths)):
             try:
                 parquet = pq.ParquetFile(path)
-                names = set(parquet.schema.names)
+                # ``ParquetSchema.names`` exposes nested leaf names (for
+                # example several columns all named ``element``). Use the
+                # Arrow top-level schema so list-valued detector fields such as
+                # failed_*_dimensions and reason_codes remain addressable.
+                names = set(parquet.schema_arrow.names)
                 if "episode_index" not in names:
                     continue
-                columns = [name for name in names if name != "episode_index"]
-                columns.insert(0, "episode_index")
-                for batch in parquet.iter_batches(columns=columns, batch_size=2048):
-                    for item in batch.to_pylist():
-                        if int(item.get("episode_index", -1)) == episode_index:
-                            records.append({"file": str(path.relative_to(stage_root)), **item})
+                columns = ["episode_index", *sorted(names - {"episode_index"})]
+                filters = [("episode_index", "=", episode_index)]
+                # The dense validity table has one row per source frame. The
+                # preview needs only invalid rows; valid rows would inflate the
+                # response and are already available to the series endpoint.
+                if path.name == "step_validity.parquet" and "valid" in names:
+                    filters.append(("valid", "=", False))
+                table = pq.read_table(
+                    path, columns=columns, filters=filters
+                )
+                records.extend(
+                    {"file": str(path.relative_to(stage_root)), **item}
+                    for item in table.to_pylist()
+                )
             except (OSError, ValueError):
                 continue
         return records
+
+    @staticmethod
+    def _episode_filter_status(stage_root: Path, episode_index: int) -> bool | None:
+        """Return the recorded Episode acceptance state, if this run has one."""
+        try:
+            import pyarrow.parquet as pq
+        except ImportError:
+            return None
+        path = stage_root / "labels" / "episode_filter.parquet"
+        if not path.is_file():
+            return None
+        try:
+            table = pq.read_table(
+                path,
+                columns=["accepted"],
+                filters=[("episode_index", "=", episode_index)],
+            )
+        except (OSError, ValueError):
+            return None
+        if table.num_rows == 0:
+            return None
+        return bool(table.column("accepted")[0].as_py())
+
+    def _curation_dataset_keys(self, uid: str, dataset_root: Path) -> list[str]:
+        """Return leaf and collection-qualified IDs used by Stage directories.
+
+        Catalog UIDs are physical LeRobot root names, while a curation run
+        discovered from ``lerobot_v3_0/mobile_aloha/part-*`` records its
+        dataset ID as ``mobile_aloha/part-*`` and stores it either as nested
+        directories or with slashes escaped as ``__``. Keep all layouts
+        readable without changing the stable catalog UID.
+        """
+        keys: list[str] = []
+        try:
+            relative_parts = dataset_root.resolve().relative_to(self.data_root.resolve()).parts
+        except ValueError:
+            relative_parts = ()
+        version_index = next(
+            (index for index, part in enumerate(relative_parts)
+             if part.lower().startswith("lerobot_v")),
+            None,
+        )
+        if version_index is not None and version_index + 1 < len(relative_parts):
+            keys.append(Path(*relative_parts[version_index + 1:]).as_posix())
+        keys.append(uid)
+        return list(dict.fromkeys(key for key in keys if key))
+
+    def _curation_stage_roots(self, stage_base: Path, uid: str, dataset_root: Path) -> list[Path]:
+        """Resolve nested, flattened, and legacy Stage dataset directories."""
+        candidates: list[Path] = []
+        for key in self._curation_dataset_keys(uid, dataset_root):
+            candidates.extend((stage_base / key, stage_base / key.replace("/", "__")))
+        exact_roots = list(dict.fromkeys(path for path in candidates if path.is_dir()))
+        if exact_roots:
+            return exact_roots
+        legacy_runs: list[Path] = []
+        for key in self._curation_dataset_keys(uid, dataset_root):
+            legacy_runs.extend(path for path in sorted(stage_base.glob(f"{key.replace('/', '__')}_*")) if path.is_dir())
+        return list(dict.fromkeys(legacy_runs))
+
+    @classmethod
+    def _stage_episode_json(cls, stage_root: Path, episode_index: int) -> dict[str, Any] | None:
+        """Load bounded episode-level JSON artifacts used by semantic/model stages."""
+        candidates = [
+            stage_root / f"episode_{episode_index:06d}.json",
+            stage_root / "episodes" / f"episode_{episode_index:06d}.json",
+            stage_root / "labels" / f"episode_{episode_index:06d}.json",
+        ]
+        path = next((candidate for candidate in candidates if candidate.is_file()), None)
+        if path is None:
+            return None
+        try:
+            payload = cls._json(path)
+        except OSError:
+            return None
+        if int(payload.get("episode_index", -1)) != episode_index:
+            return None
+        # Return the bounded, stage-specific evidence required by the UI,
+        # without copying provider URLs or unbounded logs into every preview.
+        return {
+            key: payload.get(key)
+            for key in (
+                "schema_version", "episode_index", "status", "model", "generated_at_utc",
+                "task", "scene", "temporal_segmentation", "quality", "inference",
+                "decision", "reason", "mode", "filtering_authorized", "thresholds_calibrated",
+                "geometry", "thresholds", "frames", "summary", "data_disposition",
+                "total_frames", "invalid_frames", "redundant_static_frames",
+                "protected_keyframes", "valid_ranges", "invalid_ranges",
+                "per_camera_results", "known_limitations", "events",
+            )
+            if key in payload
+        }
 
     def episode_preview(self, uid: str, episode_index: int) -> dict[str, Any]:
         """Return bounded episode metadata, video references and stage labels."""
@@ -706,35 +871,116 @@ class Catalog:
         curation_root = self.data_root / "data_curation"
         for stage_id in range(1, 9):
             stage_base = curation_root / f"stage{stage_id}"
-            stage_roots = [path for path in [stage_base / uid, *sorted(stage_base.glob(f"{uid}_*"))] if path.is_dir()]
+            exact_roots = self._curation_stage_roots(stage_base, uid, root)
+            formal_roots = [
+                path for path in exact_roots
+                if self._json(path / "manifest.json").get("format") in {
+                    "vla_curation_filter", "vla_curation_overlay"
+                }
+            ]
+            stage_roots = formal_roots or [
+                path for path in exact_roots if path.is_dir()
+            ]
             if not stage_roots:
+                stage_results.append({
+                    "stage_id": stage_id,
+                    "run_id": "placeholder",
+                    "stage": CURATION_STAGE_SPECS[stage_id]["name"],
+                    "coordinate_system": "episode_frame",
+                    "records": [],
+                    "detail": None,
+                    "artifact_status": "not_generated",
+                    "placeholder": f"当前 {stage_base} 未发现 {uid} 的 Stage {stage_id} 产物",
+                    "visualization_spec": CURATION_STAGE_SPECS[stage_id],
+                })
                 continue
             for stage_root in stage_roots:
-                manifests = sorted(stage_root.glob("**/manifest.json"))
+                direct_manifest = stage_root / "manifest.json"
+                if self._json(direct_manifest).get("format") in {
+                    "vla_curation_filter", "vla_curation_overlay"
+                }:
+                    manifests = [direct_manifest]
+                else:
+                    manifests = sorted(stage_root.glob("**/manifest.json"))
                 for manifest_path in manifests:
                     try:
                         manifest = self._json(manifest_path)
                         summary = self._json(manifest_path.parent / "reports" / "summary.json")
+                        if not summary:
+                            summary = self._json(manifest_path.parent / "summary.json")
+                        if isinstance(manifest.get("result"), dict):
+                            summary = {**manifest["result"], **summary}
+                        summary = {
+                            **{
+                                key: manifest.get(key)
+                                for key in (
+                                    "schema_version", "model", "total_episodes", "requested_episode_count",
+                                    "episode_count", "counts", "decision_counts", "disposition_counts",
+                                    "run_complete", "mode", "filtering_authorized", "thresholds_calibrated",
+                                    "updated_at_utc", "episodes_per_hour_this_run",
+                                    "estimated_remaining_hours", "transformation", "kinematic_strategy",
+                                    "pilot_calibration",
+                                )
+                                if key in manifest
+                            },
+                            **summary,
+                        }
                     except OSError:
                         continue
+                    detail = self._stage_episode_json(manifest_path.parent, episode_index)
+                    records = self._stage_episode_records(manifest_path.parent, episode_index)
+                    artifact_status = "available" if detail is not None or records else "episode_pending"
+                    placeholder = None
+                    if artifact_status == "episode_pending":
+                        parent_manifest = manifest.get("parent_manifest")
+                        parent_root = Path(parent_manifest).parent if parent_manifest else None
+                        if parent_root and self._episode_filter_status(parent_root, episode_index) is False:
+                            artifact_status = "upstream_filtered"
+                            placeholder = f"Episode {episode_index} 已在前序 Stage 被过滤，本 Stage 未处理"
+                        else:
+                            placeholder = f"Stage {stage_id} 已有运行目录，但 Episode {episode_index} 尚无产物"
                     stage_results.append({
                         "stage_id": stage_id,
                         "run_id": manifest_path.parent.name,
-                        "stage": manifest.get("stage", f"Stage {stage_id}"),
+                        "stage": manifest.get(
+                            "stage", CURATION_STAGE_SPECS[stage_id]["name"]
+                        ),
                         "detector_version": manifest.get("detector_version"),
                         "coordinate_system": manifest.get("coordinate_system", "episode_frame"),
                         "summary": summary,
-                        "records": self._stage_episode_records(manifest_path.parent, episode_index),
+                        "records": records,
+                        "detail": detail,
+                        "artifact_status": artifact_status,
+                        "placeholder": placeholder,
+                        "visualization_spec": CURATION_STAGE_SPECS[stage_id],
                     })
                 # Some detector implementations write audit files without a
                 # manifest (for example the smoke runner); expose them as a run.
                 if not manifests:
                     records = self._stage_episode_records(stage_root, episode_index)
-                    if records:
+                    detail = self._stage_episode_json(stage_root, episode_index)
+                    if records or detail is not None:
                         stage_results.append({
-                            "stage_id": stage_id, "run_id": stage_root.name, "stage": f"Stage {stage_id}",
-                            "coordinate_system": "episode_frame", "records": records,
+                            "stage_id": stage_id, "run_id": stage_root.name,
+                            "stage": CURATION_STAGE_SPECS[stage_id]["name"],
+                            "coordinate_system": "episode_frame", "records": records, "detail": detail,
+                            "artifact_status": "available",
+                            "visualization_spec": CURATION_STAGE_SPECS[stage_id],
                         })
+            if not any(
+                result["stage_id"] == stage_id for result in stage_results
+            ):
+                stage_results.append({
+                    "stage_id": stage_id,
+                    "run_id": "placeholder",
+                    "stage": CURATION_STAGE_SPECS[stage_id]["name"],
+                    "coordinate_system": "episode_frame",
+                    "records": [],
+                    "detail": None,
+                    "artifact_status": "episode_pending",
+                    "placeholder": f"Stage {stage_id} 目录存在，但未找到可读取的 Episode 产物",
+                    "visualization_spec": CURATION_STAGE_SPECS[stage_id],
+                })
 
         # Human/automatic annotations are stored separately from immutable
         # stage artifacts.  Surface them as another comparable run instead
@@ -754,6 +1000,8 @@ class Catalog:
                 stage_results.append(result)
             result.setdefault("records", []).append(annotation)
 
+        latest_manifest = self._latest_curation_manifest(uid)
+        latest_format = self._json(latest_manifest).get("format") if latest_manifest else None
         return {
             "dataset": dataset,
             "episode": episode,
@@ -766,6 +1014,15 @@ class Catalog:
             },
             "videos": videos,
             "stage_results": stage_results,
+            "curation": {
+                "format": latest_format,
+                "has_repairs": latest_format == "vla_curation_overlay" and bool(
+                    self._overlay_repair_paths(latest_manifest) if latest_manifest else []
+                ),
+                "has_validity": latest_format == "vla_curation_filter" and bool(
+                    self._filter_validity_paths(latest_manifest) if latest_manifest else []
+                ),
+            },
         }
 
     def add_annotation(self, annotation: dict[str, Any]) -> dict[str, Any]:
@@ -800,8 +1057,164 @@ class Catalog:
             raise FileNotFoundError(relative)
         return path
 
-    def episode_series(self, uid: str, episode_index: int, fields: list[str], limit: int = 2000) -> list[dict[str, Any]]:
-        """Read a bounded state/action sample from LeRobot parquet files."""
+    def _latest_curation_manifest(self, uid: str) -> Path | None:
+        """Find the highest completed filter manifest, retaining legacy GUI support."""
+        safe_uid = uid.replace("/", "__")
+        curation_root = self.data_root / "data_curation"
+        for stage_id in range(8, 0, -1):
+            stage_root = curation_root / f"stage{stage_id}"
+            candidates: set[Path] = set()
+            for dataset_name in {uid, safe_uid}:
+                dataset_root = stage_root / dataset_name
+                direct = dataset_root / "manifest.json"
+                if direct.is_file():
+                    candidates.add(direct)
+                if dataset_root.is_dir():
+                    candidates.update(dataset_root.glob("*/manifest.json"))
+            valid: list[tuple[int, Path]] = []
+            for path in candidates:
+                manifest = self._json(path)
+                format_name = manifest.get("format")
+                if format_name in {"vla_curation_filter", "vla_curation_overlay"} and manifest.get("dataset_id") == uid:
+                    valid.append((1 if format_name == "vla_curation_filter" else 0, path))
+            if valid:
+                return max(valid, key=lambda item: (item[0], item[1].stat().st_mtime_ns))[1]
+        return None
+
+    # Compatibility alias for callers outside this module.
+    def _latest_overlay_manifest(self, uid: str) -> Path | None:
+        return self._latest_curation_manifest(uid)
+
+    @classmethod
+    def _manifest_chain(cls, manifest_path: Path, expected_format: str) -> list[tuple[Path, dict[str, Any]]]:
+        chain: list[tuple[Path, dict[str, Any]]] = []
+        seen: set[Path] = set()
+        current: Path | None = manifest_path.resolve()
+        while current is not None and current not in seen and current.is_file():
+            seen.add(current)
+            manifest = cls._json(current)
+            if manifest.get("format") != expected_format:
+                break
+            chain.append((current.parent, manifest))
+            parent_value = manifest.get("parent_manifest")
+            if not parent_value:
+                break
+            parent = Path(str(parent_value))
+            current = parent.resolve() if parent.is_absolute() else (current.parent / parent).resolve()
+        return list(reversed(chain))
+
+    @classmethod
+    def _overlay_repair_paths(cls, manifest_path: Path) -> list[Path]:
+        """Resolve repair Parquets from oldest parent to newest child."""
+        paths: list[Path] = []
+        for directory, manifest in cls._manifest_chain(manifest_path, "vla_curation_overlay"):
+            for value in manifest.get("repair_files", []):
+                path = Path(str(value))
+                path = path.resolve() if path.is_absolute() else (directory / path).resolve()
+                if path.is_file():
+                    paths.append(path)
+        return paths
+
+    @classmethod
+    def _filter_validity_paths(cls, manifest_path: Path) -> list[Path]:
+        paths: list[Path] = []
+        for directory, manifest in cls._manifest_chain(manifest_path, "vla_curation_filter"):
+            for value in manifest.get("validity_files", []):
+                path = Path(str(value))
+                path = path.resolve() if path.is_absolute() else (directory / path).resolve()
+                if path.is_file():
+                    paths.append(path)
+        return paths
+
+    def _episode_validity(self, uid: str, episode_index: int) -> tuple[dict[int, bool], bool]:
+        manifest = self._latest_curation_manifest(uid)
+        if manifest is None or self._json(manifest).get("format") != "vla_curation_filter":
+            return {}, True
+        try:
+            import pyarrow.parquet as pq
+        except ImportError:
+            return {}, True
+        validity: dict[int, bool] = {}
+        episode_accepted = True
+        for directory, item in self._manifest_chain(manifest, "vla_curation_filter"):
+            filter_value = item.get("episode_filter")
+            if not filter_value:
+                continue
+            filter_path = Path(str(filter_value))
+            filter_path = filter_path.resolve() if filter_path.is_absolute() else (directory / filter_path).resolve()
+            if not filter_path.is_file():
+                continue
+            try:
+                table = pq.read_table(
+                    filter_path,
+                    columns=["accepted"],
+                    filters=[("episode_index", "=", episode_index)],
+                )
+                if table.num_rows and not all(bool(value) for value in table.column("accepted").to_pylist()):
+                    episode_accepted = False
+            except (OSError, ValueError):
+                continue
+        for path in self._filter_validity_paths(manifest):
+            try:
+                table = pq.read_table(
+                    path,
+                    columns=["frame_index", "valid"],
+                    filters=[("episode_index", "=", episode_index)],
+                )
+                for row in table.to_pylist():
+                    frame_index = int(row["frame_index"])
+                    validity[frame_index] = validity.get(frame_index, True) and bool(row["valid"])
+            except (OSError, ValueError):
+                continue
+        return validity, episode_accepted
+
+    def _episode_repairs(self, uid: str, episode_index: int, fields: list[str]) -> dict[int, dict[str, Any]]:
+        manifest = self._latest_curation_manifest(uid)
+        if manifest is None or self._json(manifest).get("format") != "vla_curation_overlay":
+            return {}
+        try:
+            import pyarrow.parquet as pq
+        except ImportError:
+            return {}
+        repairs: dict[int, dict[str, Any]] = {}
+        for path in self._overlay_repair_paths(manifest):
+            try:
+                parquet = pq.ParquetFile(path)
+                available = set(parquet.schema_arrow.names)
+                columns = ["episode_index", "frame_index", *[field for field in fields if field in available]]
+                if len(columns) == 2:
+                    continue
+                table = pq.read_table(path, columns=columns, filters=[("episode_index", "=", episode_index)])
+                for row in table.to_pylist():
+                    frame_index = int(row.pop("frame_index"))
+                    row.pop("episode_index", None)
+                    repairs.setdefault(frame_index, {}).update(row)
+            except (OSError, ValueError):
+                continue
+        return repairs
+
+    @staticmethod
+    def _series_value(raw: Any, repaired: Any, view: str) -> Any:
+        if view == "raw":
+            return raw
+        if view == "repaired":
+            return raw if repaired is None else repaired
+        if repaired is None:
+            if isinstance(raw, list):
+                return [0.0 for _ in raw]
+            return 0.0 if isinstance(raw, (int, float)) else raw
+        if isinstance(raw, list) and isinstance(repaired, list) and len(raw) == len(repaired):
+            return [float(after) - float(before) for before, after in zip(raw, repaired)]
+        if isinstance(raw, (int, float)) and isinstance(repaired, (int, float)):
+            return float(repaired) - float(raw)
+        return raw
+
+    def episode_series(
+        self, uid: str, episode_index: int, fields: list[str], limit: int = 2000, view: str = "raw"
+    ) -> list[dict[str, Any]]:
+        """Read raw, validity-masked, repaired, or repair-delta episode values."""
+        if view not in {"raw", "valid", "repaired", "diff"}:
+            raise ValueError(f"unsupported series view: {view}")
         dataset = self.get_dataset(uid)
         if not dataset:
             raise FileNotFoundError(uid)
@@ -833,8 +1246,11 @@ class Catalog:
             aliases = {"state": "observation.state"}
             requested = [aliases.get(field, field) for field in fields]
             names = [field for field in requested if field in available]
+            repair_fields = [field for field in requested if field in {"observation.state", "action"}]
             if "timestamp" in available and "timestamp" not in names:
                 names.insert(0, "timestamp")
+            if "frame_index" in available and "frame_index" not in names:
+                names.insert(0, "frame_index")
             if not names:
                 return []
             filter_expr = ds.field("episode_index") == episode_index if "episode_index" in available else None
@@ -845,9 +1261,27 @@ class Catalog:
                 if len(result) >= limit:
                     break
             result = result[:limit]
+            repairs = self._episode_repairs(uid, episode_index, repair_fields) if view in {"repaired", "diff"} else {}
+            validity, episode_accepted = self._episode_validity(uid, episode_index) if view == "valid" else ({}, True)
             fps = float(self._json(root / "meta" / "info.json").get("fps", 1) or 1)
             for position, row in enumerate(result):
                 frame_index = row.get("frame_index")
+                repaired = repairs.get(int(frame_index), {}) if frame_index is not None else {}
+                is_valid = (
+                    episode_accepted and validity.get(int(frame_index), True)
+                    if frame_index is not None else episode_accepted
+                )
+                for field in repair_fields:
+                    if field not in row:
+                        continue
+                    if view == "valid" and not is_valid:
+                        raw = row[field]
+                        row[field] = [None for _ in raw] if isinstance(raw, list) else None
+                    elif view != "valid":
+                        replacement = repaired.get(field)
+                        row[field] = self._series_value(row[field], replacement, view)
+                if view == "valid":
+                    row["valid"] = is_valid
                 try:
                     row["episode_time"] = int(frame_index) / fps if frame_index is not None else position / fps
                 except (TypeError, ValueError):
