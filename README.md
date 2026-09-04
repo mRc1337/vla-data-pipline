@@ -187,10 +187,11 @@ frontend/                     React + TypeScript + Ant Design 前端
 scripts/local_deploy.sh       本地一键启动和服务管理
 deploy/nginx.conf             前端静态服务和 API 反向代理
 docs/PLATFORM.md              API、索引和 Stage 产物说明
+docs/DATA_CURATION.md         数据清洗配置、运行、验收和平台刷新指南
 embodied_datasets/scripts/    数据转换、Stage 处理和检查工具
 ```
 
-更详细的平台接口与数据约定见 [`docs/PLATFORM.md`](docs/PLATFORM.md)。数据处理实现和项目演进记录见 [`docs/PROJECT_BUILD_RETROSPECTIVE.md`](docs/PROJECT_BUILD_RETROSPECTIVE.md)。
+数据清洗操作见 [`docs/DATA_CURATION.md`](docs/DATA_CURATION.md)，平台接口与数据约定见 [`docs/PLATFORM.md`](docs/PLATFORM.md)。数据处理实现和项目演进记录见 [`docs/PROJECT_BUILD_RETROSPECTIVE.md`](docs/PROJECT_BUILD_RETROSPECTIVE.md)。
 
 ## 数据与安全边界
 
