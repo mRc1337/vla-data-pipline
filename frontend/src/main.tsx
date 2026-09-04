@@ -10,6 +10,7 @@ import {
   type BrowserVideoMetadata,
 } from "./videoPreview";
 import "./style.css";
+import "./playbackRate.css";
 
 // Charts are only needed after an Episode is opened. Keep the initial search
 // page free of the ECharts payload and fetch it on first chart render.
@@ -141,6 +142,18 @@ const playbackStatusLabels: Record<PlaybackStatus, string> = {
   idle: "待播放", seeking: "正在定位", buffering: "正在缓冲",
   stalled: "读取停滞", playing: "播放中", paused: "已暂停", error: "播放失败",
 };
+
+const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+const PLAYBACK_RATE_STORAGE_KEY = "vla.preview.playbackRate";
+
+function initialPlaybackRate(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(PLAYBACK_RATE_STORAGE_KEY));
+    return PLAYBACK_RATES.includes(stored as (typeof PLAYBACK_RATES)[number]) ? stored : 1;
+  } catch {
+    return 1;
+  }
+}
 
 const stageFilterOptions: Record<number, Array<{ label: string; value: string }>> = {
   1: [
@@ -1046,6 +1059,7 @@ function App() {
   );
   const [selected, setSelected] = useState<Dataset>();
   const [tasks, setTasks] = useState<DatasetTask[]>([]);
+  const [tasksLoaded, setTasksLoaded] = useState(false);
   const [taskIndex, setTaskIndex] = useState<number>();
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [episodeNextCursor, setEpisodeNextCursor] = useState<string | null>(null);
@@ -1071,8 +1085,10 @@ function App() {
   const [browserVideoMetadata, setBrowserVideoMetadata] = useState<Record<string, BrowserVideoMetadata>>({});
   const [currentTime, setCurrentTime] = useState(0);
   const [currentFrame, setCurrentFrame] = useState(0);
+  const [selectedPlaybackRate, setSelectedPlaybackRate] = useState(initialPlaybackRate);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const currentTimeRef = useRef(0);
+  const effectivePlaybackRateRef = useRef(1);
   const playbackRequest = useRef(0);
   const lastFollowerSync = useRef(0);
   const lastUiUpdate = useRef(0);
@@ -1100,7 +1116,7 @@ function App() {
     navigationTarget.current = undefined;
     setSelectedCollectionId(collection.id);
     setSelected(collection.datasets.length === 1 ? collection.datasets[0] : undefined);
-    setTasks([]); setTaskIndex(undefined); setEpisodes([]); setEpisodeIndex(undefined);
+    setTasks([]); setTasksLoaded(false); setTaskIndex(undefined); setEpisodes([]); setEpisodeIndex(undefined);
     setPreview(undefined); setSeries([]);
   };
 
@@ -1110,7 +1126,7 @@ function App() {
     const requestedTask = taskIndex;
     const requestedQuery = value.trim();
     episodeSearchTimer.current = window.setTimeout(() => {
-      if (!dataset) return;
+      if (!dataset || !tasksLoaded || (tasks.length > 0 && requestedTask === undefined)) return;
       const sequence = ++episodeOptionSequence.current;
       episodeOptionsLoadingRef.current = true;
       setEpisodeOptionsLoading(true);
@@ -1139,7 +1155,8 @@ function App() {
   };
 
   const loadMoreEpisodeOptions = async () => {
-    if (!selected || !episodeNextCursor || episodeOptionsLoadingRef.current) return;
+    if (!selected || !tasksLoaded || (tasks.length > 0 && taskIndex === undefined)
+      || !episodeNextCursor || episodeOptionsLoadingRef.current) return;
     const sequence = ++episodeOptionSequence.current;
     episodeOptionsLoadingRef.current = true;
     setEpisodeOptionsLoading(true);
@@ -1263,6 +1280,7 @@ function App() {
         setTaskIndex(nextTask);
       }
     } else {
+      setTasksLoaded(false);
       setSelected(dataset);
     }
   };
@@ -1292,22 +1310,40 @@ function App() {
   useEffect(() => { void refresh(); }, []);
 
   useEffect(() => {
+    setTasksLoaded(false);
     if (!selected) { setTasks([]); setTaskIndex(undefined); return; }
     let cancelled = false;
     setTasks([]); setTaskIndex(undefined); setEpisodes([]); setEpisodeIndex(undefined);
     fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/tasks`)
-      .then((response) => response.json()).then((items: DatasetTask[]) => {
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Task 列表读取失败");
+        return payload as DatasetTask[];
+      }).then((items) => {
         if (cancelled) return;
-        setTasks(items);
+        setTasks([...items].sort((left, right) => left.task_index - right.task_index));
         const target = navigationTarget.current;
         if (target?.dataset_uid === selected.uid) setTaskIndex(target.task_index ?? undefined);
+        setTasksLoaded(true);
       })
-      .catch(() => { if (!cancelled) message.error("Task 列表读取失败"); });
+      .catch((error) => {
+        if (cancelled) return;
+        setTasksLoaded(true);
+        message.error(error instanceof Error ? error.message : "Task 列表读取失败");
+      });
     return () => { cancelled = true; };
   }, [selected]);
 
   useEffect(() => {
-    if (!selected) { setEpisodes([]); setEpisodeIndex(undefined); return; }
+    if (!selected || !tasksLoaded || (tasks.length > 0 && taskIndex === undefined)) {
+      episodeOptionSequence.current += 1;
+      if (episodeSearchTimer.current !== undefined) window.clearTimeout(episodeSearchTimer.current);
+      setEpisodes([]); setEpisodeNextCursor(null); setEpisodeOptionQuery("");
+      setEpisodeIndex(undefined); setPreview(undefined); setSeries([]);
+      episodeOptionsLoadingRef.current = false;
+      setEpisodeOptionsLoading(false);
+      return;
+    }
     let cancelled = false;
     const sequence = ++episodeOptionSequence.current;
     if (episodeSearchTimer.current !== undefined) window.clearTimeout(episodeSearchTimer.current);
@@ -1326,7 +1362,7 @@ function App() {
           setEpisodeIndex(target.episode_index);
           navigationTarget.current = undefined;
           window.setTimeout(() => workbenchRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
-        } else if (items.length) setEpisodeIndex(items[0].episode_index);
+        }
       }).catch((error) => {
         if (!cancelled && sequence === episodeOptionSequence.current) {
           message.error(error instanceof Error ? error.message : "Episode 列表读取失败");
@@ -1341,7 +1377,7 @@ function App() {
       cancelled = true;
       if (episodeSearchTimer.current !== undefined) window.clearTimeout(episodeSearchTimer.current);
     };
-  }, [selected, taskIndex]);
+  }, [selected, taskIndex, tasks.length, tasksLoaded]);
 
   useEffect(() => {
     if (!selected || episodeIndex === undefined) return;
@@ -1350,7 +1386,7 @@ function App() {
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      video.playbackRate = 1;
+      video.playbackRate = effectivePlaybackRateRef.current;
     });
     currentTimeRef.current = 0;
     lastUiUpdate.current = 0;
@@ -1496,6 +1532,24 @@ function App() {
     () => activeVideos.filter((video) => !videoErrors[video.camera]),
     [activeVideos, videoErrors],
   );
+  const supportsPlaybackRate = activeVideos.length > 0 && activeVideos.every((video) => video.is_proxy);
+  const effectivePlaybackRate = supportsPlaybackRate ? selectedPlaybackRate : 1;
+  const playbackRateIndex = PLAYBACK_RATES.indexOf(selectedPlaybackRate as (typeof PLAYBACK_RATES)[number]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PLAYBACK_RATE_STORAGE_KEY, String(selectedPlaybackRate));
+    } catch {
+      // Playback still works when storage is unavailable or disabled.
+    }
+  }, [selectedPlaybackRate]);
+
+  useEffect(() => {
+    effectivePlaybackRateRef.current = effectivePlaybackRate;
+    Object.values(videoRefs.current).forEach((video) => {
+      if (video) video.playbackRate = effectivePlaybackRate;
+    });
+  }, [activeVideos, effectivePlaybackRate]);
 
   useEffect(() => {
     if (!preview) return;
@@ -1511,7 +1565,7 @@ function App() {
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      video.playbackRate = 1;
+      video.playbackRate = effectivePlaybackRateRef.current;
       const meta = activeVideos.find((item) => item.camera === video.dataset.camera);
       if (meta && video.readyState >= 1) video.currentTime = videoWindow(meta, timeline.duration).start;
     });
@@ -1530,7 +1584,7 @@ function App() {
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      video.playbackRate = 1;
+      video.playbackRate = effectivePlaybackRateRef.current;
     });
     setIsPlaying(false);
     setPlaybackStatus(status);
@@ -1544,6 +1598,8 @@ function App() {
   const syncTime = (source: HTMLVideoElement) => {
     const sourceMeta = activeVideos.find((item) => item.camera === source.dataset.camera);
     if (!sourceMeta) return;
+    const baseRate = effectivePlaybackRateRef.current;
+    if (source.playbackRate !== baseRate) source.playbackRate = baseRate;
     const sourceWindow = videoWindow(sourceMeta, timeline.duration);
     if (source.currentTime < sourceWindow.start) source.currentTime = sourceWindow.start;
     if (source.currentTime >= sourceWindow.end - 0.5 / fps) {
@@ -1571,12 +1627,13 @@ function App() {
         const camera = video.dataset.camera || "unknown";
         if (Math.abs(drift) > 0.5 && now - (lastHardSeek.current[camera] || 0) >= 1000) {
           lastHardSeek.current[camera] = now;
-          video.playbackRate = 1;
+          video.playbackRate = baseRate;
           video.currentTime = target;
         } else if (Math.abs(drift) > 0.2) {
-          video.playbackRate = Math.min(1.05, Math.max(0.95, 1 + drift * 0.2));
+          const correction = Math.min(1.05, Math.max(0.95, 1 + drift * 0.2));
+          video.playbackRate = Math.min(4, Math.max(0.25, baseRate * correction));
         } else {
-          video.playbackRate = 1;
+          video.playbackRate = baseRate;
         }
       });
     }
@@ -1621,7 +1678,7 @@ function App() {
         const meta = activeVideos.find((item) => item.camera === video.dataset.camera);
         if (!meta) { seekedVideos.push(video); return; }
         const window = videoWindow(meta, timeline.duration);
-        video.playbackRate = 1;
+        video.playbackRate = effectivePlaybackRateRef.current;
         try {
           await seekMedia(video, Math.min(window.end, window.start + relativeTime));
           seekedVideos.push(video);
@@ -1837,7 +1894,11 @@ function App() {
             <Alert type="info" showIcon message="该集合包含多个物理数据集，请先选择其中一个，再选择 Task 和 Episode。" />
             <Select showSearch virtual optionFilterProp="label" placeholder="选择子数据集 / Task 集合" style={{ width: "100%", marginTop: 12 }}
               options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${item.uid} · ${item.episodes} episodes · ${item.frames} frames` }))}
-              onChange={(uid) => { navigationTarget.current = undefined; setSelected(selectedCollection.datasets.find((item) => item.uid === uid)); }} />
+              onChange={(uid) => {
+                navigationTarget.current = undefined;
+                setTasksLoaded(false);
+                setSelected(selectedCollection.datasets.find((item) => item.uid === uid));
+              }} />
           </Card>}
           {selected && <div ref={workbenchRef}>
             <Card title={`Episode 预览 / ${selectedCollection?.name || selected.uid}`}>
@@ -1846,20 +1907,34 @@ function App() {
                   <span>子数据集</span>
                   <Select showSearch virtual optionFilterProp="label" value={selected.uid}
                     placeholder="选择子数据集" options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${item.uid} · ${item.episodes} episodes` }))}
-                    onChange={(uid) => { navigationTarget.current = undefined; setSelected(selectedCollection.datasets.find((item) => item.uid === uid)); setTaskIndex(undefined); }} />
+                    onChange={(uid) => {
+                      navigationTarget.current = undefined;
+                      setTasksLoaded(false);
+                      setSelected(selectedCollection.datasets.find((item) => item.uid === uid));
+                      setTaskIndex(undefined);
+                    }} />
                 </div>}
                 <div className="episode-selector-field">
                   <span>Task</span>
                   <Select allowClear showSearch virtual optionFilterProp="label" placeholder="选择 Task" value={taskIndex} options={taskOptions}
-                    onChange={(value) => { navigationTarget.current = undefined; setTaskIndex(value); }} />
+                    loading={!tasksLoaded}
+                    onChange={(value) => {
+                      navigationTarget.current = undefined;
+                      setTaskIndex(value);
+                      setEpisodeIndex(undefined); setPreview(undefined); setSeries([]);
+                    }} />
                 </div>
               </div>
               <div className="episode-selector-row episode-selector-secondary">
                 <div className="episode-selector-field">
                   <span>Episode</span>
                   <Select key={`${selected.uid}:${taskIndex ?? "all"}`} showSearch virtual filterOption={false}
-                    placeholder="选择或搜索 Episode 编号 / Instruction" value={episodeIndex}
+                    placeholder={tasks.length > 0 && taskIndex === undefined
+                      ? "请先选择 Task"
+                      : "选择或搜索 Episode 编号 / Instruction"}
+                    value={episodeIndex}
                     options={episodeOptions} loading={episodeOptionsLoading}
+                    disabled={!tasksLoaded || (tasks.length > 0 && taskIndex === undefined)}
                     notFoundContent={episodeOptionsLoading ? <Spin size="small" /> : "No data"}
                     onSearch={searchEpisodeOptions} onChange={setEpisodeIndex}
                     onPopupScroll={(event) => {
@@ -1963,7 +2038,8 @@ function App() {
                   retryToken={videoRetryTokens[video.camera] || 0}
                   error={videoErrors[video.camera]}
                   onClick={togglePlayback}
-                  onLoadedMetadata={(camera, _element, metadata) => {
+                  onLoadedMetadata={(camera, element, metadata) => {
+                    element.playbackRate = effectivePlaybackRateRef.current;
                     setBrowserVideoMetadata((current) => ({ ...current, [camera]: metadata }));
                   }}
                   onWaiting={() => { if (isPlaying) setPlaybackStatus("buffering"); }}
@@ -1981,7 +2057,24 @@ function App() {
                   </Button>
                   <Button disabled={!playableVideos.length} onClick={() => seek(currentTime - 1 / fps)}>上一帧</Button>
                   <Button disabled={!playableVideos.length} onClick={() => seek(currentTime + 1 / fps)}>下一帧</Button>
+                  <Space.Compact className="playback-rate-control">
+                    <Button disabled={!supportsPlaybackRate || playbackRateIndex <= 0}
+                      onClick={() => setSelectedPlaybackRate(PLAYBACK_RATES[playbackRateIndex - 1])}>
+                      减速
+                    </Button>
+                    <Select aria-label="代理视频播放速度" value={selectedPlaybackRate}
+                      disabled={!supportsPlaybackRate} style={{ width: 92 }}
+                      options={PLAYBACK_RATES.map((rate) => ({ value: rate, label: `${rate}×` }))}
+                      onChange={setSelectedPlaybackRate} />
+                    <Button disabled={!supportsPlaybackRate || playbackRateIndex >= PLAYBACK_RATES.length - 1}
+                      onClick={() => setSelectedPlaybackRate(PLAYBACK_RATES[playbackRateIndex + 1])}>
+                      加速
+                    </Button>
+                  </Space.Compact>
                 </Space>
+                {!supportsPlaybackRate && <span className="playback-rate-hint">
+                  {useOriginalVideo ? "倍速仅支持 Episode H.264 代理视频" : "代理视频就绪后可调整倍速"}
+                </span>}
                 <span>Episode {currentTime.toFixed(2)} / {timeline.duration.toFixed(2)} s · Frame {currentFrame}</span>
                 <input aria-label="Episode 时间轴" type="range" min={0} max={timeline.duration || 1} step={1 / fps}
                   disabled={!playableVideos.length} value={Math.min(currentTime, timeline.duration || 1)} onChange={(event) => seek(Number(event.target.value))} />
