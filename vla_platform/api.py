@@ -7,11 +7,13 @@ import shutil
 import asyncio
 import json
 import threading
+import hashlib
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 
 from .catalog import Catalog
@@ -44,7 +46,7 @@ except (OSError, Exception) as exc:
     else:
         raise exc
 VIDEO_PROXY_ROOT = Path(os.environ.get("VLA_VIDEO_PROXY_ROOT", str(DB_PATH.parent / "video_proxy")))
-THUMBNAIL_ROOT = Path(os.environ.get("VLA_THUMBNAIL_ROOT", str(CURATION_ROOT / "_catalog" / "thumbnails")))
+THUMBNAIL_ROOT = Path(os.environ.get("VLA_THUMBNAIL_ROOT", str(DB_PATH.parent / "thumbnails")))
 try:
     THUMBNAIL_ROOT.mkdir(parents=True, exist_ok=True)
 except OSError:
@@ -57,6 +59,7 @@ thumbnail_manager = ThumbnailManager(
 )
 catalog.recover_interrupted_scans()
 app = FastAPI(title="VLA Data Governance Platform", version="0.1.0")
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 scan_tasks: dict[str, dict[str, Any]] = {}
 scan_cancellations: dict[str, threading.Event] = {}
 scan_lock = threading.Lock()
@@ -139,6 +142,7 @@ class EpisodeSearchRequest(BaseModel):
     sort: Literal["relevance", "episode", "duration_asc", "duration_desc"] = "relevance"
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=24, ge=1, le=30)
+    cursor: str | None = Field(default=None, max_length=512)
 
 
 class SearchIndexRequest(BaseModel):
@@ -242,6 +246,7 @@ async def search_episodes(body: EpisodeSearchRequest) -> dict[str, Any]:
         body.sort,
         body.page,
         body.page_size,
+        body.cursor,
     )
     def attach_thumbnails() -> None:
         for item in result["items"]:
@@ -299,6 +304,17 @@ async def thumbnail(dataset_uid: str, episode_index: int):
         path, media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
+
+
+@app.get("/api/thumbnails/status/{dataset_uid}/{episode_index}")
+async def thumbnail_status(dataset_uid: str, episode_index: int) -> dict[str, Any]:
+    """Return thumbnail state without scheduling FFmpeg work."""
+    try:
+        return await asyncio.to_thread(
+            thumbnail_manager.inspect, catalog, dataset_uid, episode_index
+        )
+    except (FileNotFoundError, IndexError, OSError, ValueError):
+        raise HTTPException(404, "thumbnail source not found") from None
 
 
 def _safe_scan_root(root: str | None) -> str | None:
@@ -419,18 +435,34 @@ async def scan_events(scan_id: str):
 
 
 @app.get("/api/datasets")
-async def datasets(uid: str | None = None, codebase_version: str | None = None) -> list[dict[str, Any]]:
+async def datasets(
+    request: Request,
+    uid: str | None = None,
+    codebase_version: str | None = None,
+) -> Response:
     rows = catalog.list_datasets()
     if uid: rows = [row for row in rows if uid.lower() in row["uid"].lower()]
     if codebase_version: rows = [row for row in rows if row["codebase_version"] == codebase_version]
-    return rows
+    fingerprint = "|".join(
+        f"{row['uid']}:{row.get('scanned_at', 0)}:{row.get('episodes', 0)}:{row.get('frames', 0)}"
+        for row in rows
+    )
+    etag = f'W/"{hashlib.sha256(fingerprint.encode()).hexdigest()[:24]}"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=30"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return JSONResponse(rows, headers=headers)
 
 
 @app.get("/api/datasets/{uid}")
-async def dataset(uid: str) -> dict[str, Any]:
+async def dataset(uid: str, request: Request) -> Response:
     value = catalog.get_dataset(uid)
     if not value: raise HTTPException(404, "dataset not indexed")
-    return value
+    etag = f'W/"{hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()[:24]}"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=60"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return JSONResponse(value, headers=headers)
 
 
 @app.get("/api/datasets/{uid}/videos")
@@ -447,8 +479,15 @@ async def tasks(uid: str) -> list[dict[str, Any]]:
 
 
 @app.get("/api/datasets/{uid}/episodes")
-async def episodes(uid: str, task_index: int | None = Query(None, ge=0)) -> list[dict[str, Any]]:
+async def episodes(
+    uid: str,
+    task_index: int | None = Query(None, ge=0),
+    page_size: int | None = Query(None, ge=1, le=500),
+    cursor: int | None = Query(None, ge=-1),
+) -> list[dict[str, Any]] | dict[str, Any]:
     if not catalog.get_dataset(uid): raise HTTPException(404, "dataset not indexed")
+    if page_size is not None or cursor is not None:
+        return await asyncio.to_thread(catalog.list_episodes_page, uid, task_index, page_size or 100, cursor)
     return catalog.list_episodes(uid, task_index)
 
 

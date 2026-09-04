@@ -11,6 +11,7 @@ DATA_ROOT="${VLA_DATA_ROOT:-/mnt/data/embodied_datasets/public_datasets_staging}
 CURATION_ROOT="${VLA_CURATION_ROOT:-${DATA_ROOT}/data_curation}"
 CATALOG_DB="${VLA_CATALOG_DB:-${RUNTIME_DIR}/catalog.sqlite3}"
 VIDEO_PROXY_ROOT="${VLA_VIDEO_PROXY_ROOT:-${RUNTIME_DIR}/video_proxy}"
+THUMBNAIL_ROOT="${VLA_THUMBNAIL_ROOT:-${RUNTIME_DIR}/thumbnails}"
 HOST="${VLA_HOST:-127.0.0.1}"
 API_PORT="${VLA_API_PORT:-8000}"
 WEB_PORT="${VLA_WEB_PORT:-5173}"
@@ -148,7 +149,7 @@ wait_for_service() {
 
 check_data_root() {
   [[ -d "$DATA_ROOT" ]] || die "data root does not exist: $DATA_ROOT"
-  mkdir -p "$CURATION_ROOT" "$RUNTIME_DIR"
+  mkdir -p "$CURATION_ROOT" "$RUNTIME_DIR" "$THUMBNAIL_ROOT"
   # SQLite journaling on FUSE/OSS mounts can fail even when touch succeeds.
   # Keep the catalog on local disk unless the caller explicitly overrides it.
   if ! (touch "${CATALOG_DB}.probe" && rm -f "${CATALOG_DB}.probe"); then
@@ -185,7 +186,7 @@ start_dev() {
     say "platform is already running"; status_dev; return
   fi
   export VLA_DATA_ROOT="$DATA_ROOT" VLA_CURATION_ROOT="$CURATION_ROOT" VLA_CATALOG_DB="$CATALOG_DB"
-  export VLA_VIDEO_PROXY_ROOT="$VIDEO_PROXY_ROOT"
+  export VLA_VIDEO_PROXY_ROOT="$VIDEO_PROXY_ROOT" VLA_THUMBNAIL_ROOT="$THUMBNAIL_ROOT"
   say "starting API at http://${HOST}:${API_PORT}"
   nohup setsid "${VENV_DIR}/bin/uvicorn" vla_platform.api:app --host "$HOST" --port "$API_PORT" \
     >"$API_LOG" 2>&1 &

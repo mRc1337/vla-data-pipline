@@ -1,6 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import ReactECharts from "echarts-for-react";
 import {
   Alert, Button, Card, Collapse, Descriptions, Empty, Input, InputNumber, Layout,
   List, Pagination, Progress, Row, Col, Segmented, Select, Space, Spin, Statistic, Table, Tag, message,
@@ -11,6 +10,10 @@ import {
   type BrowserVideoMetadata,
 } from "./videoPreview";
 import "./style.css";
+
+// Charts are only needed after an Episode is opened. Keep the initial search
+// page free of the ECharts payload and fetch it on first chart render.
+const ReactECharts = lazy(() => import("echarts-for-react"));
 
 type Dataset = {
   uid: string; episodes: number; frames: number; duration: number; bytes: number;
@@ -23,6 +26,7 @@ type Episode = {
   dataset_uid: string; episode_index: number; frames: number; duration: number;
   instruction?: string | null; task_index?: number | null; metadata_json?: string;
 };
+type EpisodePage = { items: Episode[]; next_cursor?: string | null; page_size: number };
 type DatasetTask = { task_index: number; name: string; episodes: number };
 type VideoRef = {
   camera: string; relative_path: string; url: string;
@@ -166,18 +170,82 @@ function stageBadgePresentation(stage: SearchStageBadge): { text: string; color?
   return { text: `S${id} ${searchStatusLabel(stage.verdict)}`, color: "gold" };
 }
 
-function EpisodeSearchCard({ item, onOpen }: { item: EpisodeSearchItem; onOpen: () => void }) {
+function LazyThumbnail({ item }: { item: EpisodeSearchItem }) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [status, setStatus] = useState(item.thumbnail_status);
+  const [loaded, setLoaded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [item.thumbnail_url]);
-  const showImage = item.thumbnail_status === "ready" && !imageFailed;
+  const [requested, setRequested] = useState(false);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => setStatus(item.thumbnail_status), [item.thumbnail_status]);
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    if (!window.IntersectionObserver) {
+      setVisible(true);
+      return undefined;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "240px" });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!visible || requested || status === "ready" || status === "unavailable") return undefined;
+    let cancelled = false;
+    setRequested(true);
+    const request = async () => {
+      try {
+        const response = await fetch("/api/thumbnails/prewarm", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ episodes: [{ dataset_uid: item.dataset_uid, episode_index: item.episode_index }] }),
+        });
+        if (!response.ok) throw new Error("thumbnail request failed");
+        if (!cancelled) setStatus("queued");
+      } catch {
+        if (!cancelled) setStatus("failed");
+      }
+    };
+    void request();
+    return () => { cancelled = true; };
+  }, [item.dataset_uid, item.episode_index, requested, status, visible]);
+  useEffect(() => {
+    if (!visible || !requested || status === "ready" || status === "failed" || status === "unavailable") return undefined;
+    let cancelled = false;
+    let timer: number | undefined;
+    const check = async () => {
+      try {
+        const response = await fetch(`/api/thumbnails/status/${encodeURIComponent(item.dataset_uid)}/${item.episode_index}`);
+        const payload = await response.json();
+        if (cancelled) return;
+        setStatus(payload.status || "unknown");
+        if (!["ready", "failed", "unavailable"].includes(payload.status)) {
+          timer = window.setTimeout(() => void check(), 1000);
+        }
+      } catch {
+        if (!cancelled) timer = window.setTimeout(() => void check(), 1500);
+      }
+    };
+    void check();
+    return () => { cancelled = true; if (timer !== undefined) window.clearTimeout(timer); };
+  }, [item.dataset_uid, item.episode_index, requested, status, visible]);
+  const showImage = visible && status === "ready" && !imageFailed;
+  return <div ref={hostRef} className="episode-cover-placeholder">
+    {showImage
+      ? <img loading="lazy" decoding="async" src={item.thumbnail_url} alt={`${item.title} 主视角首帧`} onLoad={() => setLoaded(true)} onError={() => setImageFailed(true)} />
+      : <><span>{item.collection_name.slice(0, 2).toUpperCase()}</span>
+        <small>{status === "unavailable" ? "无可用主视角" : status === "failed" ? "封面生成失败" : loaded ? "封面已缓存" : visible ? "封面生成中" : "滚动到此处加载"}</small></>}
+  </div>;
+}
+
+function EpisodeSearchCard({ item, onOpen }: { item: EpisodeSearchItem; onOpen: () => void }) {
   return <Card hoverable className="episode-search-card" onClick={onOpen} cover={
     <div className="episode-cover">
-      {showImage
-        ? <img loading="lazy" decoding="async" src={item.thumbnail_url} alt={`${item.title} 主视角首帧`} onError={() => setImageFailed(true)} />
-        : <div className="episode-cover-placeholder">
-          <span>{item.collection_name.slice(0, 2).toUpperCase()}</span>
-          <small>{item.thumbnail_status === "unavailable" ? "无可用主视角" : item.thumbnail_status === "failed" ? "封面生成失败" : "封面生成中"}</small>
-        </div>}
+      <LazyThumbnail item={item} />
       <span className="episode-duration">{item.duration.toFixed(1)}s</span>
     </div>
   }>
@@ -525,14 +593,6 @@ function StageVisualizations({ stages, timeline, onSeek, onLoadStage, loadingSta
       stage: `Stage ${stageId}`, placeholder: `未发现 Stage ${stageId} 产物`,
     };
   });
-  useEffect(() => {
-    rows.forEach((stage) => {
-      if (stage.artifact_status === "available"
-        && !stage.detail_loaded && !loadingStages.has(stage.stage_id)) {
-        onLoadStage(stage.stage_id);
-      }
-    });
-  }, [stages]);
   const items = rows.map((stage) => {
         const spec = stage.visualization_spec || {};
         const label = <Space wrap>
@@ -904,7 +964,7 @@ function StageVisualizations({ stages, timeline, onSeek, onLoadStage, loadingSta
         return { key: String(stage.stage_id), label, children };
       });
   return <Card title="Stage 1–8 检测与专项可视化" className="section-card">
-    <Collapse defaultActiveKey={rows.map((stage) => String(stage.stage_id))} items={items} onChange={(keys) => {
+    <Collapse defaultActiveKey={[]} items={items} onChange={(keys) => {
       const active = Array.isArray(keys) ? keys : [keys];
       active.forEach((key) => {
         const stageId = Number(key);
@@ -955,7 +1015,6 @@ function App() {
   const lastHardSeek = useRef<Record<string, number>>({});
   const workbenchRef = useRef<HTMLDivElement>(null);
   const navigationTarget = useRef<EpisodeSearchItem | undefined>(undefined);
-  const initialSearchStarted = useRef(false);
   const searchSequence = useRef(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDatasets, setSearchDatasets] = useState<string[]>([]);
@@ -1002,7 +1061,6 @@ function App() {
 
   const executeSearch = async (
     page = 1,
-    prewarm = true,
     overrides?: { query?: string; datasets?: string[]; stages?: Record<number, string[]>; sort?: string },
   ) => {
     const sequence = ++searchSequence.current;
@@ -1015,27 +1073,15 @@ function App() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.detail || "Episode 搜索失败");
       if (sequence !== searchSequence.current) return;
-      let result = payload as EpisodeSearchResponse;
+      const result = payload as EpisodeSearchResponse;
       setSearchResult(result);
       setSearchLoading(false);
-      if (!prewarm || !result.items.length) return;
-      const prewarmResponse = await fetch("/api/thumbnails/prewarm", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ episodes: result.items.map((item) => ({
-          dataset_uid: item.dataset_uid, episode_index: item.episode_index,
-        })) }),
-      });
-      if (!prewarmResponse.ok) return;
-      const deadline = Date.now() + 30000;
-      while (sequence === searchSequence.current && Date.now() < deadline
-        && result.items.some((item) => ["not_generated", "queued", "generating"].includes(item.thumbnail_status))) {
-        await new Promise((resolve) => window.setTimeout(resolve, 800));
-        const poll = await fetch("/api/search/episodes", {
-          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-        });
-        if (!poll.ok || sequence !== searchSequence.current) return;
-        result = await poll.json() as EpisodeSearchResponse;
-        setSearchResult(result);
+      if (!Object.keys(searchStageFacets).length) {
+        const facets = await fetch("/api/search/facets");
+        if (facets.ok && sequence === searchSequence.current) {
+          const facetPayload = await facets.json();
+          setSearchStageFacets(facetPayload.stages || {});
+        }
       }
     } catch (error) {
       if (sequence === searchSequence.current) {
@@ -1076,7 +1122,7 @@ function App() {
   const resetSearch = () => {
     const emptyStages: Record<number, string[]> = {};
     setSearchQuery(""); setSearchDatasets([]); setSearchStageValues(emptyStages); setSearchSort("relevance");
-    void executeSearch(1, true, { query: "", datasets: [], stages: emptyStages, sort: "relevance" });
+    void executeSearch(1, { query: "", datasets: [], stages: emptyStages, sort: "relevance" });
   };
 
   const openSearchEpisode = (item: EpisodeSearchItem) => {
@@ -1123,19 +1169,6 @@ function App() {
   useEffect(() => { void refresh(); }, []);
 
   useEffect(() => {
-    if (!datasets.length || initialSearchStarted.current) return;
-    initialSearchStarted.current = true;
-    fetch("/api/search/index").then((response) => response.json()).then((stats) => {
-      const available = Number(stats.episodes || 0) > 0;
-      setSearchIndexAvailable(available);
-      if (available) {
-        fetch("/api/search/facets").then((response) => response.json()).then((payload) => setSearchStageFacets(payload.stages || {}));
-        void executeSearch(1);
-      }
-    }).catch(() => setSearchIndexAvailable(false));
-  }, [datasets]);
-
-  useEffect(() => {
     if (!selected) { setTasks([]); setTaskIndex(undefined); return; }
     let cancelled = false;
     setTasks([]); setTaskIndex(undefined); setEpisodes([]); setEpisodeIndex(undefined);
@@ -1154,10 +1187,12 @@ function App() {
     if (!selected) { setEpisodes([]); setEpisodeIndex(undefined); return; }
     let cancelled = false;
     setPreview(undefined); setSeries([]); setEpisodeIndex(undefined);
-    const query = taskIndex === undefined ? "" : `?task_index=${taskIndex}`;
+    const query = new URLSearchParams({ page_size: "100" });
+    if (taskIndex !== undefined) query.set("task_index", String(taskIndex));
     fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes${query}`)
-      .then((response) => response.json()).then((items: Episode[]) => {
+      .then((response) => response.json()).then((payload: EpisodePage) => {
         if (cancelled) return;
+        const items = Array.isArray(payload) ? payload : payload.items || [];
         setEpisodes(items);
         const target = navigationTarget.current;
         if (target?.dataset_uid === selected.uid
@@ -1828,4 +1863,6 @@ function App() {
   </Layout>;
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <Suspense fallback={<div className="app-loading">正在加载工作台组件…</div>}><App /></Suspense>,
+);

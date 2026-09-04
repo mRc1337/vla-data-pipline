@@ -126,7 +126,7 @@ python3.12 -m venv .venv
 | `VLA_CURATION_ROOT` | `$VLA_DATA_ROOT/data_curation` | Stage 产物根目录 |
 | `VLA_CATALOG_DB` | `.local-run/catalog.sqlite3`（启动脚本） | SQLite Catalog |
 | `VLA_VIDEO_PROXY_ROOT` | `.local-run/video_proxy` | Episode 视频代理缓存 |
-| `VLA_THUMBNAIL_ROOT` | `$VLA_CURATION_ROOT/_catalog/thumbnails` | 搜索卡片封面缓存 |
+| `VLA_THUMBNAIL_ROOT` | `.local-run/thumbnails`（启动脚本） | 本地搜索卡片封面缓存；不要放在 OSSFS |
 | `VLA_HOST` | `127.0.0.1` | 开发服务监听地址 |
 | `VLA_API_PORT` | `8000` | API 端口 |
 | `VLA_WEB_PORT` | `5173` | Web 端口 |

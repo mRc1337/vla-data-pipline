@@ -132,13 +132,15 @@ def test_episode_search_text_stage_filters_pagination_and_missing_states(tmp_pat
         "stage_id": 6, "verdicts": ["complete"],
         "artifact_statuses": ["episode_pending"],
     }])
-    assert within_stage_or["total"] == 3
+    # Only the Episode with a real Stage 6 artifact matches. Missing rows are
+    # dynamically exposed as not_generated, not as episode_pending placeholders.
+    assert within_stage_or["total"] == 1
 
     missing = catalog.search_episodes(stage_filters=[
         {"stage_id": 8, "artifact_statuses": ["not_generated"]},
     ], page=1, page_size=2)
-    assert missing["total"] == 3 and len(missing["items"]) == 2
-    assert missing["dataset_count"] == 1 and missing["task_count"] == 2
+    assert missing["total"] == 1 and len(missing["items"]) == 1
+    assert missing["dataset_count"] == 1 and missing["task_count"] == 1
     assert all(
         next(b for b in item["stage_badges"] if b["stage_id"] == 8)["verdict"] == "not_generated"
         for item in missing["items"]
@@ -186,14 +188,19 @@ def test_upstream_filtered_status_propagates_across_multiple_stages(tmp_path):
             """SELECT artifact_status,verdict FROM stage_episode_results
                 WHERE dataset_uid='demo' AND episode_index=2 AND stage_id=2"""
         ).fetchone()
-        assert tuple(stage2) == ("upstream_filtered", "upstream_filtered")
+        assert stage2 is None
+    dynamic = catalog.search_episodes(stage_filters=[{
+        "stage_id": 2, "artifact_statuses": ["upstream_filtered"],
+    }])
+    assert [item["episode_index"] for item in dynamic["items"]] == [2]
 
-        # Simulate a stale placeholder created before the parent result was
-        # known. Refreshing must repair it and carry the exclusion forward.
+    with catalog._connect() as db:
+        # A legacy placeholder, if encountered during an offline migration,
+        # is still repaired in place; new indexing never creates one.
         db.execute(
-            """UPDATE stage_episode_results SET artifact_status='episode_pending',
-                verdict='episode_pending' WHERE dataset_uid='demo'
-                AND episode_index=2 AND stage_id=3"""
+            """INSERT INTO stage_episode_results(
+                dataset_uid,episode_index,stage_id,run_id,artifact_status,verdict,indexed_at
+            ) VALUES('demo',2,3,'legacy','episode_pending','episode_pending',0)"""
         )
         catalog._fill_missing_stage_rows(db, "demo", 3, "demo", True, True)
         stage3 = db.execute(
@@ -258,10 +265,10 @@ def test_sharded_stage_index_skips_unchanged_and_applies_changes(tmp_path, monke
 
     changed = catalog.search_episodes(stage_filters=[{"stage_id": 6, "verdicts": ["needs_review"]}])
     assert [(item["episode_index"], item["dataset_uid"]) for item in changed["items"]] == [(0, "demo")]
-    pending = catalog.search_episodes(stage_filters=[{
-        "stage_id": 6, "artifact_statuses": ["episode_pending"],
+    missing = catalog.search_episodes(stage_filters=[{
+        "stage_id": 6, "artifact_statuses": ["upstream_filtered"],
     }])
-    assert [item["episode_index"] for item in pending["items"]] == [1]
+    assert [item["episode_index"] for item in missing["items"]] == [1]
     assert (stage / MANIFEST_NAME).is_file()
 
     # A producer must publish the compact manifest after its primary manifest;
@@ -285,7 +292,7 @@ def test_completed_legacy_json_stage_uses_manifest_fast_path(tmp_path, monkeypat
 
     monkeypatch.setattr(Path, "glob", reject_episode_scan)
     count, skipped = catalog._sync_stage_search_index("demo", tmp_path / "demo", 6)
-    assert skipped is True and count == 3
+    assert skipped is True and count == 1
 
 
 def test_thumbnail_uses_primary_camera_episode_start_and_invalidates_cache(tmp_path, monkeypatch):
