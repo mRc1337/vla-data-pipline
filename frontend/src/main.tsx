@@ -34,7 +34,7 @@ type ProxyVideo = { camera: string; status: "pending" | "ready"; url: string; du
 type ProxyJob = {
   job_id: string; dataset_uid: string; episode_index: number;
   status: "queued" | "generating" | "ready" | "failed";
-  error?: string | null; videos: ProxyVideo[];
+  error?: string | null; warnings?: Array<{ camera: string; relative_path: string; reason: string }>; videos: ProxyVideo[];
 };
 type StageResult = {
   stage_id: number; run_id: string; stage?: string; detector_version?: string;
@@ -1197,12 +1197,22 @@ function App() {
     setIsPlaying(false); setPlaybackStatus("idle"); setPlaybackError(undefined);
     setLoadingEpisode(true); setCurrentTime(0); setCurrentFrame(0);
     setPreview(undefined); setLoadingStageDetails(new Set());
-    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/preview`)
-      .then((response) => response.json()).then((episodePreview) => {
-      if (cancelled) return;
-      setPreview(episodePreview);
-    }).catch(() => { if (!cancelled) message.error("Episode 预览读取失败"); })
-      .finally(() => { if (!cancelled) setLoadingEpisode(false); });
+    const loadPreview = async () => {
+      try {
+        const response = await fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/preview`);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Episode 预览读取失败");
+        if (!payload?.dataset?.uid || payload?.episode?.episode_index === undefined) {
+          throw new Error("Episode 预览响应格式无效");
+        }
+        if (!cancelled) setPreview(payload as Preview);
+      } catch (error) {
+        if (!cancelled) message.error(error instanceof Error ? error.message : "Episode 预览读取失败");
+      } finally {
+        if (!cancelled) setLoadingEpisode(false);
+      }
+    };
+    void loadPreview();
     return () => { cancelled = true; };
   }, [episodeIndex, selected]);
 
@@ -1301,7 +1311,7 @@ function App() {
     };
     void requestProxy();
     return () => { cancelled = true; };
-  }, [preview?.dataset.uid, preview?.episode.episode_index]);
+  }, [preview?.dataset?.uid, preview?.episode?.episode_index]);
 
   const fps = Number(preview?.timeline?.fps || ((preview?.dataset.schema?.timestamp as { fps?: number } | undefined)?.fps)
     || ((selected?.schema?.timestamp as { fps?: number } | undefined)?.fps) || 20);
@@ -1701,6 +1711,9 @@ function App() {
               {proxyError && !useOriginalVideo && <Alert type="error" showIcon
                 message="代理视频生成失败" description={proxyError}
                 action={<Button size="small" onClick={() => setUseOriginalVideo(true)}>使用原始视频</Button>} />}
+              {!useOriginalVideo && proxyJob?.warnings && proxyJob.warnings.length > 0 && <Alert type="warning" showIcon
+                message="部分相机源视频缺失"
+                description={`已跳过：${proxyJob.warnings.map((item) => item.camera).join("、")}`} />}
               {!useOriginalVideo && proxyJob && ["queued", "generating"].includes(proxyJob.status)
                 && <Progress percent={proxyJob.status === "generating" ? 65 : 15} status="active" showInfo={false} />}
               <Collapse className="video-metadata-collapse" items={[{
@@ -1818,4 +1831,27 @@ function App() {
   </Layout>;
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+class AppErrorBoundary extends React.Component<{ children: React.ReactNode }, { error?: Error }> {
+  state: { error?: Error } = {};
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("Unhandled application error", error, info);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return <Layout className="shell"><Layout.Content>
+      <Card title="页面加载失败">
+        <Alert type="error" showIcon title="当前内容无法显示"
+          description={this.state.error.message || "发生未知错误"}
+          action={<Button onClick={() => window.location.reload()}>重新加载</Button>} />
+      </Card>
+    </Layout.Content></Layout>;
+  }
+}
+
+createRoot(document.getElementById("root")!).render(<AppErrorBoundary><App /></AppErrorBoundary>);

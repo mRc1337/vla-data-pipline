@@ -90,6 +90,42 @@ def test_quick_scan_avoids_deep_size_walk_and_reuses_fingerprint(tmp_path):
     assert catalog.list_datasets()[0]["bytes"] == 0
 
 
+def test_preview_hydrates_requested_episode_after_quick_scan(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    dataset = tmp_path / "demo"
+    episode_dir = dataset / "meta" / "episodes" / "chunk-000"
+    video_dir = dataset / "videos" / "observation.images.front" / "chunk-000"
+    episode_dir.mkdir(parents=True)
+    video_dir.mkdir(parents=True)
+    (dataset / "meta" / "info.json").write_text(json.dumps({
+        "codebase_version": "v3.0", "total_episodes": 1, "total_frames": 2, "fps": 10,
+        "features": {"observation.images.front": {"dtype": "video", "shape": [8, 8, 3]}},
+    }))
+    pq.write_table(pa.table({
+        "episode_index": pa.array([0]), "length": pa.array([2]),
+        "tasks": pa.array([["pick the block"]]),
+        "videos/observation.images.front/chunk_index": pa.array([0]),
+        "videos/observation.images.front/file_index": pa.array([0]),
+        "videos/observation.images.front/from_timestamp": pa.array([0.0]),
+        "videos/observation.images.front/to_timestamp": pa.array([0.2]),
+    }), episode_dir / "file-000.parquet")
+    (video_dir / "file-000.mp4").write_bytes(b"video")
+
+    catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+    catalog.scan(mode="quick")
+    with catalog._connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 0
+
+    preview = catalog.episode_preview_summary("demo", 0)
+    assert preview["episode"]["instruction"] == "pick the block"
+    assert preview["timeline"]["frame_count"] == 2
+    assert preview["videos"][0]["relative_path"].endswith("file-000.mp4")
+    assert preview["videos"][0]["integrity_status"] == "not_indexed"
+    with catalog._connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 1
+
+
 def test_standard_scan_indexes_video_metadata_without_decoding_payload(tmp_path):
     dataset = tmp_path / "demo"
     make_dataset(dataset)
@@ -545,6 +581,87 @@ def test_video_proxy_manager_generates_versioned_cached_clips(monkeypatch, tmp_p
         assert len(commands) == 1
     finally:
         manager._executor.shutdown(wait=True)
+
+
+def test_video_proxy_manager_skips_missing_camera_sources(monkeypatch, tmp_path):
+    available = tmp_path / "front.mp4"
+    available.write_bytes(b"source-video")
+
+    class FakeCatalog:
+        def episode_preview(self, uid, episode_index):
+            return {
+                "timeline": {"fps": 10, "frame_count": 20, "duration": 2.0},
+                "videos": [
+                    {"camera": "front", "relative_path": "front.mp4", "source_start": 0, "source_end": 2},
+                    {"camera": "wrist", "relative_path": "missing.mp4", "source_start": 0, "source_end": 2},
+                ],
+            }
+
+        def resolve_path(self, uid, relative):
+            path = tmp_path / relative
+            if not path.is_file():
+                raise FileNotFoundError(relative)
+            return path
+
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        Path(command[-1]).write_bytes(b"proxy-video")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("vla_platform.video_proxy.shutil.which", lambda _: "/usr/bin/ffmpeg")
+    monkeypatch.setattr("vla_platform.video_proxy.subprocess.run", fake_run)
+    manager = VideoProxyManager(tmp_path / "proxies")
+    try:
+        task = manager.request(FakeCatalog(), "demo", 0)
+        deadline = time.time() + 2
+        while task["status"] != "ready" and time.time() < deadline:
+            time.sleep(0.01)
+            task = manager.status(task["job_id"])
+        assert task and task["status"] == "ready"
+        assert [video["camera"] for video in task["videos"]] == ["front"]
+        assert task["warnings"] == [{
+            "camera": "wrist", "relative_path": "missing.mp4",
+            "reason": "source video is missing",
+        }]
+        assert len(commands) == 1
+    finally:
+        manager._executor.shutdown(wait=True)
+
+
+def test_video_proxy_manager_rejects_episode_with_no_available_sources(monkeypatch, tmp_path):
+    class FakeCatalog:
+        def episode_preview(self, uid, episode_index):
+            return {
+                "timeline": {"fps": 10, "frame_count": 20, "duration": 2.0},
+                "videos": [{
+                    "camera": "front", "relative_path": "missing.mp4",
+                    "source_start": 0, "source_end": 2,
+                }],
+            }
+
+        def resolve_path(self, uid, relative):
+            raise FileNotFoundError(relative)
+
+    monkeypatch.setattr("vla_platform.video_proxy.shutil.which", lambda _: "/usr/bin/ffmpeg")
+    manager = VideoProxyManager(tmp_path / "proxies")
+    try:
+        with pytest.raises(ValueError, match="no available video streams.*front"):
+            manager.request(FakeCatalog(), "demo", 0)
+    finally:
+        manager._executor.shutdown(wait=True)
+
+
+def test_video_proxy_api_reports_unavailable_sources_as_unprocessable(monkeypatch):
+    class FakeProxyManager:
+        def request(self, catalog, uid, episode_index):
+            raise ValueError("episode contains no available video streams; missing cameras: front")
+
+    monkeypatch.setattr("vla_platform.api.proxy_manager", FakeProxyManager())
+    response = TestClient(app).post("/api/datasets/demo/episodes/0/video-proxies?prewarm=0")
+    assert response.status_code == 422
+    assert "missing cameras: front" in response.json()["detail"]
 
 
 def test_video_proxy_api_and_range(monkeypatch, tmp_path):

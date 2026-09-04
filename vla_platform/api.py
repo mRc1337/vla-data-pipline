@@ -511,7 +511,9 @@ async def create_video_proxies(
         task = await asyncio.to_thread(proxy_manager.request, catalog, uid, episode_index)
     except (FileNotFoundError, IndexError):
         raise HTTPException(404, "episode not found") from None
-    except (OSError, RuntimeError, ValueError) as exc:
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except (OSError, RuntimeError) as exc:
         raise HTTPException(500, str(exc)) from exc
     # The dedicated executor is intentionally single-worker by default. Queue
     # nearby episodes after responding so metadata reads and future encodes do

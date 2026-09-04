@@ -1854,8 +1854,27 @@ class Catalog:
                     (uid, episode_index),
                 ).fetchone()
                 if legacy is None:
-                    raise IndexError(episode_index)
-                episode = dict(legacy)
+                    # A quick scan intentionally does not materialize Episode
+                    # rows. Recover just the requested compact metadata row so
+                    # that a valid dataset does not expose placeholder Episodes
+                    # which then fail to open. Persist the row so subsequent
+                    # previews stay on the SQLite fast path.
+                    loaded = self._load_episode_metadata(Path(dataset["root"]), episode_index)
+                    if loaded is None:
+                        raise IndexError(episode_index)
+                    episode = {**loaded, "dataset_uid": uid}
+                    db.execute(
+                        """INSERT OR REPLACE INTO episodes
+                            (dataset_uid,episode_index,frames,duration,instruction,task_index,metadata_json)
+                            VALUES(?,?,?,?,?,?,?)""",
+                        (
+                            uid, episode_index, int(episode.get("frames") or 0),
+                            float(episode.get("duration") or 0), episode.get("instruction"),
+                            episode.get("task_index"), episode.get("metadata_json"),
+                        ),
+                    )
+                else:
+                    episode = dict(legacy)
                 episode["frame_count"] = int(episode.get("frames") or 0)
             else:
                 episode = dict(row)
@@ -1916,6 +1935,9 @@ class Catalog:
             feature_info = feature.get("info", {}) if isinstance(feature, dict) else {}
             shape = feature.get("shape", []) if isinstance(feature, dict) else []
             indexed_video = indexed_videos.get(relative, {})
+            file_integrity = indexed_video.get("integrity_status", "not_indexed")
+            timeline_integrity = "pass" if abs((source_end - source_start) - duration) <= max(1 / fps, 1e-6) \
+                else "duration_mismatch"
             videos.append({
                 "camera": camera, "relative_path": relative,
                 "url": f"/api/videos/{uid}/{relative}",
@@ -1938,9 +1960,8 @@ class Catalog:
                 "has_audio": feature_info.get("has_audio"),
                 "physical_frames": indexed_video.get("frames"),
                 "source_bytes": indexed_video.get("size"),
-                "file_integrity_status": indexed_video.get("integrity_status", "not_indexed"),
-                "integrity_status": "pass" if abs((source_end - source_start) - duration) <= max(1 / fps, 1e-6)
-                else "duration_mismatch",
+                "file_integrity_status": file_integrity,
+                "integrity_status": timeline_integrity if indexed_video else "not_indexed",
             })
 
         ranges_by_stage: dict[int, list[dict[str, Any]]] = {}
