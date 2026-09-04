@@ -49,6 +49,7 @@ type StageResult = {
   stage_id: number; run_id: string; stage?: string; detector_version?: string;
   coordinate_system?: string;
   verdict?: string; anomaly_count?: number; severity?: string | null; score?: number | null;
+  range_count?: number;
   reason_codes?: string[]; detail_loaded?: boolean;
   summary?: Record<string, unknown>; records?: Array<Record<string, unknown>>;
   detail?: Record<string, unknown> | null;
@@ -91,6 +92,15 @@ type SearchStageFacets = Record<string, {
   verdicts: Array<{ value: string; count: number }>;
   artifact_statuses: Array<{ value: string; count: number }>;
 }>;
+
+type StageVerdictInput = {
+  stage_id: number;
+  artifact_status?: string | null;
+  verdict?: string | null;
+  anomaly_count?: number | null;
+  range_count?: number | null;
+  severity?: string | null;
+};
 
 const playbackStatusLabels: Record<PlaybackStatus, string> = {
   idle: "待播放", seeking: "正在定位", buffering: "正在缓冲",
@@ -151,23 +161,48 @@ function searchStatusLabel(value: string): string {
   return labels[value] || value;
 }
 
-function stageBadgePresentation(stage: SearchStageBadge): { text: string; color?: string } {
-  const id = stage.stage_id;
-  if (stage.artifact_status === "not_generated") return { text: `S${id} 未生成` };
-  if (stage.artifact_status === "episode_pending") return { text: `S${id} 待处理`, color: "gold" };
-  if (stage.artifact_status === "upstream_filtered") return { text: `S${id} 前序过滤`, color: "orange" };
-  if (id === 1 && stage.verdict === "anomaly") return { text: `S1 突变 ${stage.anomaly_count}帧`, color: "orange" };
-  if (id === 3 && stage.verdict === "anomaly") return { text: `S3 极值 ${stage.range_count || stage.anomaly_count}区间`, color: "orange" };
-  if (id === 6 && stage.severity === "warning") return { text: "S6 需复核", color: "gold" };
-  if (id === 7 && stage.verdict !== "pass") return { text: `S7 ${searchStatusLabel(stage.verdict)}`, color: stage.verdict === "fail" ? "red" : "gold" };
-  if (id === 8 && stage.verdict === "exclude_affected_sample_windows") return { text: "S8 排除窗口", color: "orange" };
-  if (id === 8 && stage.verdict === "exclude_episode_from_training") return { text: "S8 排除 Episode", color: "red" };
-  if (["fail", "filtered", "not_candidate"].includes(stage.verdict)) return { text: `S${id} ${searchStatusLabel(stage.verdict)}`, color: "red" };
-  if (["warning", "unscored", "needs_review"].includes(stage.verdict)) return { text: `S${id} ${searchStatusLabel(stage.verdict)}`, color: "gold" };
-  if (["pass", "complete", "aligned", "retain"].includes(stage.verdict)) {
-    return { text: `S${id} ${searchStatusLabel(stage.verdict)}`, color: "green" };
+function stagePresentation(stage: StageVerdictInput): { text: string; color?: string } {
+  const id = Number(stage.stage_id);
+  const prefix = `S${id}`;
+  if (stage.artifact_status === "not_generated") return { text: `${prefix} 未生成` };
+  if (stage.artifact_status === "episode_pending") return { text: `${prefix} 待处理`, color: "gold" };
+  if (stage.artifact_status === "upstream_filtered") return { text: `${prefix} 前序过滤`, color: "orange" };
+
+  const verdict = String(stage.verdict || "").toLowerCase();
+  const anomalyCount = Number(stage.anomaly_count ?? 0);
+  const rangeCount = Number(stage.range_count ?? stage.anomaly_count ?? 0);
+  if (id === 1 && verdict === "anomaly") return { text: `${prefix} 突变 ${anomalyCount}帧`, color: "orange" };
+  if (id === 3 && verdict === "anomaly") return { text: `${prefix} 极值 ${rangeCount}区间`, color: "orange" };
+  if (id === 6 && (stage.severity === "warning" || verdict === "needs_review")) {
+    return { text: `${prefix} 需复核`, color: "gold" };
   }
-  return { text: `S${id} ${searchStatusLabel(stage.verdict)}`, color: "gold" };
+  if (id === 8 && verdict === "exclude_affected_sample_windows") {
+    return { text: `${prefix} 排除窗口`, color: "orange" };
+  }
+  if (id === 8 && verdict === "exclude_episode_from_training") {
+    return { text: `${prefix} 排除 Episode`, color: "red" };
+  }
+
+  const redVerdicts = new Set(["fail", "filtered", "not_candidate"]);
+  const orangeVerdicts = new Set(["anomaly"]);
+  const goldVerdicts = new Set(["warning", "unscored", "needs_review", "insufficient_confidence", "skip"]);
+  const greenVerdicts = new Set(["pass", "complete", "aligned", "retain"]);
+  const color = redVerdicts.has(verdict)
+    ? "red"
+    : orangeVerdicts.has(verdict)
+      ? "orange"
+      : goldVerdicts.has(verdict)
+        ? "gold"
+        : greenVerdicts.has(verdict)
+          ? "green"
+          : undefined;
+  if (!color) return { text: `${prefix} 状态未知`, color: "gold" };
+  return { text: `${prefix} ${searchStatusLabel(verdict)}`, color };
+}
+
+function StageVerdictTag({ stage }: { stage: StageVerdictInput }) {
+  const presentation = stagePresentation(stage);
+  return <Tag color={presentation.color}>{presentation.text}</Tag>;
 }
 
 function LazyThumbnail({ item }: { item: EpisodeSearchItem }) {
@@ -258,8 +293,7 @@ function EpisodeSearchCard({ item, onOpen }: { item: EpisodeSearchItem; onOpen: 
         {item.task_name && <div className="episode-card-line" title={item.task_name}>Task：{item.task_name}</div>}
         {item.match_reasons.length > 0 && <div className="episode-card-tags"><Tag color="blue">命中 {item.match_reasons.join(" / ")}</Tag></div>}
         <div className="episode-card-tags">{item.stage_badges.map((stage) => {
-          const badge = stageBadgePresentation(stage);
-          return <Tag key={stage.stage_id} color={badge.color}>{badge.text}</Tag>;
+          return <StageVerdictTag key={stage.stage_id} stage={stage} />;
         })}</div>
       </>
     } />
@@ -419,13 +453,6 @@ function recordsFrom(stage: StageResult, fileName: string): Array<Record<string,
 
 function firstRecordFrom(stage: StageResult, fileName: string): Record<string, unknown> | undefined {
   return recordsFrom(stage, fileName)[0];
-}
-
-function artifactStatusTag(status: StageResult["artifact_status"]) {
-  if (status === "available") return <Tag color="green">已有产物</Tag>;
-  if (status === "episode_pending") return <Tag color="gold">该 Episode 待处理</Tag>;
-  if (status === "upstream_filtered") return <Tag color="orange">前序阶段已过滤</Tag>;
-  return <Tag>暂无产物</Tag>;
 }
 
 function resultTag(value: unknown) {
@@ -596,9 +623,8 @@ function StageVisualizations({ stages, timeline, onSeek, onLoadStage, loadingSta
   const items = rows.map((stage) => {
         const spec = stage.visualization_spec || {};
         const label = <Space wrap>
-          <Tag color="blue">Stage {stage.stage_id}</Tag>
+          <StageVerdictTag stage={stage} />
           <span>{spec.name || stage.stage}</span>
-          {artifactStatusTag(stage.artifact_status)}
         </Space>;
         if (stage.artifact_status === "available" && !stage.detail_loaded) {
           const children = <Spin spinning={loadingStages.has(stage.stage_id)}>

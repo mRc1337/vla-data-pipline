@@ -176,6 +176,7 @@ def test_preview_summary_uses_sqlite_and_stage_details_are_lazy(tmp_path, monkey
     }
     stage1 = next(item for item in summary["stage_results"] if item["stage_id"] == 1)
     assert stage1["artifact_status"] == "available"
+    assert stage1["range_count"] == 1
     assert stage1["detail_loaded"] is False
 
     detail = catalog.episode_stage_detail("demo", 0, 1)

@@ -2348,6 +2348,7 @@ class Catalog:
             "artifact_status": status,
             "verdict": value.get("verdict"),
             "anomaly_count": int(value.get("anomaly_count") or 0),
+            "range_count": len(ranges or []),
             "severity": value.get("severity"),
             "score": value.get("score"),
             "reason_codes": reasons,
@@ -2522,7 +2523,7 @@ class Catalog:
                 "stage_id": stage_id, "run_id": "missing",
                 "stage": CURATION_STAGE_SPECS[stage_id]["name"],
                 "coordinate_system": "episode_frame", "records": [], "detail": None,
-                "artifact_status": status, "verdict": status, "detail_loaded": False,
+                "artifact_status": status, "verdict": status, "range_count": 0, "detail_loaded": False,
                 "placeholder": (
                     f"Episode 已在 Stage {stage_id - 1} 前序结果中过滤，本 Stage 未处理"
                     if inherited else f"当前索引中没有该 Episode 的 Stage {stage_id} 产物"
