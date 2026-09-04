@@ -5,6 +5,11 @@ import {
   Alert, Button, Card, Collapse, Descriptions, Empty, Input, InputNumber, Layout,
   List, Pagination, Progress, Row, Col, Segmented, Select, Space, Spin, Statistic, Table, Tag, message,
 } from "antd";
+import {
+  CameraVideo,
+  VideoPreviewErrorBoundary,
+  type BrowserVideoMetadata,
+} from "./videoPreview";
 import "./style.css";
 
 type Dataset = {
@@ -34,7 +39,7 @@ type ProxyVideo = { camera: string; status: "pending" | "ready"; url: string; du
 type ProxyJob = {
   job_id: string; dataset_uid: string; episode_index: number;
   status: "queued" | "generating" | "ready" | "failed";
-  error?: string | null; warnings?: Array<{ camera: string; relative_path: string; reason: string }>; videos: ProxyVideo[];
+  error?: string | null; videos: ProxyVideo[];
 };
 type StageResult = {
   stage_id: number; run_id: string; stage?: string; detector_version?: string;
@@ -60,7 +65,6 @@ type SeriesRow = Record<string, unknown>;
 type SeriesView = "raw" | "valid" | "repaired" | "diff";
 type ScanTask = { scan_id: string; status: string; current: number; total: number; datasets: number; skipped: number; eta_seconds: number | null };
 type PlaybackStatus = "idle" | "seeking" | "buffering" | "stalled" | "playing" | "paused" | "error";
-type BrowserVideoMetadata = { width: number; height: number; duration: number };
 type SearchStageBadge = {
   stage_id: number; artifact_status: string; verdict: string; anomaly_count: number;
   range_count: number; severity?: string | null; score?: number | null; reason_codes: string[];
@@ -88,18 +92,6 @@ const playbackStatusLabels: Record<PlaybackStatus, string> = {
   idle: "待播放", seeking: "正在定位", buffering: "正在缓冲",
   stalled: "读取停滞", playing: "播放中", paused: "已暂停", error: "播放失败",
 };
-
-const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
-const PLAYBACK_RATE_STORAGE_KEY = "vla.preview.playbackRate";
-
-function initialPlaybackRate(): number {
-  try {
-    const stored = Number(window.localStorage.getItem(PLAYBACK_RATE_STORAGE_KEY));
-    return PLAYBACK_RATES.includes(stored as (typeof PLAYBACK_RATES)[number]) ? stored : 1;
-  } catch {
-    return 1;
-  }
-}
 
 const stageFilterOptions: Record<number, Array<{ label: string; value: string }>> = {
   1: [
@@ -447,12 +439,6 @@ function withTimeout<T>(promise: Promise<T>, messageText: string, timeout = MEDI
       (error) => { window.clearTimeout(timer); reject(error); },
     );
   });
-}
-
-function mediaErrorText(video: HTMLVideoElement): string {
-  const code = video.error?.code;
-  const detail = video.error?.message;
-  return `视频 ${video.dataset.camera || "unknown"} 播放失败${code ? `（错误码 ${code}）` : ""}${detail ? `：${detail}` : ""}`;
 }
 
 function Curve({ title, rows, field, elementNames, fps, intervals = [], playhead, onSeek }: {
@@ -955,13 +941,14 @@ function App() {
   const [proxyJob, setProxyJob] = useState<ProxyJob>();
   const [proxyError, setProxyError] = useState<string>();
   const [useOriginalVideo, setUseOriginalVideo] = useState(false);
+  const [videoErrors, setVideoErrors] = useState<Record<string, string>>({});
+  const [videoRetryTokens, setVideoRetryTokens] = useState<Record<string, number>>({});
+  const [previewReloadToken, setPreviewReloadToken] = useState(0);
   const [browserVideoMetadata, setBrowserVideoMetadata] = useState<Record<string, BrowserVideoMetadata>>({});
   const [currentTime, setCurrentTime] = useState(0);
   const [currentFrame, setCurrentFrame] = useState(0);
-  const [selectedPlaybackRate, setSelectedPlaybackRate] = useState(initialPlaybackRate);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const currentTimeRef = useRef(0);
-  const effectivePlaybackRateRef = useRef(1);
   const playbackRequest = useRef(0);
   const lastFollowerSync = useRef(0);
   const lastUiUpdate = useRef(0);
@@ -1190,31 +1177,22 @@ function App() {
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      video.playbackRate = effectivePlaybackRateRef.current;
+      video.playbackRate = 1;
     });
     currentTimeRef.current = 0;
     lastUiUpdate.current = 0;
     setIsPlaying(false); setPlaybackStatus("idle"); setPlaybackError(undefined);
     setLoadingEpisode(true); setCurrentTime(0); setCurrentFrame(0);
-    setPreview(undefined); setLoadingStageDetails(new Set());
-    const loadPreview = async () => {
-      try {
-        const response = await fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/preview`);
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || "Episode 预览读取失败");
-        if (!payload?.dataset?.uid || payload?.episode?.episode_index === undefined) {
-          throw new Error("Episode 预览响应格式无效");
-        }
-        if (!cancelled) setPreview(payload as Preview);
-      } catch (error) {
-        if (!cancelled) message.error(error instanceof Error ? error.message : "Episode 预览读取失败");
-      } finally {
-        if (!cancelled) setLoadingEpisode(false);
-      }
-    };
-    void loadPreview();
+    setPreview(undefined); setVideoErrors({}); setVideoRetryTokens({});
+    setLoadingStageDetails(new Set());
+    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/preview`)
+      .then((response) => response.json()).then((episodePreview) => {
+      if (cancelled) return;
+      setPreview(episodePreview);
+    }).catch(() => { if (!cancelled) message.error("Episode 预览读取失败"); })
+      .finally(() => { if (!cancelled) setLoadingEpisode(false); });
     return () => { cancelled = true; };
-  }, [episodeIndex, selected]);
+  }, [episodeIndex, previewReloadToken, selected]);
 
   const loadStageDetail = async (stageId: number) => {
     if (!selected || episodeIndex === undefined || loadingStageDetails.has(stageId)) return;
@@ -1311,7 +1289,7 @@ function App() {
     };
     void requestProxy();
     return () => { cancelled = true; };
-  }, [preview?.dataset?.uid, preview?.episode?.episode_index]);
+  }, [preview?.dataset.uid, preview?.episode.episode_index]);
 
   const fps = Number(preview?.timeline?.fps || ((preview?.dataset.schema?.timestamp as { fps?: number } | undefined)?.fps)
     || ((selected?.schema?.timestamp as { fps?: number } | undefined)?.fps) || 20);
@@ -1341,24 +1319,10 @@ function App() {
   }, [preview, readyProxyVideos, timeline.duration, useOriginalVideo]);
 
   const technicalVideos = activeVideos.length ? activeVideos : (preview?.videos || []);
-  const supportsPlaybackRate = activeVideos.length > 0 && activeVideos.every((video) => video.is_proxy);
-  const effectivePlaybackRate = supportsPlaybackRate ? selectedPlaybackRate : 1;
-  const playbackRateIndex = PLAYBACK_RATES.indexOf(selectedPlaybackRate as (typeof PLAYBACK_RATES)[number]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(PLAYBACK_RATE_STORAGE_KEY, String(selectedPlaybackRate));
-    } catch {
-      // Playback still works when storage is unavailable or disabled.
-    }
-  }, [selectedPlaybackRate]);
-
-  useEffect(() => {
-    effectivePlaybackRateRef.current = effectivePlaybackRate;
-    Object.values(videoRefs.current).forEach((video) => {
-      if (video) video.playbackRate = effectivePlaybackRate;
-    });
-  }, [activeVideos, effectivePlaybackRate]);
+  const playableVideos = useMemo(
+    () => activeVideos.filter((video) => !videoErrors[video.camera]),
+    [activeVideos, videoErrors],
+  );
 
   useEffect(() => {
     if (!preview) return;
@@ -1368,12 +1332,13 @@ function App() {
     lastUiUpdate.current = 0;
     lastHardSeek.current = {};
     setBrowserVideoMetadata({});
+    setVideoErrors({}); setVideoRetryTokens({});
     setIsPlaying(false); setPlaybackStatus("idle"); setPlaybackError(undefined);
     setCurrentTime(0); setCurrentFrame(0);
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      video.playbackRate = effectivePlaybackRateRef.current;
+      video.playbackRate = 1;
       const meta = activeVideos.find((item) => item.camera === video.dataset.camera);
       if (meta && video.readyState >= 1) video.currentTime = videoWindow(meta, timeline.duration).start;
     });
@@ -1392,7 +1357,7 @@ function App() {
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      video.playbackRate = effectivePlaybackRateRef.current;
+      video.playbackRate = 1;
     });
     setIsPlaying(false);
     setPlaybackStatus(status);
@@ -1406,8 +1371,6 @@ function App() {
   const syncTime = (source: HTMLVideoElement) => {
     const sourceMeta = activeVideos.find((item) => item.camera === source.dataset.camera);
     if (!sourceMeta) return;
-    const baseRate = effectivePlaybackRateRef.current;
-    if (source.playbackRate !== baseRate) source.playbackRate = baseRate;
     const sourceWindow = videoWindow(sourceMeta, timeline.duration);
     if (source.currentTime < sourceWindow.start) source.currentTime = sourceWindow.start;
     if (source.currentTime >= sourceWindow.end - 0.5 / fps) {
@@ -1435,13 +1398,12 @@ function App() {
         const camera = video.dataset.camera || "unknown";
         if (Math.abs(drift) > 0.5 && now - (lastHardSeek.current[camera] || 0) >= 1000) {
           lastHardSeek.current[camera] = now;
-          video.playbackRate = baseRate;
+          video.playbackRate = 1;
           video.currentTime = target;
         } else if (Math.abs(drift) > 0.2) {
-          const correction = Math.min(1.05, Math.max(0.95, 1 + drift * 0.2));
-          video.playbackRate = Math.min(4, Math.max(0.25, baseRate * correction));
+          video.playbackRate = Math.min(1.05, Math.max(0.95, 1 + drift * 0.2));
         } else {
-          video.playbackRate = baseRate;
+          video.playbackRate = 1;
         }
       });
     }
@@ -1468,31 +1430,58 @@ function App() {
   };
 
   const startPlayback = async () => {
-    if (!activeVideos.length) return;
+    if (!playableVideos.length) return;
     const request = ++playbackRequest.current;
     const relativeTime = currentTimeRef.current >= timeline.duration - 1 / fps ? 0 : currentTimeRef.current;
-    const videos = Object.values(videoRefs.current).filter((video): video is HTMLVideoElement => Boolean(video));
+    const videos = playableVideos
+      .map((video) => videoRefs.current[video.camera])
+      .filter((video): video is HTMLVideoElement => Boolean(video));
+    if (!videos.length) return;
     setPlaybackError(undefined);
     setPlaybackStatus("seeking");
     currentTimeRef.current = relativeTime;
     setCurrentTime(relativeTime);
     setCurrentFrame(Math.min(Math.max(0, timeline.frame_count - 1), Math.floor(relativeTime * fps + 1e-6)));
     try {
-      await Promise.all(videos.map((video) => {
+      const seekedVideos: HTMLVideoElement[] = [];
+      await Promise.all(videos.map(async (video) => {
         const meta = activeVideos.find((item) => item.camera === video.dataset.camera);
-        if (!meta) return Promise.resolve();
+        if (!meta) { seekedVideos.push(video); return; }
         const window = videoWindow(meta, timeline.duration);
-        video.playbackRate = effectivePlaybackRateRef.current;
-        return seekMedia(video, Math.min(window.end, window.start + relativeTime));
+        video.playbackRate = 1;
+        try {
+          await seekMedia(video, Math.min(window.end, window.start + relativeTime));
+          seekedVideos.push(video);
+        } catch (error) {
+          handleCameraError(
+            video.dataset.camera || "unknown",
+            video,
+            error instanceof Error ? error.message : "视频定位失败",
+          );
+        }
       }));
       if (request !== playbackRequest.current) return;
+      if (!seekedVideos.length) throw new Error("没有可播放的视频流");
       setPlaybackStatus("buffering");
-      await Promise.all(videos.map((video) => withTimeout(
-        video.play(),
-        `等待视频 ${video.dataset.camera || "unknown"} 开始播放超时`,
-      )));
+      const startedVideos: HTMLVideoElement[] = [];
+      await Promise.all(seekedVideos.map(async (video) => {
+        try {
+          await withTimeout(
+            video.play(),
+            `等待视频 ${video.dataset.camera || "unknown"} 开始播放超时`,
+          );
+          startedVideos.push(video);
+        } catch (error) {
+          handleCameraError(
+            video.dataset.camera || "unknown",
+            video,
+            error instanceof Error ? error.message : "视频开始播放失败",
+          );
+        }
+      }));
+      if (!startedVideos.length) throw new Error("没有可播放的视频流");
       if (request !== playbackRequest.current) {
-        videos.forEach((video) => video.pause());
+        startedVideos.forEach((video) => video.pause());
         return;
       }
       setIsPlaying(true);
@@ -1514,9 +1503,35 @@ function App() {
     void startPlayback();
   };
 
+  function handleCameraError(camera: string, _video: HTMLVideoElement, errorText: string): void {
+    setVideoErrors((current) => ({ ...current, [camera]: errorText }));
+    const hasAnotherPlayableCamera = playableVideos.some((video) => (
+      video.camera !== camera && videoRefs.current[video.camera] !== null
+    ));
+    if (!hasAnotherPlayableCamera) {
+      pausePlayback("error");
+      setPlaybackError(errorText);
+    }
+  }
+
+  const retryCamera = (camera: string) => {
+    setVideoErrors((current) => {
+      const next = { ...current };
+      delete next[camera];
+      return next;
+    });
+    setVideoRetryTokens((current) => ({ ...current, [camera]: (current[camera] || 0) + 1 }));
+  };
+
+  const retryPreview = () => {
+    setPreviewReloadToken((current) => current + 1);
+  };
+
   useEffect(() => {
     if (!isPlaying || !activeVideos.length) return undefined;
-    const primary = videoRefs.current[activeVideos[0].camera];
+    const primary = playableVideos
+      .map((video) => videoRefs.current[video.camera])
+      .find((video): video is HTMLVideoElement => Boolean(video));
     if (!primary) return undefined;
     type FrameVideo = HTMLVideoElement & {
       requestVideoFrameCallback?: (callback: () => void) => number;
@@ -1538,7 +1553,7 @@ function App() {
       if (handle && frameVideo.cancelVideoFrameCallback) frameVideo.cancelVideoFrameCallback(handle);
       if (animationHandle) window.cancelAnimationFrame(animationHandle);
     };
-  }, [activeVideos, isPlaying, preview, timeline.duration]);
+  }, [activeVideos, isPlaying, playableVideos, preview, timeline.duration, videoErrors]);
 
   const stateWidth = vector(series.find((row) => vector(row["observation.state"]).length)?.["observation.state"]).length;
   const actionWidth = vector(series.find((row) => vector(row.action).length)?.action).length;
@@ -1689,7 +1704,11 @@ function App() {
                 <Descriptions.Item label="时间戳">{currentTime.toFixed(3)} s</Descriptions.Item>
               </Descriptions>}
             </Card>
-            {preview && <Card title="多相机同步视频" className="section-card">
+            {preview && <VideoPreviewErrorBoundary
+              key={`${preview.dataset.uid}:${preview.episode.episode_index}:${previewReloadToken}`}
+              onRetry={retryPreview}
+            >
+              <Card title="多相机同步视频" className="section-card">
               <Space className="playback-state" wrap>
                 <Tag color={playbackStatus === "error" ? "red" : playbackStatus === "playing" ? "green" : ["buffering", "seeking", "stalled"].includes(playbackStatus) ? "blue" : "default"}>
                   {playbackStatusLabels[playbackStatus]}
@@ -1711,9 +1730,6 @@ function App() {
               {proxyError && !useOriginalVideo && <Alert type="error" showIcon
                 message="代理视频生成失败" description={proxyError}
                 action={<Button size="small" onClick={() => setUseOriginalVideo(true)}>使用原始视频</Button>} />}
-              {!useOriginalVideo && proxyJob?.warnings && proxyJob.warnings.length > 0 && <Alert type="warning" showIcon
-                message="部分相机源视频缺失"
-                description={`已跳过：${proxyJob.warnings.map((item) => item.camera).join("、")}`} />}
               {!useOriginalVideo && proxyJob && ["queued", "generating"].includes(proxyJob.status)
                 && <Progress percent={proxyJob.status === "generating" ? 65 : 15} status="active" showInfo={false} />}
               <Collapse className="video-metadata-collapse" items={[{
@@ -1756,58 +1772,39 @@ function App() {
                   ? `Episode 代理 · 0.00–${timeline.duration.toFixed(2)} s`
                   : `file-${String(video.file_index ?? "?").padStart(3, "0")} · 源时间窗 ${videoWindow(video, timeline.duration).start.toFixed(2)}–${videoWindow(video, timeline.duration).end.toFixed(2)} s`}</div>
                 {video.integrity_status === "duration_mismatch" && <Alert type="warning" showIcon message="该相机视频窗口长度与 Episode 长度不一致" />}
-                <video className="episode-video" playsInline muted preload="metadata" src={video.url} data-camera={video.camera}
-                  onClick={togglePlayback} ref={(element) => { videoRefs.current[video.camera] = element; }}
-                  onLoadedMetadata={(event) => {
-                    const media = event.currentTarget;
-                    setBrowserVideoMetadata((current) => ({ ...current, [video.camera]: {
-                      width: media.videoWidth,
-                      height: media.videoHeight,
-                      duration: media.duration,
-                    } }));
-                    const target = videoWindow(video, timeline.duration).start;
-                    media.playbackRate = effectivePlaybackRateRef.current;
-                    if (Math.abs(media.currentTime - target) > 0.1) media.currentTime = target;
+                <CameraVideo
+                  key={`${video.camera}:${video.url}:${videoRetryTokens[video.camera] || 0}`}
+                  camera={video.camera}
+                  src={video.url}
+                  target={videoWindow(video, timeline.duration).start}
+                  retryToken={videoRetryTokens[video.camera] || 0}
+                  error={videoErrors[video.camera]}
+                  onClick={togglePlayback}
+                  onLoadedMetadata={(camera, _element, metadata) => {
+                    setBrowserVideoMetadata((current) => ({ ...current, [camera]: metadata }));
                   }}
                   onWaiting={() => { if (isPlaying) setPlaybackStatus("buffering"); }}
                   onStalled={() => { if (isPlaying) setPlaybackStatus("stalled"); }}
                   onCanPlay={() => { if (isPlaying) setPlaybackStatus("playing"); }}
-                  onError={(event) => {
-                    const errorText = mediaErrorText(event.currentTarget);
-                    pausePlayback("error");
-                    setPlaybackError(errorText);
-                  }} />
+                  onError={handleCameraError}
+                  onRetry={() => retryCamera(video.camera)}
+                  setRef={(element) => { videoRefs.current[video.camera] = element; }}
+                />
               </Col>)}</Row>
               <div className="video-controls">
                 <Space>
-                  <Button type="primary" onClick={togglePlayback} disabled={!activeVideos.length} danger={playbackStatus === "error"}>
+                  <Button type="primary" onClick={togglePlayback} disabled={!playableVideos.length} danger={playbackStatus === "error"}>
                     {isPlaying || playbackStatus === "seeking" || playbackStatus === "buffering" ? "暂停" : "播放"}
                   </Button>
-                  <Button disabled={!activeVideos.length} onClick={() => seek(currentTime - 1 / fps)}>上一帧</Button>
-                  <Button disabled={!activeVideos.length} onClick={() => seek(currentTime + 1 / fps)}>下一帧</Button>
-                  <Space.Compact className="playback-rate-control">
-                    <Button disabled={!supportsPlaybackRate || playbackRateIndex <= 0}
-                      onClick={() => setSelectedPlaybackRate(PLAYBACK_RATES[playbackRateIndex - 1])}>
-                      减速
-                    </Button>
-                    <Select aria-label="代理视频播放速度" value={selectedPlaybackRate}
-                      disabled={!supportsPlaybackRate} style={{ width: 92 }}
-                      options={PLAYBACK_RATES.map((rate) => ({ value: rate, label: `${rate}×` }))}
-                      onChange={setSelectedPlaybackRate} />
-                    <Button disabled={!supportsPlaybackRate || playbackRateIndex >= PLAYBACK_RATES.length - 1}
-                      onClick={() => setSelectedPlaybackRate(PLAYBACK_RATES[playbackRateIndex + 1])}>
-                      加速
-                    </Button>
-                  </Space.Compact>
+                  <Button disabled={!playableVideos.length} onClick={() => seek(currentTime - 1 / fps)}>上一帧</Button>
+                  <Button disabled={!playableVideos.length} onClick={() => seek(currentTime + 1 / fps)}>下一帧</Button>
                 </Space>
-                {!supportsPlaybackRate && <span className="playback-rate-hint">
-                  {useOriginalVideo ? "倍速仅支持 Episode H.264 代理视频" : "代理视频就绪后可调整倍速"}
-                </span>}
                 <span>Episode {currentTime.toFixed(2)} / {timeline.duration.toFixed(2)} s · Frame {currentFrame}</span>
                 <input aria-label="Episode 时间轴" type="range" min={0} max={timeline.duration || 1} step={1 / fps}
-                  disabled={!activeVideos.length} value={Math.min(currentTime, timeline.duration || 1)} onChange={(event) => seek(Number(event.target.value))} />
+                  disabled={!playableVideos.length} value={Math.min(currentTime, timeline.duration || 1)} onChange={(event) => seek(Number(event.target.value))} />
               </div>
-            </Card>}
+              </Card>
+            </VideoPreviewErrorBoundary>}
             <Card title="state / action 曲线" className="section-card" extra={<Segmented
               value={seriesView}
               options={seriesViewOptions}
@@ -1831,27 +1828,4 @@ function App() {
   </Layout>;
 }
 
-class AppErrorBoundary extends React.Component<{ children: React.ReactNode }, { error?: Error }> {
-  state: { error?: Error } = {};
-
-  static getDerivedStateFromError(error: Error) {
-    return { error };
-  }
-
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error("Unhandled application error", error, info);
-  }
-
-  render() {
-    if (!this.state.error) return this.props.children;
-    return <Layout className="shell"><Layout.Content>
-      <Card title="页面加载失败">
-        <Alert type="error" showIcon title="当前内容无法显示"
-          description={this.state.error.message || "发生未知错误"}
-          action={<Button onClick={() => window.location.reload()}>重新加载</Button>} />
-      </Card>
-    </Layout.Content></Layout>;
-  }
-}
-
-createRoot(document.getElementById("root")!).render(<AppErrorBoundary><App /></AppErrorBoundary>);
+createRoot(document.getElementById("root")!).render(<App />);
