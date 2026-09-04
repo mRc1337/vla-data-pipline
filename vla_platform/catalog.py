@@ -1731,9 +1731,23 @@ class Catalog:
                                       indexed_at=excluded.indexed_at""", (
                             uid, stage_id, verdict, verdict, count, now,
                         ))
-            db.execute("""INSERT OR REPLACE INTO search_summary_meta(
-                summary_key,summary_version,indexed_at,refreshed_at
-            ) VALUES('global',?,?,?)""", (SEARCH_SUMMARY_VERSION, now, now))
+            expected = int(db.execute(
+                "SELECT COUNT(*) FROM datasets WHERE episodes > 0"
+            ).fetchone()[0])
+            covered = int(db.execute(
+                "SELECT COUNT(*) FROM search_dataset_summary WHERE episode_count > 0"
+            ).fetchone()[0])
+            if covered >= expected:
+                db.execute("""INSERT OR REPLACE INTO search_summary_meta(
+                    summary_key,summary_version,indexed_at,refreshed_at
+                ) VALUES('global',?,?,?)""", (SEARCH_SUMMARY_VERSION, now, now))
+            else:
+                # A selector-limited refresh must not advertise a global
+                # summary: otherwise default search would silently omit
+                # datasets whose counters were not refreshed yet.
+                db.execute(
+                    "DELETE FROM search_summary_meta WHERE summary_key='global'"
+                )
 
     def resolve_search_index_datasets(
         self, selectors: list[str] | None = None
@@ -1979,21 +1993,48 @@ class Catalog:
                 "SELECT 1 FROM search_summary_meta WHERE summary_key='global' "
                 "AND summary_version=?", (SEARCH_SUMMARY_VERSION,)
             ).fetchone())
-            summary_fast = summary_ready and not normalized_query and not (stage_filters or [])
+            # The compact summary is the preferred source.  A legacy catalog
+            # may not have been through an explicit search-index rebuild yet;
+            # the dataset table still contains an authoritative Episode count,
+            # so the default browse path must use it instead of falling back
+            # to COUNT(*) over the million-row episode_search table.
+            summary_fast = not normalized_query and not (stage_filters or [])
             if summary_fast:
-                summary_where = "episode_count > 0"
-                summary_params: list[Any] = []
-                if dataset_uids:
-                    placeholders = ",".join("?" for _ in dataset_uids)
-                    summary_where += f" AND (dataset_uid IN ({placeholders}) OR collection_name IN ({placeholders}))"
-                    summary_params.extend(dataset_uids)
-                    summary_params.extend(dataset_uids)
-                summary = db.execute(f"""SELECT COALESCE(SUM(episode_count),0) AS total,
-                    COUNT(DISTINCT collection_name) AS datasets,
-                    COALESCE(SUM(task_count),0) AS tasks
-                    FROM search_dataset_summary WHERE {summary_where}""", summary_params).fetchone()
-                total = int(summary["total"] or 0)
-                facets = (int(summary["datasets"] or 0), int(summary["tasks"] or 0))
+                if summary_ready:
+                    summary_where = "episode_count > 0"
+                    summary_params: list[Any] = []
+                    if dataset_uids:
+                        placeholders = ",".join("?" for _ in dataset_uids)
+                        summary_where += f" AND (dataset_uid IN ({placeholders}) OR collection_name IN ({placeholders}))"
+                        summary_params.extend(dataset_uids)
+                        summary_params.extend(dataset_uids)
+                    summary = db.execute(f"""SELECT COALESCE(SUM(episode_count),0) AS total,
+                        COUNT(DISTINCT collection_name) AS datasets,
+                        COALESCE(SUM(task_count),0) AS tasks
+                        FROM search_dataset_summary WHERE {summary_where}""", summary_params).fetchone()
+                    total = int(summary["total"] or 0)
+                    facets = (int(summary["datasets"] or 0), int(summary["tasks"] or 0))
+                else:
+                    legacy_rows = db.execute(
+                        "SELECT uid,root,episodes FROM datasets WHERE episodes > 0 ORDER BY uid"
+                    ).fetchall()
+                    selectors = set(dataset_uids or [])
+                    if selectors:
+                        legacy_rows = [
+                            row for row in legacy_rows
+                            if row["uid"] in selectors
+                            or self._collection_name(Path(row["root"]), str(row["uid"])) in selectors
+                        ]
+                    total = sum(int(row["episodes"] or 0) for row in legacy_rows)
+                    collections = {
+                        self._collection_name(Path(row["root"]), str(row["uid"]))
+                        for row in legacy_rows
+                    }
+                    # Task counts are not stored in the legacy dataset row.
+                    # Returning zero here is preferable to a blocking
+                    # DISTINCT scan; the next explicit index refresh fills
+                    # the exact summary value.
+                    facets = (len(collections), 0)
             else:
                 total = int(db.execute(f"SELECT COUNT(*) FROM episode_search e{fts_join} {where_sql}", params).fetchone()[0])
                 facets = db.execute(f"""SELECT COUNT(DISTINCT e.collection_name),

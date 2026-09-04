@@ -147,6 +147,20 @@ def test_episode_search_text_stage_filters_pagination_and_missing_states(tmp_pat
     )
 
 
+def test_default_search_uses_dataset_counts_before_summary_refresh(tmp_path):
+    catalog = indexed_catalog(tmp_path)
+    with catalog._connect() as db:
+        db.execute("DELETE FROM search_dataset_summary")
+        db.execute("DELETE FROM search_stage_summary")
+        db.execute("DELETE FROM search_summary_meta")
+
+    result = catalog.search_episodes(page=1, page_size=2)
+    assert result["total"] == 3
+    assert result["dataset_count"] == 1
+    assert result["task_count"] == 0
+    assert len(result["items"]) == 2
+
+
 def test_preview_summary_uses_sqlite_and_stage_details_are_lazy(tmp_path, monkeypatch):
     catalog = indexed_catalog(tmp_path)
 
