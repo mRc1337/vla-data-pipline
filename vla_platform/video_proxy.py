@@ -56,7 +56,8 @@ class VideoProxyManager:
         return path.is_file() and path.stat().st_size > 0
 
     def _specs(self, catalog: Any, uid: str, episode_index: int) -> tuple[str, list[ProxySpec]]:
-        preview = catalog.episode_preview(uid, episode_index)
+        preview_loader = getattr(catalog, "episode_preview_summary", catalog.episode_preview)
+        preview = preview_loader(uid, episode_index)
         timeline = preview["timeline"]
         fps = float(timeline["fps"])
         frame_count = int(timeline["frame_count"])

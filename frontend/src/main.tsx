@@ -24,6 +24,10 @@ type VideoRef = {
   timestamp_start?: number; timestamp_end?: number;
   source_start?: number; source_end?: number; duration?: number;
   chunk_index?: number; file_index?: number; integrity_status?: string;
+  width?: number | null; height?: number | null; fps?: number | null;
+  codec?: string | null; pixel_format?: string | null; channels?: number | null;
+  has_audio?: boolean | null; physical_frames?: number | null; frame_count?: number | null;
+  source_bytes?: number | null; file_integrity_status?: string;
   is_proxy?: boolean;
 };
 type ProxyVideo = { camera: string; status: "pending" | "ready"; url: string; duration: number; frame_count: number; fps: number };
@@ -35,6 +39,8 @@ type ProxyJob = {
 type StageResult = {
   stage_id: number; run_id: string; stage?: string; detector_version?: string;
   coordinate_system?: string;
+  verdict?: string; anomaly_count?: number; severity?: string | null; score?: number | null;
+  reason_codes?: string[]; detail_loaded?: boolean;
   summary?: Record<string, unknown>; records?: Array<Record<string, unknown>>;
   detail?: Record<string, unknown> | null;
   artifact_status?: "available" | "episode_pending" | "upstream_filtered" | "not_generated";
@@ -54,6 +60,7 @@ type SeriesRow = Record<string, unknown>;
 type SeriesView = "raw" | "valid" | "repaired" | "diff";
 type ScanTask = { scan_id: string; status: string; current: number; total: number; datasets: number; skipped: number; eta_seconds: number | null };
 type PlaybackStatus = "idle" | "seeking" | "buffering" | "stalled" | "playing" | "paused" | "error";
+type BrowserVideoMetadata = { width: number; height: number; duration: number };
 type SearchStageBadge = {
   stage_id: number; artifact_status: string; verdict: string; anomaly_count: number;
   range_count: number; severity?: string | null; score?: number | null; reason_codes: string[];
@@ -144,11 +151,11 @@ function stageBadgePresentation(stage: SearchStageBadge): { text: string; color?
   if (id === 1 && stage.verdict === "anomaly") return { text: `S1 突变 ${stage.anomaly_count}帧`, color: "orange" };
   if (id === 3 && stage.verdict === "anomaly") return { text: `S3 极值 ${stage.range_count || stage.anomaly_count}区间`, color: "orange" };
   if (id === 6 && stage.severity === "warning") return { text: "S6 需复核", color: "gold" };
-  if (id === 7 && stage.verdict !== "pass") return { text: `S7 ${stage.verdict}`, color: stage.verdict === "fail" ? "red" : "gold" };
+  if (id === 7 && stage.verdict !== "pass") return { text: `S7 ${searchStatusLabel(stage.verdict)}`, color: stage.verdict === "fail" ? "red" : "gold" };
   if (id === 8 && stage.verdict === "exclude_affected_sample_windows") return { text: "S8 排除窗口", color: "orange" };
   if (id === 8 && stage.verdict === "exclude_episode_from_training") return { text: "S8 排除 Episode", color: "red" };
-  if (["fail", "filtered", "not_candidate"].includes(stage.verdict)) return { text: `S${id} ${stage.verdict}`, color: "red" };
-  if (["warning", "unscored", "needs_review"].includes(stage.verdict)) return { text: `S${id} ${stage.verdict}`, color: "gold" };
+  if (["fail", "filtered", "not_candidate"].includes(stage.verdict)) return { text: `S${id} ${searchStatusLabel(stage.verdict)}`, color: "red" };
+  if (["warning", "unscored", "needs_review"].includes(stage.verdict)) return { text: `S${id} ${searchStatusLabel(stage.verdict)}`, color: "gold" };
   if (["pass", "complete", "aligned", "retain"].includes(stage.verdict)) {
     return { text: `S${id} ${searchStatusLabel(stage.verdict)}`, color: "green" };
   }
@@ -351,18 +358,29 @@ function artifactStatusTag(status: StageResult["artifact_status"]) {
 
 function resultTag(value: unknown) {
   const status = String(value ?? "unknown").toLowerCase();
+  const text = typeof value === "boolean" ? (value ? "是" : "否") : searchStatusLabel(status);
   if (["pass", "passed", "complete", "available", "retain", "true"].includes(status)) {
-    return <Tag color="green">{String(value)}</Tag>;
+    return <Tag color="green">{text}</Tag>;
   }
   if (["fail", "failed", "invalid", "exclude_episode_from_training", "false"].includes(status)) {
-    return <Tag color="red">{String(value)}</Tag>;
+    return <Tag color="red">{text}</Tag>;
   }
-  return <Tag color="gold">{String(value ?? "unknown")}</Tag>;
+  return <Tag color="gold">{text}</Tag>;
 }
 
 function fixed(value: unknown, digits = 4, suffix = ""): string {
   const number = numeric(value);
   return number === null ? "—" : `${number.toFixed(digits)}${suffix}`;
+}
+
+function formatBytes(value: unknown): string {
+  const bytes = numeric(value);
+  if (bytes === null) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let amount = bytes;
+  let unit = 0;
+  while (amount >= 1024 && unit < units.length - 1) { amount /= 1024; unit += 1; }
+  return `${amount.toFixed(unit ? 1 : 0)} ${units[unit]}`;
 }
 
 function vectorText(value: unknown, digits = 5): string {
@@ -487,8 +505,9 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
-function StageVisualizations({ stages, timeline, onSeek }: {
+function StageVisualizations({ stages, timeline, onSeek, onLoadStage, loadingStages }: {
   stages: StageResult[]; timeline: EpisodeTimeline; onSeek: (time: number) => void;
+  onLoadStage: (stageId: number) => void; loadingStages: Set<number>;
 }) {
   const rows = Array.from({ length: 8 }, (_, offset) => {
     const stageId = offset + 1;
@@ -508,13 +527,29 @@ function StageVisualizations({ stages, timeline, onSeek }: {
       stage: `Stage ${stageId}`, placeholder: `未发现 Stage ${stageId} 产物`,
     };
   });
+  useEffect(() => {
+    rows.forEach((stage) => {
+      if (stage.artifact_status === "available"
+        && !stage.detail_loaded && !loadingStages.has(stage.stage_id)) {
+        onLoadStage(stage.stage_id);
+      }
+    });
+  }, [stages]);
   const items = rows.map((stage) => {
         const spec = stage.visualization_spec || {};
         const label = <Space wrap>
           <Tag color="blue">Stage {stage.stage_id}</Tag>
-          <span>{stage.stage || spec.name}</span>
+          <span>{spec.name || stage.stage}</span>
           {artifactStatusTag(stage.artifact_status)}
         </Space>;
+        if (stage.artifact_status === "available" && !stage.detail_loaded) {
+          const children = <Spin spinning={loadingStages.has(stage.stage_id)}>
+            <Alert type="info" showIcon
+              message={loadingStages.has(stage.stage_id) ? "正在读取 Stage 详情" : "展开后按需读取 Stage 详情"}
+              description={`摘要已从本地索引加载：${searchStatusLabel(String(stage.verdict || "available"))}${stage.anomaly_count ? ` · ${stage.anomaly_count} 个异常` : ""}`} />
+          </Spin>;
+          return { key: String(stage.stage_id), label, children };
+        }
         if (stage.stage_id <= 3) {
           if (stage.artifact_status !== "available") {
             const children = <>
@@ -871,7 +906,14 @@ function StageVisualizations({ stages, timeline, onSeek }: {
         return { key: String(stage.stage_id), label, children };
       });
   return <Card title="Stage 1–8 检测与专项可视化" className="section-card">
-    <Collapse defaultActiveKey={rows.map((stage) => String(stage.stage_id))} items={items} />
+    <Collapse defaultActiveKey={rows.map((stage) => String(stage.stage_id))} items={items} onChange={(keys) => {
+      const active = Array.isArray(keys) ? keys : [keys];
+      active.forEach((key) => {
+        const stageId = Number(key);
+        const stage = rows.find((item) => item.stage_id === stageId);
+        if (stage?.artifact_status === "available" && !stage.detail_loaded) onLoadStage(stageId);
+      });
+    }} />
   </Card>;
 }
 
@@ -889,6 +931,7 @@ function App() {
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [episodeIndex, setEpisodeIndex] = useState<number>();
   const [preview, setPreview] = useState<Preview>();
+  const [loadingStageDetails, setLoadingStageDetails] = useState<Set<number>>(new Set());
   const [series, setSeries] = useState<SeriesRow[]>([]);
   const [seriesView, setSeriesView] = useState<SeriesView>("raw");
   const [loadingSeries, setLoadingSeries] = useState(false);
@@ -900,6 +943,7 @@ function App() {
   const [proxyJob, setProxyJob] = useState<ProxyJob>();
   const [proxyError, setProxyError] = useState<string>();
   const [useOriginalVideo, setUseOriginalVideo] = useState(false);
+  const [browserVideoMetadata, setBrowserVideoMetadata] = useState<Record<string, BrowserVideoMetadata>>({});
   const [currentTime, setCurrentTime] = useState(0);
   const [currentFrame, setCurrentFrame] = useState(0);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
@@ -1023,6 +1067,7 @@ function App() {
       fetch("/api/search/facets").then((response) => response.json()).then((payload) => setSearchStageFacets(payload.stages || {}));
       await executeSearch(1);
     } catch (error) {
+      setSearchIndexTask(undefined);
       message.error(error instanceof Error ? error.message : "搜索索引构建失败");
     }
   };
@@ -1137,6 +1182,7 @@ function App() {
     lastUiUpdate.current = 0;
     setIsPlaying(false); setPlaybackStatus("idle"); setPlaybackError(undefined);
     setLoadingEpisode(true); setCurrentTime(0); setCurrentFrame(0);
+    setPreview(undefined); setLoadingStageDetails(new Set());
     fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/preview`)
       .then((response) => response.json()).then((episodePreview) => {
       if (cancelled) return;
@@ -1145,6 +1191,36 @@ function App() {
       .finally(() => { if (!cancelled) setLoadingEpisode(false); });
     return () => { cancelled = true; };
   }, [episodeIndex, selected]);
+
+  const loadStageDetail = async (stageId: number) => {
+    if (!selected || episodeIndex === undefined || loadingStageDetails.has(stageId)) return;
+    const requestedUid = selected.uid;
+    const requestedEpisode = episodeIndex;
+    setLoadingStageDetails((current) => new Set(current).add(stageId));
+    try {
+      const response = await fetch(
+        `/api/datasets/${encodeURIComponent(requestedUid)}/episodes/${requestedEpisode}/stages/${stageId}`,
+      );
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || `Stage ${stageId} 详情读取失败`);
+      setPreview((current) => {
+        if (!current || current.dataset.uid !== requestedUid
+          || current.episode.episode_index !== requestedEpisode) return current;
+        return {
+          ...current,
+          stage_results: current.stage_results.map((stage) => (
+            stage.stage_id === stageId ? payload as StageResult : stage
+          )),
+        };
+      });
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : `Stage ${stageId} 详情读取失败`);
+    } finally {
+      setLoadingStageDetails((current) => {
+        const next = new Set(current); next.delete(stageId); return next;
+      });
+    }
+  };
 
   useEffect(() => {
     const format = preview?.curation?.format;
@@ -1234,10 +1310,13 @@ function App() {
       return proxy?.status === "ready" ? [{
         ...video, url: proxy.url, source_start: 0, source_end: timeline.duration,
         timestamp_start: 0, timestamp_end: timeline.duration, duration: timeline.duration,
+        fps: proxy.fps, frame_count: proxy.frame_count, codec: "h264", pixel_format: "yuv420p",
         integrity_status: "pass", is_proxy: true,
       }] : [];
     });
   }, [preview, readyProxyVideos, timeline.duration, useOriginalVideo]);
+
+  const technicalVideos = activeVideos.length ? activeVideos : (preview?.videos || []);
 
   useEffect(() => {
     if (!preview) return;
@@ -1246,6 +1325,7 @@ function App() {
     lastFollowerSync.current = 0;
     lastUiUpdate.current = 0;
     lastHardSeek.current = {};
+    setBrowserVideoMetadata({});
     setIsPlaying(false); setPlaybackStatus("idle"); setPlaybackError(undefined);
     setCurrentTime(0); setCurrentFrame(0);
     Object.values(videoRefs.current).forEach((video) => {
@@ -1527,16 +1607,31 @@ function App() {
               onChange={(uid) => { navigationTarget.current = undefined; setSelected(selectedCollection.datasets.find((item) => item.uid === uid)); }} />
           </Card>}
           {selected && <div ref={workbenchRef}>
-            <Card title={`Episode 预览 / ${selectedCollection?.name || selected.uid}`} extra={<Space>
-              {selectedCollection && selectedCollection.datasets.length > 1 && <Select showSearch virtual optionFilterProp="label" value={selected.uid}
-                placeholder="选择子数据集" style={{ width: 300 }} options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${item.uid} · ${item.episodes} episodes` }))}
-                onChange={(uid) => { navigationTarget.current = undefined; setSelected(selectedCollection.datasets.find((item) => item.uid === uid)); setTaskIndex(undefined); }} />}
-              <Select allowClear showSearch virtual optionFilterProp="label" placeholder="选择 Task" value={taskIndex} options={taskOptions}
-                onChange={(value) => { navigationTarget.current = undefined; setTaskIndex(value); }} style={{ width: 380 }} />
-              <Select showSearch virtual optionFilterProp="label" placeholder="选择 Episode" value={episodeIndex} options={episodeOptions} onChange={setEpisodeIndex} style={{ width: 360 }} />
-              {episodeIndex !== undefined && <InputNumber min={0} max={Math.max(0, selected.episodes - 1)} value={episodeIndex} onChange={(value) => value !== null && setEpisodeIndex(value)} />}
-            </Space>}>
-              <Row gutter={16}>
+            <Card title={`Episode 预览 / ${selectedCollection?.name || selected.uid}`}>
+              <div className={`episode-selector-row episode-selector-primary${selectedCollection && selectedCollection.datasets.length > 1 ? "" : " single"}`}>
+                {selectedCollection && selectedCollection.datasets.length > 1 && <div className="episode-selector-field">
+                  <span>子数据集</span>
+                  <Select showSearch virtual optionFilterProp="label" value={selected.uid}
+                    placeholder="选择子数据集" options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${item.uid} · ${item.episodes} episodes` }))}
+                    onChange={(uid) => { navigationTarget.current = undefined; setSelected(selectedCollection.datasets.find((item) => item.uid === uid)); setTaskIndex(undefined); }} />
+                </div>}
+                <div className="episode-selector-field">
+                  <span>Task</span>
+                  <Select allowClear showSearch virtual optionFilterProp="label" placeholder="选择 Task" value={taskIndex} options={taskOptions}
+                    onChange={(value) => { navigationTarget.current = undefined; setTaskIndex(value); }} />
+                </div>
+              </div>
+              <div className="episode-selector-row episode-selector-secondary">
+                <div className="episode-selector-field">
+                  <span>Episode</span>
+                  <Select showSearch virtual optionFilterProp="label" placeholder="选择 Episode" value={episodeIndex} options={episodeOptions} onChange={setEpisodeIndex} />
+                </div>
+                {episodeIndex !== undefined && <div className="episode-selector-field episode-number-field">
+                  <span>编号</span>
+                  <InputNumber min={0} max={Math.max(0, selected.episodes - 1)} value={episodeIndex} onChange={(value) => value !== null && setEpisodeIndex(value)} />
+                </div>}
+              </div>
+              <Row gutter={16} className="episode-statistics">
                 <Col><Statistic title="Episodes" value={selected.episodes} /></Col>
                 <Col><Statistic title="Frames" value={selected.frames} /></Col>
                 <Col><Statistic title="Cameras" value={preview?.videos.length || selected.cameras.length} /></Col>
@@ -1573,6 +1668,41 @@ function App() {
                 action={<Button size="small" onClick={() => setUseOriginalVideo(true)}>使用原始视频</Button>} />}
               {!useOriginalVideo && proxyJob && ["queued", "generating"].includes(proxyJob.status)
                 && <Progress percent={proxyJob.status === "generating" ? 65 : 15} status="active" showInfo={false} />}
+              <Collapse className="video-metadata-collapse" items={[{
+                key: "video-metadata",
+                label: `视频技术信息 · ${technicalVideos.length} 个相机（点击展开）`,
+                children: <Space direction="vertical" size={10} style={{ width: "100%" }}>
+                  <Descriptions size="small" bordered column={{ xs: 1, sm: 2, lg: 4 }}>
+                    <Descriptions.Item label="Episode 分辨率基准">各相机独立记录</Descriptions.Item>
+                    <Descriptions.Item label="Episode FPS">{fixed(timeline.fps, 2)}</Descriptions.Item>
+                    <Descriptions.Item label="Episode 帧数">{timeline.frame_count}</Descriptions.Item>
+                    <Descriptions.Item label="Episode 时长">{fixed(timeline.duration, 3, " s")}</Descriptions.Item>
+                  </Descriptions>
+                  {technicalVideos.map((video) => {
+                    const observed = browserVideoMetadata[video.camera];
+                    const width = observed?.width || numeric(video.width);
+                    const height = observed?.height || numeric(video.height);
+                    const sourceWindow = videoWindow(video, timeline.duration);
+                    return <Card key={video.camera} size="small" title={video.camera}
+                      extra={<Tag color={video.is_proxy ? "green" : "blue"}>{video.is_proxy ? "Episode H.264 代理" : "原始 MP4 分片"}</Tag>}>
+                      <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 3 }}>
+                        <Descriptions.Item label="分辨率">{width && height ? `${width} × ${height}` : "—"}</Descriptions.Item>
+                        <Descriptions.Item label="FPS">{fixed(video.fps ?? timeline.fps, 2)}</Descriptions.Item>
+                        <Descriptions.Item label="编码">{video.codec || (video.is_proxy ? "h264" : "—")}</Descriptions.Item>
+                        <Descriptions.Item label="像素格式">{video.pixel_format || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="通道/音频">{video.channels ?? "—"} channels · {video.has_audio ? "有音频" : "无音频"}</Descriptions.Item>
+                        <Descriptions.Item label="当前媒体时长">{observed && Number.isFinite(observed.duration) ? `${observed.duration.toFixed(3)} s` : "加载视频后显示"}</Descriptions.Item>
+                        <Descriptions.Item label="Episode 时间窗">{sourceWindow.start.toFixed(3)}–{sourceWindow.end.toFixed(3)} s</Descriptions.Item>
+                        <Descriptions.Item label="物理分片帧数">{video.physical_frames ?? "未索引"}</Descriptions.Item>
+                        <Descriptions.Item label="源文件大小">{formatBytes(video.source_bytes)}</Descriptions.Item>
+                        <Descriptions.Item label="分片编号">chunk-{String(video.chunk_index ?? "?").padStart(3, "0")} / file-{String(video.file_index ?? "?").padStart(3, "0")}</Descriptions.Item>
+                        <Descriptions.Item label="完整性">{video.integrity_status || "—"} · {video.file_integrity_status || "not_indexed"}</Descriptions.Item>
+                        <Descriptions.Item label="源文件" span={3}><code className="video-source-path">{video.relative_path}</code></Descriptions.Item>
+                      </Descriptions>
+                    </Card>;
+                  })}
+                </Space>,
+              }]} />
               <Row gutter={[12, 12]}>{activeVideos.map((video) => <Col xs={24} md={12} key={video.camera}>
                 <div className="camera-title">{video.camera} · {video.is_proxy
                   ? `Episode 代理 · 0.00–${timeline.duration.toFixed(2)} s`
@@ -1581,6 +1711,11 @@ function App() {
                 <video className="episode-video" playsInline muted preload="metadata" src={video.url} data-camera={video.camera}
                   onClick={togglePlayback} ref={(element) => { videoRefs.current[video.camera] = element; }}
                   onLoadedMetadata={(event) => {
+                    setBrowserVideoMetadata((current) => ({ ...current, [video.camera]: {
+                      width: event.currentTarget.videoWidth,
+                      height: event.currentTarget.videoHeight,
+                      duration: event.currentTarget.duration,
+                    } }));
                     const target = videoWindow(video, timeline.duration).start;
                     if (Math.abs(event.currentTarget.currentTime - target) > 0.1) event.currentTarget.currentTime = target;
                   }}
@@ -1620,7 +1755,8 @@ function App() {
                 <Col xs={24} xl={12}><Curve title="Action" rows={series} field="action" elementNames={actionElementNames} fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
               </Row>
             </Card>
-            {preview && <StageVisualizations stages={preview.stage_results} timeline={timeline} onSeek={seek} />}
+            {preview && <StageVisualizations stages={preview.stage_results} timeline={timeline} onSeek={seek}
+              onLoadStage={(stageId) => void loadStageDetail(stageId)} loadingStages={loadingStageDetails} />}
           </div>}
         </Col>
       </Row>

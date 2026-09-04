@@ -47,6 +47,8 @@ def test_pipeline_writes_manifest(tmp_path):
     asyncio.run(runner._run(task, {}))
     assert task.status == "succeeded"
     assert (tmp_path / "curation" / "stage1" / "demo" / task.task_id / "manifest.json").exists()
+    search_manifest = tmp_path / "curation" / "stage1" / "demo" / "search_index_manifest.json"
+    assert json.loads(search_manifest.read_text())["file_count"] == 1
 
 
 def test_health_endpoint():
@@ -153,7 +155,11 @@ def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_p
     (dataset / "videos" / "observation.images.wrist" / "chunk-000").mkdir(parents=True)
     info = {"codebase_version": "v3.0", "total_episodes": 1, "total_frames": 2,
             "fps": 10, "video_path": "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
-            "features": {"observation.images.front": {"dtype": "video"},
+            "features": {"observation.images.front": {
+                             "dtype": "video", "shape": [240, 320, 3],
+                             "info": {"video.height": 240, "video.width": 320,
+                                      "video.codec": "av1", "video.pix_fmt": "yuv420p",
+                                      "video.fps": 10, "video.channels": 3, "has_audio": False}},
                          "observation.images.wrist": {"dtype": "video"},
                          "observation.state": {"dtype": "float32", "shape": [2]},
                          "action": {"dtype": "float32", "shape": [2]}}}
@@ -219,6 +225,11 @@ def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_p
     videos = {item["camera"]: item for item in preview["videos"]}
     assert videos["observation.images.front"]["file_index"] == 1
     assert videos["observation.images.front"]["source_start"] == 0.0
+    assert videos["observation.images.front"]["width"] == 320
+    assert videos["observation.images.front"]["height"] == 240
+    assert videos["observation.images.front"]["fps"] == 10
+    assert videos["observation.images.front"]["codec"] == "av1"
+    assert videos["observation.images.front"]["source_bytes"] == len(b"not-a-real-video")
     assert videos["observation.images.wrist"]["file_index"] == 0
     assert videos["observation.images.wrist"]["source_start"] == 10.0
     assert videos["observation.images.wrist"]["source_end"] == 10.2

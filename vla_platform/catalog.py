@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
 import time
 import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator
+
+from .stage_index import MANIFEST_NAME as STAGE_INDEX_MANIFEST, SCHEMA_VERSION as STAGE_INDEX_SCHEMA
 
 
 ADVANCED_STAGE_SPECS: dict[int, dict[str, Any]] = {
@@ -74,10 +78,15 @@ class Catalog:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         with self._connect() as db:
@@ -143,6 +152,7 @@ class Catalog:
               duration REAL NOT NULL DEFAULT 0, camera_count INTEGER NOT NULL DEFAULT 0,
               primary_camera TEXT, video_relative_path TEXT,
               video_file_index INTEGER, video_from_timestamp REAL,
+              metadata_json TEXT NOT NULL DEFAULT '{}',
               normalized_text TEXT NOT NULL DEFAULT '', indexed_at REAL NOT NULL,
               PRIMARY KEY(dataset_uid, episode_index)
             );
@@ -181,12 +191,25 @@ class Catalog:
               indexed_at REAL NOT NULL,
               PRIMARY KEY(dataset_uid, stage_id, source_path)
             );
+            CREATE TABLE IF NOT EXISTS stage_index_shards (
+              dataset_uid TEXT NOT NULL, stage_id INTEGER NOT NULL,
+              source_path TEXT NOT NULL, fingerprint TEXT NOT NULL,
+              indexed_at REAL NOT NULL,
+              PRIMARY KEY(dataset_uid, stage_id, source_path)
+            );
             """)
             # Keep existing local catalogs compatible with the task-aware
             # episode browser introduced after the initial schema.
             episode_columns = {row[1] for row in db.execute("PRAGMA table_info(episodes)").fetchall()}
             if "task_index" not in episode_columns:
                 db.execute("ALTER TABLE episodes ADD COLUMN task_index INTEGER")
+            search_columns = {
+                row[1] for row in db.execute("PRAGMA table_info(episode_search)").fetchall()
+            }
+            if "metadata_json" not in search_columns:
+                db.execute(
+                    "ALTER TABLE episode_search ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'"
+                )
 
     def create_scan_job(self, job: dict[str, Any]) -> None:
         columns = ("scan_id", "status", "mode", "root", "phase", "current", "total",
@@ -502,7 +525,12 @@ class Catalog:
             if uid == "dataset" and root.parent.parent != self.data_root:
                 uid = root.parent.parent.name
             features = info.get("features", {})
-            cameras = sorted(k for k in features if k.startswith("observation.images"))
+            cameras = sorted(
+                key for key, feature in features.items()
+                if key.startswith("observation.images") or (
+                    isinstance(feature, dict) and feature.get("dtype") == "video"
+                )
+            )
             episodes = int(info.get("total_episodes", 0) or 0)
             frames = int(info.get("total_frames", 0) or 0)
             total_bytes = 0
@@ -586,12 +614,33 @@ class Catalog:
         if not dataset:
             return []
         with self._connect() as db:
+            columns = "dataset_uid,episode_index,frames,duration,instruction,task_index"
             if task_index is None:
-                rows = db.execute("SELECT * FROM episodes WHERE dataset_uid=? ORDER BY episode_index", (uid,)).fetchall()
+                rows = db.execute(
+                    f"SELECT {columns} FROM episodes WHERE dataset_uid=? ORDER BY episode_index",
+                    (uid,),
+                ).fetchall()
             else:
-                rows = db.execute("SELECT * FROM episodes WHERE dataset_uid=? AND task_index=? ORDER BY episode_index", (uid, task_index)).fetchall()
+                rows = db.execute(
+                    f"SELECT {columns} FROM episodes WHERE dataset_uid=? AND task_index=? ORDER BY episode_index",
+                    (uid, task_index),
+                ).fetchall()
         if rows:
             return [dict(r) for r in rows]
+        # Search indexing already materializes the same compact Episode
+        # metadata in SQLite. Reuse it for the browser instead of reopening
+        # the remote Parquet metadata on every Task selection.
+        with self._connect() as db:
+            query = """SELECT dataset_uid,episode_index,frame_count AS frames,duration,
+                instruction,task_index FROM episode_search
+                WHERE dataset_uid=?"""
+            args: list[Any] = [uid]
+            if task_index is not None:
+                query += " AND task_index=?"
+                args.append(task_index)
+            search_rows = db.execute(query + " ORDER BY episode_index", args).fetchall()
+        if search_rows:
+            return [dict(row) for row in search_rows]
         # LeRobot stores episode summaries in meta/episodes/*.parquet. Read the
         # compact metadata on demand when only a quick dataset scan exists.
         # The unfiltered quick path intentionally stays O(1) and returns
@@ -658,6 +707,16 @@ class Catalog:
         dataset = self.get_dataset(uid)
         if not dataset:
             return []
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT task_index,MAX(COALESCE(task_name,instruction,'')) AS name,
+                    COUNT(*) AS episodes FROM episode_search
+                    WHERE dataset_uid=? AND task_index IS NOT NULL
+                    GROUP BY task_index ORDER BY task_index""",
+                (uid,),
+            ).fetchall()
+        if rows:
+            return [dict(row) for row in rows]
         return self.list_tasks_for_root(Path(dataset["root"]))
 
     @staticmethod
@@ -678,11 +737,40 @@ class Catalog:
         keys = self._curation_dataset_keys(uid, dataset_root)
         return keys[0].split("/", 1)[0] if "/" in keys[0] else uid
 
+    def _episode_search_fingerprint(self, root: Path) -> str:
+        paths = [root / "meta" / "info.json", root / "meta" / "tasks.parquet", root / "meta" / "tasks.jsonl"]
+        paths.extend(sorted(root.glob("meta/episodes*.parquet")))
+        paths.extend(sorted(root.glob("meta/episodes/**/*.parquet")))
+        values: list[str] = []
+        for path in dict.fromkeys(paths):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            values.append(f"{path.relative_to(root)}:{stat.st_mtime_ns}:{stat.st_size}")
+        return "|".join(values)
+
     def _index_episode_text(self, uid: str) -> int:
         dataset = self.get_dataset(uid)
         if not dataset:
             return 0
         root = Path(dataset["root"])
+        fingerprint = self._episode_search_fingerprint(root)
+        with self._connect() as db:
+            previous = db.execute(
+                "SELECT fingerprint FROM stage_index_sources WHERE dataset_uid=? AND stage_id=0",
+                (uid,),
+            ).fetchone()
+            existing = db.execute(
+                """SELECT COUNT(*) AS total,
+                    SUM(CASE WHEN metadata_json='{}' THEN 1 ELSE 0 END) AS missing_metadata
+                    FROM episode_search WHERE dataset_uid=?""",
+                (uid,),
+            ).fetchone()
+            if (previous and previous["fingerprint"] == fingerprint
+                    and int(existing["total"] or 0) > 0
+                    and int(existing["missing_metadata"] or 0) == 0):
+                return int(existing["total"])
         info = self._json(root / "meta" / "info.json")
         cameras = list(dataset.get("cameras") or [])
         primary_camera = self._primary_camera(cameras)
@@ -717,15 +805,18 @@ class Catalog:
                 uid, episode_index, collection, task_index, task_name, instruction,
                 int(item.get("frames", 0) or 0), float(item.get("duration", 0) or 0),
                 len(cameras), primary_camera, relative, file_index, source_start,
-                normalized, time.time(),
+                item.get("metadata_json") or "{}", normalized, time.time(),
             ))
         with self._connect() as db:
             db.execute("DELETE FROM episode_search WHERE dataset_uid=?", (uid,))
             db.executemany("""INSERT INTO episode_search(
                 dataset_uid,episode_index,collection_name,task_index,task_name,instruction,
                 frame_count,duration,camera_count,primary_camera,video_relative_path,
-                video_file_index,video_from_timestamp,normalized_text,indexed_at
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", values)
+                video_file_index,video_from_timestamp,metadata_json,normalized_text,indexed_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", values)
+            db.execute("""INSERT OR REPLACE INTO stage_index_sources(
+                dataset_uid,stage_id,source_path,fingerprint,indexed_at
+            ) VALUES(?,?,?,?,?)""", (uid, 0, str(root / "meta"), fingerprint, time.time()))
         return len(values)
 
     @staticmethod
@@ -881,10 +972,15 @@ class Catalog:
                     dataset_uid,episode_index,stage_id,frame_start,frame_end,reason_code,entity_name
                 ) VALUES(?,?,?,?,?,?,?)""", (uid, episode_index, stage_id, start, end, reason, None))
 
-    def _index_json_stage_file(
-        self, db: sqlite3.Connection, uid: str, stage_id: int, run_id: str, path: Path
+    def _index_json_stage_payload(
+        self,
+        db: sqlite3.Connection,
+        uid: str,
+        stage_id: int,
+        run_id: str,
+        payload: dict[str, Any],
+        source_path: str,
     ) -> int | None:
-        payload = self._json(path)
         if payload.get("episode_index") is None:
             return None
         episode_index = int(payload["episode_index"])
@@ -897,7 +993,7 @@ class Catalog:
             reasons = [str(value) for value in (payload.get("quality", {}).get("uncertainties", []) or [])]
             severity = "warning" if reasons or verdict != "complete" else None
         elif stage_id == 7:
-            verdict = str(payload.get("decision") or "unknown")
+            verdict = str(payload.get("decision") or payload.get("status") or "unknown")
             reasons = [str(payload.get("reason"))] if payload.get("reason") else []
             frames = payload.get("frames") or []
             failed_frames = [row for row in frames if row.get("decision") == "fail"]
@@ -930,9 +1026,216 @@ class Catalog:
         self._write_stage_index(
             db, uid, episode_index, stage_id, run_id, "available", verdict,
             anomaly_count, severity, float(score) if score is not None else None,
-            sorted(set(reasons)), payload, str(path),
+            sorted(set(reasons)), payload, source_path,
         )
         return episode_index
+
+    def _index_json_stage_file(
+        self, db: sqlite3.Connection, uid: str, stage_id: int, run_id: str, path: Path
+    ) -> int | None:
+        return self._index_json_stage_payload(
+            db, uid, stage_id, run_id, self._json(path), str(path)
+        )
+
+    @staticmethod
+    def _stage_index_manifest(stage_root: Path, stage_id: int) -> dict[str, Any] | None:
+        path = stage_root / STAGE_INDEX_MANIFEST
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(value, dict) or value.get("schema_version") != STAGE_INDEX_SCHEMA:
+            return None
+        if int(value.get("stage_id", -1)) != stage_id or not value.get("generation"):
+            return None
+        if not isinstance(value.get("shards"), list):
+            return None
+        source = value.get("source_manifest")
+        if source:
+            if not isinstance(source, dict) or not source.get("path") or not source.get("fingerprint"):
+                return None
+            source_path = (stage_root / str(source["path"])).resolve()
+            root = stage_root.resolve()
+            if root not in source_path.parents:
+                return None
+            try:
+                actual = hashlib.sha256(source_path.read_bytes()).hexdigest()
+            except OSError:
+                return None
+            if actual != source["fingerprint"]:
+                return None
+        return value
+
+    @staticmethod
+    def _delete_stage_source_rows(
+        db: sqlite3.Connection, uid: str, stage_id: int, source_path: str
+    ) -> None:
+        episodes = [row[0] for row in db.execute(
+            "SELECT episode_index FROM stage_episode_results "
+            "WHERE dataset_uid=? AND stage_id=? AND source_path=?",
+            (uid, stage_id, source_path),
+        ).fetchall()]
+        db.execute(
+            "DELETE FROM stage_episode_results WHERE dataset_uid=? AND stage_id=? AND source_path=?",
+            (uid, stage_id, source_path),
+        )
+        if episodes:
+            db.executemany(
+                "DELETE FROM stage_anomaly_ranges WHERE dataset_uid=? AND stage_id=? AND episode_index=?",
+                [(uid, stage_id, int(episode)) for episode in episodes],
+            )
+
+    def _index_stage_shards(
+        self,
+        db: sqlite3.Connection,
+        uid: str,
+        stage_id: int,
+        stage_root: Path,
+        manifest: dict[str, Any],
+    ) -> None:
+        try:
+            import pyarrow.parquet as pq
+        except ImportError as exc:
+            raise RuntimeError("pyarrow is required to read stage search-index shards") from exc
+
+        root = stage_root.resolve()
+        previous = {
+            row["source_path"]: row["fingerprint"]
+            for row in db.execute(
+                "SELECT source_path,fingerprint FROM stage_index_shards "
+                "WHERE dataset_uid=? AND stage_id=?",
+                (uid, stage_id),
+            ).fetchall()
+        }
+        descriptors: dict[str, dict[str, Any]] = {}
+        for item in manifest["shards"]:
+            if not isinstance(item, dict) or not item.get("path") or not item.get("fingerprint"):
+                raise ValueError("invalid stage search-index shard descriptor")
+            relative = str(item["path"])
+            path = (root / relative).resolve()
+            if root not in path.parents:
+                raise ValueError(f"stage search-index shard escapes stage root: {relative}")
+            descriptors[str(path)] = item
+
+        # The first bundle replaces any legacy per-JSON index. Later bundles
+        # touch only changed/removed shards and explicit tombstones.
+        if not previous:
+            db.execute(
+                "DELETE FROM stage_episode_results WHERE dataset_uid=? AND stage_id=?",
+                (uid, stage_id),
+            )
+            db.execute(
+                "DELETE FROM stage_anomaly_ranges WHERE dataset_uid=? AND stage_id=?",
+                (uid, stage_id),
+            )
+        for source_path in set(previous) - set(descriptors):
+            self._delete_stage_source_rows(db, uid, stage_id, source_path)
+            db.execute(
+                "DELETE FROM stage_index_shards WHERE dataset_uid=? AND stage_id=? AND source_path=?",
+                (uid, stage_id, source_path),
+            )
+        for episode_index in manifest.get("changes", {}).get("tombstones", []):
+            db.execute(
+                "DELETE FROM stage_episode_results WHERE dataset_uid=? AND stage_id=? AND episode_index=?",
+                (uid, stage_id, int(episode_index)),
+            )
+            db.execute(
+                "DELETE FROM stage_anomaly_ranges WHERE dataset_uid=? AND stage_id=? AND episode_index=?",
+                (uid, stage_id, int(episode_index)),
+            )
+
+        for source_path, descriptor in descriptors.items():
+            fingerprint = str(descriptor["fingerprint"])
+            if previous.get(source_path) == fingerprint:
+                continue
+            self._delete_stage_source_rows(db, uid, stage_id, source_path)
+            table = pq.read_table(source_path, columns=["episode_index", "payload_json"])
+            rows = table.to_pylist()
+            for row in rows:
+                payload = json.loads(row["payload_json"])
+                if int(payload.get("episode_index", -1)) != int(row["episode_index"]):
+                    raise ValueError(f"stage search-index row mismatch in {source_path}")
+                db.execute(
+                    "DELETE FROM stage_anomaly_ranges WHERE dataset_uid=? AND stage_id=? AND episode_index=?",
+                    (uid, stage_id, int(row["episode_index"])),
+                )
+                self._index_json_stage_payload(
+                    db, uid, stage_id, stage_root.name, payload, source_path
+                )
+            db.execute(
+                """INSERT OR REPLACE INTO stage_index_shards(
+                    dataset_uid,stage_id,source_path,fingerprint,indexed_at
+                ) VALUES(?,?,?,?,?)""",
+                (uid, stage_id, source_path, fingerprint, time.time()),
+            )
+
+    @staticmethod
+    def _fill_missing_stage_rows(
+        db: sqlite3.Connection,
+        uid: str,
+        stage_id: int,
+        run_id: str,
+        stage_exists: bool,
+        has_parent: bool,
+    ) -> None:
+        default_status = "episode_pending" if stage_exists else "not_generated"
+        inherited_verdicts = "('filtered','fail','not_candidate','upstream_filtered')"
+        # Re-evaluate placeholders as well as inserting missing rows. This is
+        # required when an earlier refresh wrote ``episode_pending`` before an
+        # upstream stage itself learned that the Episode had been filtered.
+        if has_parent and stage_id > 1:
+            db.execute(
+                f"""UPDATE stage_episode_results AS current
+                    SET artifact_status=CASE WHEN EXISTS(
+                            SELECT 1 FROM stage_episode_results parent
+                            WHERE parent.dataset_uid=current.dataset_uid
+                              AND parent.episode_index=current.episode_index
+                              AND parent.stage_id=?
+                              AND parent.verdict IN {inherited_verdicts}
+                        ) THEN 'upstream_filtered' ELSE ? END,
+                        verdict=CASE WHEN EXISTS(
+                            SELECT 1 FROM stage_episode_results parent
+                            WHERE parent.dataset_uid=current.dataset_uid
+                              AND parent.episode_index=current.episode_index
+                              AND parent.stage_id=?
+                              AND parent.verdict IN {inherited_verdicts}
+                        ) THEN 'upstream_filtered' ELSE ? END,
+                        indexed_at=?
+                    WHERE current.dataset_uid=? AND current.stage_id=?
+                      AND current.artifact_status!='available'""",
+                (
+                    stage_id - 1, default_status, stage_id - 1, default_status,
+                    time.time(), uid, stage_id,
+                ),
+            )
+        db.execute(
+            """INSERT OR IGNORE INTO stage_episode_results(
+                dataset_uid,episode_index,stage_id,run_id,artifact_status,verdict,
+                anomaly_count,severity,score,reason_codes,details_json,source_path,indexed_at
+            )
+            SELECT e.dataset_uid,e.episode_index,?,?,
+                CASE WHEN ? AND EXISTS(
+                    SELECT 1 FROM stage_episode_results parent
+                    WHERE parent.dataset_uid=e.dataset_uid
+                      AND parent.episode_index=e.episode_index
+                      AND parent.stage_id=?
+                      AND parent.verdict IN ('filtered','fail','not_candidate','upstream_filtered')
+                ) THEN 'upstream_filtered' ELSE ? END,
+                CASE WHEN ? AND EXISTS(
+                    SELECT 1 FROM stage_episode_results parent
+                    WHERE parent.dataset_uid=e.dataset_uid
+                      AND parent.episode_index=e.episode_index
+                      AND parent.stage_id=?
+                      AND parent.verdict IN ('filtered','fail','not_candidate','upstream_filtered')
+                ) THEN 'upstream_filtered' ELSE ? END,
+                0,NULL,NULL,'[]','{}',NULL,?
+            FROM episode_search e WHERE e.dataset_uid=?""",
+            (
+                stage_id, run_id, has_parent and stage_id > 1, stage_id - 1,
+                default_status, has_parent and stage_id > 1, stage_id - 1,
+                default_status, time.time(), uid,
+            ),
+        )
 
     def _sync_stage_search_index(self, uid: str, dataset_root: Path, stage_id: int) -> tuple[int, bool]:
         stage_base = self.data_root / "data_curation" / f"stage{stage_id}"
@@ -940,16 +1243,48 @@ class Catalog:
         stage_root = roots[0] if roots else None
         manifest_path = stage_root / "manifest.json" if stage_root else None
         manifest = self._json(manifest_path) if manifest_path else {}
-        fingerprint = self._stage_source_fingerprint(stage_root, manifest_path) if stage_root else "missing"
+        index_manifest = self._stage_index_manifest(stage_root, stage_id) if stage_root else None
+        fingerprint = (
+            f"{STAGE_INDEX_SCHEMA}:{index_manifest['generation']}"
+            if index_manifest else
+            self._stage_source_fingerprint(stage_root, manifest_path) if stage_root else "missing"
+        )
         with self._connect() as db:
             previous = db.execute(
                 "SELECT fingerprint FROM stage_index_sources WHERE dataset_uid=? AND stage_id=?",
                 (uid, stage_id),
             ).fetchone()
+            if index_manifest and previous and previous["fingerprint"] == fingerprint:
+                self._fill_missing_stage_rows(
+                    db, uid, stage_id, stage_root.name, True,
+                    bool(manifest.get("parent_manifest")),
+                )
+                count = db.execute(
+                    "SELECT COUNT(*) FROM stage_episode_results WHERE dataset_uid=? AND stage_id=?",
+                    (uid, stage_id),
+                ).fetchone()[0]
+                return int(count), True
+            if (not index_manifest and stage_id >= 6
+                    and manifest.get("run_complete") is True
+                    and previous and previous["fingerprint"] == fingerprint):
+                self._fill_missing_stage_rows(
+                    db, uid, stage_id, stage_root.name, True,
+                    bool(manifest.get("parent_manifest")),
+                )
+                count = db.execute(
+                    "SELECT COUNT(*) FROM stage_episode_results WHERE dataset_uid=? AND stage_id=?",
+                    (uid, stage_id),
+                ).fetchone()[0]
+                return int(count), True
             # JSON stages are updated one Episode file at a time. Always walk
             # their filenames and let stage_index_files skip unchanged files;
             # the search endpoint itself never touches those artifacts.
             if stage_id <= 5 and previous and previous["fingerprint"] == fingerprint:
+                self._fill_missing_stage_rows(
+                    db, uid, stage_id, stage_root.name if stage_root else "placeholder",
+                    stage_root is not None,
+                    bool(manifest.get("parent_manifest")),
+                )
                 count = db.execute(
                     "SELECT COUNT(*) FROM stage_episode_results WHERE dataset_uid=? AND stage_id=?",
                     (uid, stage_id),
@@ -959,11 +1294,30 @@ class Catalog:
                 db.execute("DELETE FROM stage_episode_results WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
                 db.execute("DELETE FROM stage_anomaly_ranges WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
                 db.execute("DELETE FROM stage_index_files WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
+                db.execute("DELETE FROM stage_index_shards WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
+            elif index_manifest:
+                self._index_stage_shards(db, uid, stage_id, stage_root, index_manifest)
+                db.execute(
+                    "DELETE FROM stage_index_files WHERE dataset_uid=? AND stage_id=?",
+                    (uid, stage_id),
+                )
             elif stage_id <= 5:
+                if db.execute(
+                    "SELECT 1 FROM stage_index_shards WHERE dataset_uid=? AND stage_id=? LIMIT 1",
+                    (uid, stage_id),
+                ).fetchone():
+                    db.execute("DELETE FROM stage_index_shards WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
                 db.execute("DELETE FROM stage_episode_results WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
                 db.execute("DELETE FROM stage_anomaly_ranges WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
                 self._index_parquet_stage(db, uid, stage_id, stage_root, manifest)
             else:
+                if db.execute(
+                    "SELECT 1 FROM stage_index_shards WHERE dataset_uid=? AND stage_id=? LIMIT 1",
+                    (uid, stage_id),
+                ).fetchone():
+                    db.execute("DELETE FROM stage_episode_results WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
+                    db.execute("DELETE FROM stage_anomaly_ranges WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
+                    db.execute("DELETE FROM stage_index_shards WHERE dataset_uid=? AND stage_id=?", (uid, stage_id))
                 db.execute(
                     "DELETE FROM stage_episode_results WHERE dataset_uid=? AND stage_id=? AND artifact_status!='available'",
                     (uid, stage_id),
@@ -1010,30 +1364,11 @@ class Catalog:
                         uid, stage_id, source_path, stat.st_mtime_ns, stat.st_size, episode_index, time.time(),
                     ))
 
-            episode_indices = [row[0] for row in db.execute(
-                "SELECT episode_index FROM episode_search WHERE dataset_uid=?", (uid,)
-            ).fetchall()]
-            existing = {row[0] for row in db.execute(
-                "SELECT episode_index FROM stage_episode_results WHERE dataset_uid=? AND stage_id=?",
-                (uid, stage_id),
-            ).fetchall()}
             has_parent = bool(manifest.get("parent_manifest"))
-            for episode_index in episode_indices:
-                if episode_index in existing:
-                    continue
-                artifact_status = "not_generated" if stage_root is None else "episode_pending"
-                verdict = artifact_status
-                if stage_root is not None and has_parent and stage_id > 1:
-                    parent = db.execute("""SELECT verdict FROM stage_episode_results
-                        WHERE dataset_uid=? AND episode_index=? AND stage_id=?""",
-                        (uid, episode_index, stage_id - 1)).fetchone()
-                    if parent and parent["verdict"] in {"filtered", "fail", "not_candidate"}:
-                        artifact_status = verdict = "upstream_filtered"
-                self._write_stage_index(
-                    db, uid, int(episode_index), stage_id,
-                    stage_root.name if stage_root else "placeholder",
-                    artifact_status, verdict,
-                )
+            self._fill_missing_stage_rows(
+                db, uid, stage_id, stage_root.name if stage_root else "placeholder",
+                stage_root is not None, has_parent,
+            )
             db.execute("""INSERT OR REPLACE INTO stage_index_sources(
                 dataset_uid,stage_id,source_path,fingerprint,indexed_at
             ) VALUES(?,?,?,?,?)""", (
@@ -1076,6 +1411,27 @@ class Catalog:
             "datasets": len(datasets), "episodes": indexed_episodes,
             "stages_skipped": skipped_stages,
         }
+
+    def resolve_search_index_datasets(
+        self, selectors: list[str] | None = None
+    ) -> tuple[list[str], list[str]]:
+        """Resolve physical dataset UIDs and collection names to dataset UIDs."""
+        rows = self.list_datasets()
+        if not selectors:
+            return sorted(row["uid"] for row in rows), []
+        selected = set(selectors)
+        resolved: set[str] = set()
+        matched: set[str] = set()
+        for row in rows:
+            uid = row["uid"]
+            collection = self._collection_name(Path(row["root"]), uid)
+            if uid in selected or collection in selected:
+                resolved.add(uid)
+            if uid in selected:
+                matched.add(uid)
+            if collection in selected:
+                matched.add(collection)
+        return sorted(resolved), sorted(selected - matched)
 
     def get_episode_search_entry(self, uid: str, episode_index: int) -> dict[str, Any] | None:
         with self._connect() as db:
@@ -1370,7 +1726,11 @@ class Catalog:
         """
         keys: list[str] = []
         try:
-            relative_parts = dataset_root.resolve().relative_to(self.data_root.resolve()).parts
+            # Catalog roots are already stored as absolute paths. Keep this
+            # lexical: Path.resolve() performs one remote metadata lookup per
+            # dataset on OSS/FUSE and made collection selection unexpectedly
+            # expensive for large catalogs.
+            relative_parts = dataset_root.absolute().relative_to(self.data_root.absolute()).parts
         except ValueError:
             relative_parts = ()
         version_index = next(
@@ -1429,6 +1789,363 @@ class Catalog:
             if key in payload
         }
 
+    @staticmethod
+    def _stage_result_summary(
+        row: sqlite3.Row | dict[str, Any], ranges: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        value = dict(row)
+        try:
+            reasons = json.loads(value.get("reason_codes") or "[]")
+        except (TypeError, json.JSONDecodeError):
+            reasons = []
+        stage_id = int(value["stage_id"])
+        status = str(value.get("artifact_status") or "not_generated")
+        placeholders = {
+            "not_generated": f"当前索引中没有该 Episode 的 Stage {stage_id} 产物",
+            "episode_pending": f"Stage {stage_id} 已启动，但该 Episode 尚未完成",
+            "upstream_filtered": f"Episode 已在前序 Stage 被过滤，Stage {stage_id} 未处理",
+        }
+        return {
+            "stage_id": stage_id,
+            "run_id": value.get("run_id") or "indexed",
+            "stage": CURATION_STAGE_SPECS[stage_id]["name"],
+            "coordinate_system": "episode_frame",
+            "artifact_status": status,
+            "verdict": value.get("verdict"),
+            "anomaly_count": int(value.get("anomaly_count") or 0),
+            "severity": value.get("severity"),
+            "score": value.get("score"),
+            "reason_codes": reasons,
+            "records": [
+                {
+                    "file": "index/stage_anomaly_ranges",
+                    "frame_start": item["frame_start"],
+                    "frame_end": item["frame_end"],
+                    "reason_code": item.get("reason_code"),
+                    "entity_name": item.get("entity_name"),
+                    "status": "warning",
+                }
+                for item in (ranges or [])
+            ],
+            "detail": None,
+            "detail_loaded": status != "available",
+            "placeholder": placeholders.get(status),
+            "visualization_spec": CURATION_STAGE_SPECS[stage_id],
+        }
+
+    def episode_preview_summary(self, uid: str, episode_index: int) -> dict[str, Any]:
+        """Build the initial preview entirely from the local SQLite index.
+
+        Stage files live on OSS and may number in the tens of thousands. This
+        method intentionally performs no directory traversal or source-file
+        stat; detailed artifacts are loaded separately when a Stage is opened.
+        """
+        dataset = self.get_dataset(uid)
+        if not dataset:
+            raise FileNotFoundError(uid)
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM episode_search WHERE dataset_uid=? AND episode_index=?",
+                (uid, episode_index),
+            ).fetchone()
+            if row is None:
+                legacy = db.execute(
+                    "SELECT * FROM episodes WHERE dataset_uid=? AND episode_index=?",
+                    (uid, episode_index),
+                ).fetchone()
+                if legacy is None:
+                    raise IndexError(episode_index)
+                episode = dict(legacy)
+                episode["frame_count"] = int(episode.get("frames") or 0)
+            else:
+                episode = dict(row)
+                episode["frames"] = int(episode.get("frame_count") or 0)
+            stage_rows = db.execute(
+                """SELECT dataset_uid,episode_index,stage_id,run_id,artifact_status,
+                    verdict,anomaly_count,severity,score,reason_codes,source_path,indexed_at
+                    FROM stage_episode_results
+                    WHERE dataset_uid=? AND episode_index=? ORDER BY stage_id""",
+                (uid, episode_index),
+            ).fetchall()
+            range_rows = [dict(item) for item in db.execute(
+                """SELECT stage_id,frame_start,frame_end,reason_code,entity_name
+                    FROM stage_anomaly_ranges
+                    WHERE dataset_uid=? AND episode_index=?
+                    ORDER BY stage_id,frame_start,frame_end""",
+                (uid, episode_index),
+            ).fetchall()]
+            indexed_videos = {
+                item["relative_path"]: dict(item) for item in db.execute(
+                    "SELECT * FROM video_files WHERE dataset_uid=?", (uid,)
+                ).fetchall()
+            }
+
+        try:
+            metadata = json.loads(episode.get("metadata_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
+        frame_count = int(episode.get("frame_count", episode.get("frames", 0)) or 0)
+        duration = float(episode.get("duration") or 0)
+        fps = frame_count / duration if frame_count > 0 and duration > 0 else 1.0
+        dataset_from_index = int(metadata.get("dataset_from_index", 0) or 0)
+        primary_camera = episode.get("primary_camera") or self._primary_camera(dataset.get("cameras") or [])
+        primary_relative = episode.get("video_relative_path")
+        chunks_size = 1000
+        videos: list[dict[str, Any]] = []
+        for camera in dataset.get("cameras") or []:
+            prefix = f"videos/{camera}"
+            chunk = int(metadata.get(f"{prefix}/chunk_index", episode_index // chunks_size) or 0)
+            file_index = int(metadata.get(
+                f"{prefix}/file_index",
+                episode.get("video_file_index") if episode.get("video_file_index") is not None
+                else episode_index % chunks_size,
+            ) or 0)
+            if primary_relative and primary_camera:
+                relative = str(primary_relative).replace(
+                    f"/{primary_camera}/", f"/{camera}/", 1
+                )
+            else:
+                relative = f"videos/{camera}/chunk-{chunk:03d}/file-{file_index:03d}.mp4"
+            source_start = float(metadata.get(
+                f"{prefix}/from_timestamp", episode.get("video_from_timestamp") or 0
+            ) or 0)
+            source_end = float(metadata.get(
+                f"{prefix}/to_timestamp", source_start + duration
+            ) or source_start + duration)
+            feature = (dataset.get("schema") or {}).get(camera, {})
+            feature_info = feature.get("info", {}) if isinstance(feature, dict) else {}
+            shape = feature.get("shape", []) if isinstance(feature, dict) else []
+            indexed_video = indexed_videos.get(relative, {})
+            videos.append({
+                "camera": camera, "relative_path": relative,
+                "url": f"/api/videos/{uid}/{relative}",
+                "chunk_index": chunk, "file_index": file_index,
+                "source_start": source_start, "source_end": source_end,
+                "timestamp_start": source_start, "timestamp_end": source_end,
+                "duration": max(0.0, source_end - source_start),
+                "width": indexed_video.get("width") or feature_info.get("video.width") or (
+                    shape[1] if len(shape) > 1 else None
+                ),
+                "height": indexed_video.get("height") or feature_info.get("video.height") or (
+                    shape[0] if shape else None
+                ),
+                "fps": indexed_video.get("fps") or feature_info.get("video.fps") or fps,
+                "codec": indexed_video.get("codec") or feature_info.get("video.codec"),
+                "pixel_format": feature_info.get("video.pix_fmt"),
+                "channels": feature_info.get("video.channels") or (
+                    shape[2] if len(shape) > 2 else None
+                ),
+                "has_audio": feature_info.get("has_audio"),
+                "physical_frames": indexed_video.get("frames"),
+                "source_bytes": indexed_video.get("size"),
+                "file_integrity_status": indexed_video.get("integrity_status", "not_indexed"),
+                "integrity_status": "pass" if abs((source_end - source_start) - duration) <= max(1 / fps, 1e-6)
+                else "duration_mismatch",
+            })
+
+        ranges_by_stage: dict[int, list[dict[str, Any]]] = {}
+        for item in range_rows:
+            ranges_by_stage.setdefault(int(item["stage_id"]), []).append(item)
+        indexed_by_stage = {int(item["stage_id"]): item for item in stage_rows}
+        stages = [
+            self._stage_result_summary(indexed_by_stage[stage_id], ranges_by_stage.get(stage_id))
+            if stage_id in indexed_by_stage else {
+                "stage_id": stage_id, "run_id": "placeholder",
+                "stage": CURATION_STAGE_SPECS[stage_id]["name"],
+                "coordinate_system": "episode_frame", "records": [], "detail": None,
+                "artifact_status": "not_generated", "detail_loaded": True,
+                "placeholder": f"当前索引中没有该 Episode 的 Stage {stage_id} 产物",
+                "visualization_spec": CURATION_STAGE_SPECS[stage_id],
+            }
+            for stage_id in range(1, 9)
+        ]
+        has_validity = any(
+            stage["stage_id"] in {1, 2, 3} and stage["artifact_status"] == "available"
+            for stage in stages
+        )
+        return {
+            "dataset": dataset,
+            "episode": episode,
+            "timeline": {
+                "coordinate_system": "episode_relative", "frame_count": frame_count,
+                "fps": fps, "duration": duration, "dataset_from_index": dataset_from_index,
+            },
+            "videos": videos,
+            "stage_results": stages,
+            "curation": {
+                "format": "vla_curation_filter" if has_validity else None,
+                "has_repairs": False, "has_validity": has_validity,
+            },
+        }
+
+    @staticmethod
+    def _manifest_parquet_paths(stage_root: Path, manifest: dict[str, Any]) -> list[Path]:
+        """Resolve only explicitly named/shallow label files; never recurse."""
+        values: list[str] = []
+        for key in ("label_files", "validity_files"):
+            current = manifest.get(key)
+            if isinstance(current, list):
+                values.extend(str(item) for item in current)
+        for key in ("episode_filter",):
+            current = manifest.get(key)
+            if isinstance(current, str):
+                values.append(current)
+        known = (
+            "labels/episode_summary.parquet", "labels/episode_filter.parquet",
+            "labels/episode_flags.parquet", "labels/dimension_metrics.parquet",
+            "labels/frame_flags.parquet", "labels/step_validity.parquet",
+            "labels/kinematic_transform.parquet", "labels/episode_transform.parquet",
+        )
+        values.extend(known)
+        root = stage_root.absolute()
+        paths: list[Path] = []
+        for relative in dict.fromkeys(values):
+            if not relative.endswith(".parquet"):
+                continue
+            candidate = (root / relative).absolute()
+            try:
+                candidate.relative_to(root)
+            except ValueError:
+                continue
+            if candidate.is_file():
+                paths.append(candidate)
+        return paths
+
+    @staticmethod
+    def _episode_records_from_paths(
+        stage_root: Path, paths: list[Path], episode_index: int
+    ) -> list[dict[str, Any]]:
+        try:
+            import pyarrow.parquet as pq
+        except ImportError:
+            return []
+        records: list[dict[str, Any]] = []
+        for path in paths:
+            try:
+                parquet = pq.ParquetFile(path)
+                names = set(parquet.schema_arrow.names)
+                if "episode_index" not in names:
+                    continue
+                filters: list[tuple[str, str, Any]] = [("episode_index", "=", episode_index)]
+                if path.name == "step_validity.parquet" and "valid" in names:
+                    filters.append(("valid", "=", False))
+                table = pq.read_table(path, columns=list(parquet.schema_arrow.names), filters=filters)
+                relative = path.relative_to(stage_root).as_posix()
+                records.extend({"file": relative, **item} for item in table.to_pylist())
+            except (OSError, ValueError):
+                continue
+        return records
+
+    @classmethod
+    def _detail_from_source(
+        cls, source_path: str | None, episode_index: int, fallback_json: str
+    ) -> dict[str, Any] | None:
+        if source_path:
+            path = Path(source_path)
+            if path.suffix == ".json" and path.is_file():
+                payload = cls._json(path)
+                if int(payload.get("episode_index", -1)) == episode_index:
+                    return cls._stage_episode_json(path.parent, episode_index)
+            if path.suffix == ".parquet" and "search_index" in path.parts and path.is_file():
+                try:
+                    import pyarrow.parquet as pq
+                    table = pq.read_table(
+                        path, columns=["payload_json"],
+                        filters=[("episode_index", "=", episode_index)],
+                    )
+                    if table.num_rows:
+                        payload = json.loads(table.column("payload_json")[0].as_py())
+                        return {
+                            key: payload.get(key)
+                            for key in (
+                                "schema_version", "episode_index", "status", "model", "generated_at_utc",
+                                "task", "scene", "temporal_segmentation", "quality", "inference",
+                                "decision", "reason", "mode", "filtering_authorized",
+                                "thresholds_calibrated", "geometry", "thresholds", "frames", "summary",
+                                "data_disposition", "total_frames", "invalid_frames",
+                                "redundant_static_frames", "protected_keyframes", "valid_ranges",
+                                "invalid_ranges", "per_camera_results", "known_limitations", "events",
+                            )
+                            if key in payload
+                        }
+                except (ImportError, OSError, ValueError, json.JSONDecodeError):
+                    pass
+        try:
+            payload = json.loads(fallback_json or "{}")
+        except (TypeError, json.JSONDecodeError):
+            return None
+        return payload if isinstance(payload, dict) and payload else None
+
+    def episode_stage_detail(self, uid: str, episode_index: int, stage_id: int) -> dict[str, Any]:
+        """Load one Stage through its indexed root and explicit artifact paths."""
+        if not 1 <= stage_id <= 8:
+            raise IndexError(stage_id)
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM stage_episode_results WHERE dataset_uid=? AND episode_index=? AND stage_id=?",
+                (uid, episode_index, stage_id),
+            ).fetchone()
+            source = db.execute(
+                "SELECT source_path FROM stage_index_sources WHERE dataset_uid=? AND stage_id=?",
+                (uid, stage_id),
+            ).fetchone()
+            ranges = [dict(item) for item in db.execute(
+                """SELECT frame_start,frame_end,reason_code,entity_name
+                    FROM stage_anomaly_ranges
+                    WHERE dataset_uid=? AND episode_index=? AND stage_id=?
+                    ORDER BY frame_start,frame_end""",
+                (uid, episode_index, stage_id),
+            ).fetchall()]
+        if row is None:
+            raise FileNotFoundError(f"{uid}/episode-{episode_index}/stage-{stage_id}")
+        result = self._stage_result_summary(row, ranges)
+        result["detail_loaded"] = True
+        if result["artifact_status"] != "available":
+            return result
+        stage_root = Path(source["source_path"]) if source and source["source_path"] else None
+        manifest: dict[str, Any] = {}
+        records: list[dict[str, Any]] = []
+        if stage_root is not None:
+            manifest = self._json(stage_root / "manifest.json")
+            records = self._episode_records_from_paths(
+                stage_root, self._manifest_parquet_paths(stage_root, manifest), episode_index
+            )
+        records.extend(
+            {key: value for key, value in annotation.items() if key != "dataset_uid"}
+            for annotation in self.list_annotations(uid, episode_index)
+            if annotation.get("stage_id") == stage_id
+        )
+        summary = self._json(stage_root / "reports" / "summary.json") if stage_root else {}
+        if stage_root and not summary:
+            summary = self._json(stage_root / "summary.json")
+        if isinstance(manifest.get("result"), dict):
+            summary = {**manifest["result"], **summary}
+        summary = {
+            **{
+                key: manifest.get(key)
+                for key in (
+                    "schema_version", "model", "total_episodes", "requested_episode_count",
+                    "episode_count", "counts", "decision_counts", "disposition_counts",
+                    "run_complete", "mode", "filtering_authorized", "thresholds_calibrated",
+                    "updated_at_utc", "episodes_per_hour_this_run", "estimated_remaining_hours",
+                    "transformation", "kinematic_strategy", "pilot_calibration",
+                )
+                if key in manifest
+            },
+            **summary,
+        }
+        result.update({
+            "stage": manifest.get("stage", result["stage"]),
+            "detector_version": manifest.get("detector_version"),
+            "coordinate_system": manifest.get("coordinate_system", "episode_frame"),
+            "summary": summary,
+            "records": records,
+            "detail": self._detail_from_source(
+                row["source_path"], episode_index, row["details_json"]
+            ) if stage_id >= 6 else None,
+        })
+        return result
+
     def episode_preview(self, uid: str, episode_index: int) -> dict[str, Any]:
         """Return bounded episode metadata, video references and stage labels."""
         dataset = self.get_dataset(uid)
@@ -1457,6 +2174,7 @@ class Catalog:
         dataset_from_index = int(metadata.get("dataset_from_index", 0) or 0)
         video_template = info.get("video_path", "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4")
         videos: list[dict[str, Any]] = []
+        indexed_videos = {row["relative_path"]: row for row in self.list_videos(uid)}
         chunks_size = int(info.get("chunks_size", 1000) or 1000)
         for camera in dataset.get("cameras", []):
             prefix = f"videos/{camera}"
@@ -1468,6 +2186,10 @@ class Catalog:
                 relative = f"videos/{camera}/chunk-{int(chunk):03d}/file-{int(file_index):03d}.mp4"
             path = (root / relative).resolve()
             if path.is_file() and root.resolve() in path.parents:
+                feature = info.get("features", {}).get(camera, {})
+                feature_info = feature.get("info", {}) if isinstance(feature, dict) else {}
+                shape = feature.get("shape", []) if isinstance(feature, dict) else []
+                indexed_video = indexed_videos.get(relative, {})
                 source_start = float(metadata.get(f"{prefix}/from_timestamp", 0) or 0)
                 source_end = float(metadata.get(f"{prefix}/to_timestamp", source_start + duration) or 0)
                 source_duration = max(0.0, source_end - source_start)
@@ -1483,6 +2205,16 @@ class Catalog:
                     "timestamp_start": source_start,
                     "timestamp_end": source_end,
                     "duration": source_duration,
+                    "width": indexed_video.get("width") or feature_info.get("video.width") or (shape[1] if len(shape) > 1 else None),
+                    "height": indexed_video.get("height") or feature_info.get("video.height") or (shape[0] if shape else None),
+                    "fps": indexed_video.get("fps") or feature_info.get("video.fps") or fps,
+                    "codec": indexed_video.get("codec") or feature_info.get("video.codec"),
+                    "pixel_format": feature_info.get("video.pix_fmt"),
+                    "channels": feature_info.get("video.channels") or (shape[2] if len(shape) > 2 else None),
+                    "has_audio": feature_info.get("has_audio"),
+                    "physical_frames": indexed_video.get("frames"),
+                    "source_bytes": indexed_video.get("size") or path.stat().st_size,
+                    "file_integrity_status": indexed_video.get("integrity_status", "not_indexed"),
                     "integrity_status": "pass" if abs(source_duration - duration) <= tolerance else "duration_mismatch",
                 })
 

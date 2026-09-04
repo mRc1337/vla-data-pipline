@@ -7,8 +7,10 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from vla_platform import api as api_module
 from vla_platform.api import app
 from vla_platform.catalog import Catalog
+from vla_platform.stage_index import MANIFEST_NAME, publish_stage_index_snapshot
 from vla_platform.thumbnail import ThumbnailManager
 
 
@@ -96,6 +98,20 @@ def indexed_catalog(tmp_path: Path) -> Catalog:
     return catalog
 
 
+def test_search_index_dataset_selectors_accept_collection_names(tmp_path):
+    collection = tmp_path / "lerobot_v3_0" / "demo_collection"
+    make_search_dataset(collection / "member_a")
+    make_search_dataset(collection / "member_b")
+    catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+    catalog.scan(mode="standard", scan_root=collection)
+
+    assert catalog.resolve_search_index_datasets(["demo_collection"]) == (
+        ["member_a", "member_b"], []
+    )
+    assert catalog.resolve_search_index_datasets(["member_b"]) == (["member_b"], [])
+    assert catalog.resolve_search_index_datasets(["missing"]) == ([], ["missing"])
+
+
 def test_episode_search_text_stage_filters_pagination_and_missing_states(tmp_path):
     catalog = indexed_catalog(tmp_path)
     text_result = catalog.search_episodes(query="white mug")
@@ -129,6 +145,64 @@ def test_episode_search_text_stage_filters_pagination_and_missing_states(tmp_pat
     )
 
 
+def test_preview_summary_uses_sqlite_and_stage_details_are_lazy(tmp_path, monkeypatch):
+    catalog = indexed_catalog(tmp_path)
+
+    def reject_recursive_glob(_path, pattern):
+        raise AssertionError(f"preview must not enumerate Stage directories: {pattern}")
+
+    monkeypatch.setattr(Path, "glob", reject_recursive_glob)
+    summary = catalog.episode_preview_summary("demo", 0)
+    assert summary["episode"]["instruction"] == "put the white mug down"
+    assert summary["timeline"]["duration"] == 1.0
+    assert {item["camera"] for item in summary["videos"]} == {
+        "observation.images.front", "observation.images.wrist",
+    }
+    stage1 = next(item for item in summary["stage_results"] if item["stage_id"] == 1)
+    assert stage1["artifact_status"] == "available"
+    assert stage1["detail_loaded"] is False
+
+    detail = catalog.episode_stage_detail("demo", 0, 1)
+    assert detail["detail_loaded"] is True
+    assert any(record["file"] == "labels/episode_summary.parquet" for record in detail["records"])
+
+    stage6 = catalog.episode_stage_detail("demo", 0, 6)
+    assert stage6["detail"]["status"] == "complete"
+
+    monkeypatch.setattr("vla_platform.api.catalog", catalog)
+    with TestClient(app) as client:
+        response = client.get("/api/datasets/demo/episodes/0/preview")
+        assert response.status_code == 200
+        assert response.json()["stage_results"][0]["detail_loaded"] is False
+        response = client.get("/api/datasets/demo/episodes/0/stages/6")
+        assert response.status_code == 200
+        assert response.json()["detail"]["status"] == "complete"
+
+
+def test_upstream_filtered_status_propagates_across_multiple_stages(tmp_path):
+    catalog = indexed_catalog(tmp_path)
+    with catalog._connect() as db:
+        stage2 = db.execute(
+            """SELECT artifact_status,verdict FROM stage_episode_results
+                WHERE dataset_uid='demo' AND episode_index=2 AND stage_id=2"""
+        ).fetchone()
+        assert tuple(stage2) == ("upstream_filtered", "upstream_filtered")
+
+        # Simulate a stale placeholder created before the parent result was
+        # known. Refreshing must repair it and carry the exclusion forward.
+        db.execute(
+            """UPDATE stage_episode_results SET artifact_status='episode_pending',
+                verdict='episode_pending' WHERE dataset_uid='demo'
+                AND episode_index=2 AND stage_id=3"""
+        )
+        catalog._fill_missing_stage_rows(db, "demo", 3, "demo", True, True)
+        stage3 = db.execute(
+            """SELECT artifact_status,verdict FROM stage_episode_results
+                WHERE dataset_uid='demo' AND episode_index=2 AND stage_id=3"""
+        ).fetchone()
+        assert tuple(stage3) == ("upstream_filtered", "upstream_filtered")
+
+
 def test_json_stage_index_updates_incrementally(tmp_path):
     catalog = indexed_catalog(tmp_path)
     source = tmp_path / "data_curation" / "stage6" / "demo" / "episode_000000.json"
@@ -144,6 +218,74 @@ def test_json_stage_index_updates_incrementally(tmp_path):
     assert updated["total"] == 1
     badge = next(value for value in updated["items"][0]["stage_badges"] if value["stage_id"] == 6)
     assert badge["severity"] == "warning"
+
+
+def test_sharded_stage_index_skips_unchanged_and_applies_changes(tmp_path, monkeypatch):
+    catalog = indexed_catalog(tmp_path)
+    stage = tmp_path / "data_curation" / "stage6" / "demo"
+    payloads = [
+        {"episode_index": index, "status": "complete", "quality": {"uncertainties": []}}
+        for index in range(3)
+    ]
+    first_manifest = publish_stage_index_snapshot(stage, 6, payloads, shard_size=1)
+    assert first_manifest["file_count"] == 3
+    assert len(first_manifest["shards"]) == 3
+    unchanged_shard = stage / "search_index" / "part-000002.parquet"
+    unchanged_mtime = unchanged_shard.stat().st_mtime_ns
+    assert publish_stage_index_snapshot(stage, 6, payloads, shard_size=1)["generation"] == first_manifest["generation"]
+    assert unchanged_shard.stat().st_mtime_ns == unchanged_mtime
+    catalog.sync_search_index(["demo"])
+
+    original_glob = Path.glob
+
+    def reject_legacy_episode_scan(path, pattern):
+        if pattern == "episode_*.json":
+            raise AssertionError("unchanged bundle must not scan legacy Episode JSON")
+        return original_glob(path, pattern)
+
+    monkeypatch.setattr(Path, "glob", reject_legacy_episode_scan)
+    count, skipped = catalog._sync_stage_search_index("demo", tmp_path / "demo", 6)
+    assert skipped is True and count == 3
+    monkeypatch.setattr(Path, "glob", original_glob)
+
+    second_manifest = publish_stage_index_snapshot(stage, 6, [
+        {"episode_index": 0, "status": "needs_review", "quality": {"uncertainties": ["ambiguous"]}},
+        payloads[2],
+    ], shard_size=1)
+    assert second_manifest["changes"]["upsert_shards"] == ["search_index/part-000000.parquet"]
+    assert second_manifest["changes"]["tombstones"] == [1]
+    catalog.sync_search_index(["demo"])
+
+    changed = catalog.search_episodes(stage_filters=[{"stage_id": 6, "verdicts": ["needs_review"]}])
+    assert [(item["episode_index"], item["dataset_uid"]) for item in changed["items"]] == [(0, "demo")]
+    pending = catalog.search_episodes(stage_filters=[{
+        "stage_id": 6, "artifact_statuses": ["episode_pending"],
+    }])
+    assert [item["episode_index"] for item in pending["items"]] == [1]
+    assert (stage / MANIFEST_NAME).is_file()
+
+    # A producer must publish the compact manifest after its primary manifest;
+    # a newer primary manifest invalidates the snapshot and triggers fallback.
+    (stage / "manifest.json").write_text(json.dumps({"stage_id": 6, "run_complete": True}))
+    assert catalog._stage_index_manifest(stage, 6) is None
+
+
+def test_completed_legacy_json_stage_uses_manifest_fast_path(tmp_path, monkeypatch):
+    catalog = indexed_catalog(tmp_path)
+    stage = tmp_path / "data_curation" / "stage6" / "demo"
+    (stage / "manifest.json").write_text(json.dumps({"stage_id": 6, "run_complete": True}))
+    catalog.sync_search_index(["demo"])
+
+    original_glob = Path.glob
+
+    def reject_episode_scan(path, pattern):
+        if pattern == "episode_*.json":
+            raise AssertionError("completed unchanged stage must not scan Episode JSON")
+        return original_glob(path, pattern)
+
+    monkeypatch.setattr(Path, "glob", reject_episode_scan)
+    count, skipped = catalog._sync_stage_search_index("demo", tmp_path / "demo", 6)
+    assert skipped is True and count == 3
 
 
 def test_thumbnail_uses_primary_camera_episode_start_and_invalidates_cache(tmp_path, monkeypatch):
@@ -212,3 +354,23 @@ def test_search_and_thumbnail_api(monkeypatch, tmp_path):
             assert task["status"] == "succeeded"
     finally:
         manager._executor.shutdown(wait=True)
+
+
+def test_duplicate_search_index_request_reuses_active_task(monkeypatch, tmp_path):
+    catalog = indexed_catalog(tmp_path)
+    monkeypatch.setattr(api_module, "catalog", catalog)
+    active = {
+        "task_id": "search-index-existing", "status": "running",
+        "datasets": ["demo"], "current": 1, "total": 9,
+        "created_at": time.time(), "error": None,
+    }
+    api_module.search_index_tasks.clear()
+    api_module.search_index_tasks[active["task_id"]] = active
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/search/index", json={"datasets": ["demo"]})
+        assert response.status_code == 202
+        assert response.json()["task_id"] == active["task_id"]
+        assert list(api_module.search_index_tasks) == [active["task_id"]]
+    finally:
+        api_module.search_index_tasks.clear()
