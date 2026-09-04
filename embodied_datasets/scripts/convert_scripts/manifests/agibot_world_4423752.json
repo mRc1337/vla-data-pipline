@@ -1,0 +1,2260 @@
+{
+  "files": [
+    {
+      "baseline_size": 2504,
+      "git_blob_sha1": "bed0738c7eeb449bca98b5d2f33c89a1ee56349a",
+      "path": ".gitattributes",
+      "repair_required": false,
+      "size": 2504
+    },
+    {
+      "baseline_size": 30635024853,
+      "lfs_sha256": "a08a442d4ddb6feac48d6686f5ca803da545eedc5ccbbe4b2b2ccd6712967d0e",
+      "path": "ImitationLearning/CommercialSpaces/task_3400/313498_314085.tar.gz",
+      "repair_required": false,
+      "size": 30635024853
+    },
+    {
+      "baseline_size": 32328762739,
+      "lfs_sha256": "ccddca01d3e324713897d5cc80f04a183fe215f73969727e8551517a3dcb4c1d",
+      "path": "ImitationLearning/CommercialSpaces/task_3400/314096_314575.tar.gz",
+      "repair_required": false,
+      "size": 32328762739
+    },
+    {
+      "baseline_size": 31188977838,
+      "lfs_sha256": "16b42d1e6634df5e6cff533b5417de838766232530a140c0bcee0d97975cd650",
+      "path": "ImitationLearning/CommercialSpaces/task_3400/314576_315886.tar.gz",
+      "repair_required": false,
+      "size": 31188977838
+    },
+    {
+      "baseline_size": 32725879369,
+      "lfs_sha256": "f12d1a1e0d3a276b0e4d01c67a33dd485a7d31c28a59e05311dc1a1b9f3e74bc",
+      "path": "ImitationLearning/CommercialSpaces/task_3400/315903_317024.tar.gz",
+      "repair_required": false,
+      "size": 32725879369
+    },
+    {
+      "baseline_size": 30769594830,
+      "lfs_sha256": "2619a2f7727ca821b6023d6049ec8a8e87d011123766022ac9346b56ad33b50f",
+      "path": "ImitationLearning/CommercialSpaces/task_3400/317029_317933.tar.gz",
+      "repair_required": false,
+      "size": 30769594830
+    },
+    {
+      "baseline_size": 19091677638,
+      "lfs_sha256": "60152d56da4eab799b21152052af0b5484248a9d2f16063fccf8fdffe9f4788a",
+      "path": "ImitationLearning/CommercialSpaces/task_3400/346206_347749.tar.gz",
+      "repair_required": false,
+      "size": 19091677638
+    },
+    {
+      "baseline_size": 37681884340,
+      "lfs_sha256": "9ee3733de0500f0e9e0f4568ace2802daee0ba6a3c05798acb6e9639462de3db",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/352507_353983.tar.gz",
+      "repair_required": false,
+      "size": 37681884340
+    },
+    {
+      "baseline_size": 35597215817,
+      "lfs_sha256": "8e7542738c878ccc981d97e77cc87444fe0c49d516a9336c6ca6902f1098cf1d",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/353984_357369.tar.gz",
+      "repair_required": false,
+      "size": 35597215817
+    },
+    {
+      "baseline_size": 35825627502,
+      "lfs_sha256": "c10af25611e145db9ab6ad7b154b8d75d2ccc5f472c9d2c5ba1a0abc9085b343",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/357385_358520.tar.gz",
+      "repair_required": false,
+      "size": 35825627502
+    },
+    {
+      "baseline_size": 32920511809,
+      "lfs_sha256": "cdc34e2c86daad8df4087cbd03c43397ea407b5b41e965985de5080da0de2765",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/358525_362596.tar.gz",
+      "repair_required": false,
+      "size": 32920511809
+    },
+    {
+      "baseline_size": 35346781649,
+      "lfs_sha256": "0fc3d9b884f1adc63fa5e2a147ca89b02c8319762fe2efac72efe09ac03003e4",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/363333_364278.tar.gz",
+      "repair_required": false,
+      "size": 35346781649
+    },
+    {
+      "baseline_size": 34494820927,
+      "lfs_sha256": "e827c7eecc8f0e561eae40d1155bffd0ee02a83c9cda376ddcc74b9316f8f96f",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/364289_366221.tar.gz",
+      "repair_required": false,
+      "size": 34494820927
+    },
+    {
+      "baseline_size": 34327878022,
+      "lfs_sha256": "cf659fde033bb4f4cfa04655e03a951e3a51973a3f2f3fda060944f266b45904",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/366235_366995.tar.gz",
+      "repair_required": false,
+      "size": 34327878022
+    },
+    {
+      "baseline_size": 33530087521,
+      "lfs_sha256": "bd953e785661ffb9cbff16757940bd4bfa8a3bf97d04754fa9f49e4e7a5f40ba",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/366997_368165.tar.gz",
+      "repair_required": false,
+      "size": 33530087521
+    },
+    {
+      "baseline_size": 31918070853,
+      "lfs_sha256": "6aeec4a22b1323b79a84e4042a65b4e5b8a3d500bb5e606c7f7c53cbc104f7a5",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/368167_368944.tar.gz",
+      "repair_required": false,
+      "size": 31918070853
+    },
+    {
+      "baseline_size": 34317530991,
+      "lfs_sha256": "8376ecc63978848afe5b1728f17e3137deee3e9f92859c4e222bfc834c055fcf",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/368945_369053.tar.gz",
+      "repair_required": false,
+      "size": 34317530991
+    },
+    {
+      "baseline_size": 35046406949,
+      "lfs_sha256": "c328df496b0d178ff5e36507a87dcb2d8b13d2d9d14779e67d2e862dcd9e0e7f",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/369057_369226.tar.gz",
+      "repair_required": false,
+      "size": 35046406949
+    },
+    {
+      "baseline_size": 32819387151,
+      "lfs_sha256": "c7aee4079fc06cadf152fcc54f4bf9b7bba8e0f0013d68aa770515ea66b395da",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/369229_370144.tar.gz",
+      "repair_required": false,
+      "size": 32819387151
+    },
+    {
+      "baseline_size": 33014383257,
+      "lfs_sha256": "f2178f44c49121b1f90a41ae33f258448cc2fb4c2d724ce080bcb86a0ffb3679",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/370198_371077.tar.gz",
+      "repair_required": false,
+      "size": 33014383257
+    },
+    {
+      "baseline_size": 31969061444,
+      "lfs_sha256": "19877825c09292a8ddaab5226ca12ffa64148403ab0934d852bee44a4162a69b",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/371092_371850.tar.gz",
+      "repair_required": false,
+      "size": 31969061444
+    },
+    {
+      "baseline_size": 34797501638,
+      "lfs_sha256": "b543563a60683477e08be8b37626be970bef7b2dfe39dcc6e2feede6adfa82d1",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/371906_372880.tar.gz",
+      "repair_required": false,
+      "size": 34797501638
+    },
+    {
+      "baseline_size": 34881489812,
+      "lfs_sha256": "99f66c63d7fc0940981fbf5ef159b5792bb3ce64af60dff70550c4e492a77758",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/372890_399007.tar.gz",
+      "repair_required": false,
+      "size": 34881489812
+    },
+    {
+      "baseline_size": 6188721410,
+      "lfs_sha256": "fe860ec3d441322f9809345c5fb13cf8d9a486c4a7582e5d9096e4204482d503",
+      "path": "ImitationLearning/CommercialSpaces/task_3401/399093_399454.tar.gz",
+      "repair_required": false,
+      "size": 6188721410
+    },
+    {
+      "baseline_size": 33612818817,
+      "lfs_sha256": "cb03bc4ec8d1e613c97ed4232c2bd70ee27ba19afa7109810bb056733e12d88e",
+      "path": "ImitationLearning/CommercialSpaces/task_3402/373661_375235.tar.gz",
+      "repair_required": false,
+      "size": 33612818817
+    },
+    {
+      "baseline_size": 34769089158,
+      "lfs_sha256": "0c30ef3bb23984e6fbd7b1c94df48e05b8344ade5d3bc0043f2b61a509a20000",
+      "path": "ImitationLearning/CommercialSpaces/task_3402/375260_377477.tar.gz",
+      "repair_required": false,
+      "size": 34769089158
+    },
+    {
+      "baseline_size": 33582573427,
+      "lfs_sha256": "accf97226fe8cbc0b42202680fad4e45e5b34d9b7a311c2511c356f43f0cfced",
+      "path": "ImitationLearning/CommercialSpaces/task_3402/377489_380881.tar.gz",
+      "repair_required": false,
+      "size": 33582573427
+    },
+    {
+      "baseline_size": 34053410319,
+      "lfs_sha256": "f39e83f8b9b4721b10efeca25cc9ebe402f2d951381e3c544b5023df88ffc733",
+      "path": "ImitationLearning/CommercialSpaces/task_3402/380892_384933.tar.gz",
+      "repair_required": false,
+      "size": 34053410319
+    },
+    {
+      "baseline_size": 13019548038,
+      "lfs_sha256": "5a0c343514d69d9ad7c65cc2afb832eae7e300a4fefbc0003176c26307c4c32f",
+      "path": "ImitationLearning/CommercialSpaces/task_3402/384954_385428.tar.gz",
+      "repair_required": false,
+      "size": 13019548038
+    },
+    {
+      "baseline_size": 34141219092,
+      "lfs_sha256": "d2c64b4b1b3c64025e04249a75ce384fd30f78dd0af19ee0bdaa2a7bcf64e22b",
+      "path": "ImitationLearning/CommercialSpaces/task_3404/305627_321730.tar.gz",
+      "repair_required": false,
+      "size": 34141219092
+    },
+    {
+      "baseline_size": 35047355807,
+      "lfs_sha256": "1f57840d60c9b0def5746e5ccdcaab5a9853b119557e4de1d174d386aa5576e3",
+      "path": "ImitationLearning/CommercialSpaces/task_3404/321801_329470.tar.gz",
+      "repair_required": false,
+      "size": 35047355807
+    },
+    {
+      "baseline_size": 36596747458,
+      "lfs_sha256": "b95598f775a8405d50a8569db1e1271dbb2634a6d0731555250cb881553ee50d",
+      "path": "ImitationLearning/CommercialSpaces/task_3404/374845_377721.tar.gz",
+      "repair_required": false,
+      "size": 36596747458
+    },
+    {
+      "baseline_size": 35899339967,
+      "lfs_sha256": "5c056b70337bcf95fb3c6f2c450c310eb874793a6cfeb7c755c2c7592e36999d",
+      "path": "ImitationLearning/CommercialSpaces/task_3404/377745_378588.tar.gz",
+      "repair_required": false,
+      "size": 35899339967
+    },
+    {
+      "baseline_size": 30600336509,
+      "lfs_sha256": "d3d72a5b43468e1a12b9851dd887b854200f74531db39ccf3cc5d38acedb2749",
+      "path": "ImitationLearning/CommercialSpaces/task_3404/389330_396655.tar.gz",
+      "repair_required": false,
+      "size": 30600336509
+    },
+    {
+      "baseline_size": 5007344406,
+      "lfs_sha256": "2d33c0964b439acce51c7b84f42f7acad96d18eb1cd041b341832aa5b7637036",
+      "path": "ImitationLearning/CommercialSpaces/task_3405/389111_389369.tar.gz",
+      "repair_required": false,
+      "size": 5007344406
+    },
+    {
+      "baseline_size": 38359992584,
+      "lfs_sha256": "00abf46dea0e21972942c16f361d52640eb0a059cd6420418e92bc86d060e976",
+      "path": "ImitationLearning/CommercialSpaces/task_3477/248923_250431.tar.gz",
+      "repair_required": false,
+      "size": 38359992584
+    },
+    {
+      "baseline_size": 43397192869,
+      "lfs_sha256": "bfe8b779a7e6461b142da296cdaff7a4c9a58faeeb1d0bd6eb47d2c3d81ebc6c",
+      "path": "ImitationLearning/CommercialSpaces/task_3477/250434_252697.tar.gz",
+      "repair_required": false,
+      "size": 43397192869
+    },
+    {
+      "baseline_size": 37304561908,
+      "lfs_sha256": "29c8bb28e22f46dd6b92e906b37601ecde6385fd059021e0778afd33e7083999",
+      "path": "ImitationLearning/CommercialSpaces/task_3477/252787_255587.tar.gz",
+      "repair_required": false,
+      "size": 37304561908
+    },
+    {
+      "baseline_size": 37662048639,
+      "lfs_sha256": "35259e2fc55cd01a7cafac8db5d2c37b89b8ab3a9450c083226738eeb53d0bff",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/304773_306558.tar.gz",
+      "repair_required": false,
+      "size": 37662048639
+    },
+    {
+      "baseline_size": 33964571516,
+      "lfs_sha256": "f0e15b9ff5c7b60368cf2ffa893d6d5a0a1136c20c52c0d37bbfa7e2441f398d",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/306569_307774.tar.gz",
+      "repair_required": false,
+      "size": 33964571516
+    },
+    {
+      "baseline_size": 35252083095,
+      "lfs_sha256": "80bb1768fd74f0ab4919fd2b30b7fd1d3dced025f0787cf84e21ade3abdb715e",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/307787_308785.tar.gz",
+      "repair_required": false,
+      "size": 35252083095
+    },
+    {
+      "baseline_size": 36700543239,
+      "lfs_sha256": "6884749449d205e09a4ebf9bcf270b5113adb379ebe4473b1cb00b53bc0e4538",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/308789_310351.tar.gz",
+      "repair_required": false,
+      "size": 36700543239
+    },
+    {
+      "baseline_size": 37249695176,
+      "lfs_sha256": "4734af1768ee8464fe2d01e1646f0acbbcba4a35cbb032b203dfd463e9cb1a04",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/312244_314720.tar.gz",
+      "repair_required": false,
+      "size": 37249695176
+    },
+    {
+      "baseline_size": 41814510852,
+      "lfs_sha256": "ac3a7f84f5ed3cacec68ebbaf5ab1102a8d7e3224d712092f7db68f1885d3da6",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/314721_317680.tar.gz",
+      "repair_required": false,
+      "size": 41814510852
+    },
+    {
+      "baseline_size": 37354193792,
+      "lfs_sha256": "e81f7f1ff8438bb0bfe5e6625cdfada48a8cbea878ac5bf7f7018ba2bf3089f8",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/317686_319845.tar.gz",
+      "repair_required": false,
+      "size": 37354193792
+    },
+    {
+      "baseline_size": 34990587555,
+      "lfs_sha256": "a2a0798696aab87fca02b96f5284fb82ba7800940fb0a29fbebc3c0f245c1db0",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/319854_320987.tar.gz",
+      "repair_required": false,
+      "size": 34990587555
+    },
+    {
+      "baseline_size": 36277250186,
+      "lfs_sha256": "c39222b928511a64cf55c0a2a78116c503c04fbbe86a8e78794f68d3f0ccb548",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/321004_322875.tar.gz",
+      "repair_required": false,
+      "size": 36277250186
+    },
+    {
+      "baseline_size": 33883003827,
+      "lfs_sha256": "f257b7a843cf32a5ff094a6e062442bab462e61cabee139d97e4d5d52101f5b7",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/322888_323129.tar.gz",
+      "repair_required": false,
+      "size": 33883003827
+    },
+    {
+      "baseline_size": 37796780536,
+      "lfs_sha256": "5d7bdf5fb5db3c23f59424aa1d0736b3ecca012cf3c0479f45ba37128e9796b4",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/323131_324270.tar.gz",
+      "repair_required": false,
+      "size": 37796780536
+    },
+    {
+      "baseline_size": 37767975554,
+      "lfs_sha256": "b894080cf6b1676e8935543d6cc4c3d0c4d36c335da42365366d24050f424099",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/324278_324936.tar.gz",
+      "repair_required": false,
+      "size": 37767975554
+    },
+    {
+      "baseline_size": 37058881769,
+      "lfs_sha256": "3d35d254e527f1d7e1b5534d61200ce8e203603474b50465028c226c534cc92c",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/324949_325550.tar.gz",
+      "repair_required": false,
+      "size": 37058881769
+    },
+    {
+      "baseline_size": 36942191646,
+      "lfs_sha256": "5333610845ce3948f6a8a70b039313371684b6bca9c6ed601cd42069c1cc4ecd",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/325556_326880.tar.gz",
+      "repair_required": false,
+      "size": 36942191646
+    },
+    {
+      "baseline_size": 37220647980,
+      "lfs_sha256": "dcb269e28bf8a1c79dba02bd44d3bdb293cc67884dd8d17d715c2795f84a458a",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/326887_327595.tar.gz",
+      "repair_required": false,
+      "size": 37220647980
+    },
+    {
+      "baseline_size": 34733277237,
+      "lfs_sha256": "f47ddb42ccd7b7a7e641811fff1203f2dbfd8a5078bb5174856ddf06bc9a5c69",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/327603_328738.tar.gz",
+      "repair_required": false,
+      "size": 34733277237
+    },
+    {
+      "baseline_size": 34819262143,
+      "lfs_sha256": "1f3ef4220259267f0f5257be4c7a1ac913561bf21935c87c8b460effa75e813f",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/328740_329556.tar.gz",
+      "repair_required": false,
+      "size": 34819262143
+    },
+    {
+      "baseline_size": 34380805975,
+      "lfs_sha256": "0f44e1da9daebef2f820edbc0668940fcca850dd12cc062ac57f7cf26303bf13",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/329558_329877.tar.gz",
+      "repair_required": false,
+      "size": 34380805975
+    },
+    {
+      "baseline_size": 36393528408,
+      "lfs_sha256": "66d9f99d076243e12d2ceee79f40285df2c71ff2647efdde84a23c34c588f5c1",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/329879_330176.tar.gz",
+      "repair_required": false,
+      "size": 36393528408
+    },
+    {
+      "baseline_size": 37558252181,
+      "lfs_sha256": "b835cbbd3878af17edee24655c6c2174049c2c9b2a1f00ed46de045797aea36f",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/330177_330503.tar.gz",
+      "repair_required": false,
+      "size": 37558252181
+    },
+    {
+      "baseline_size": 36131378165,
+      "lfs_sha256": "df712e8a5762f5822a0e3b4a2404637eea1e1e5272307feba4beeac1d6baec8d",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/330504_333131.tar.gz",
+      "repair_required": false,
+      "size": 36131378165
+    },
+    {
+      "baseline_size": 37586942773,
+      "lfs_sha256": "0d4d153e7fc1219c95f4b46f8bbbe999d23a1645b58c04e61df33ae31c045cd7",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/333145_338811.tar.gz",
+      "repair_required": false,
+      "size": 37586942773
+    },
+    {
+      "baseline_size": 35261435213,
+      "lfs_sha256": "3f3647f61c154b4c444fabcbc03e084f2d00df274d7725a791e77f46e2a22f42",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/338871_343681.tar.gz",
+      "repair_required": false,
+      "size": 35261435213
+    },
+    {
+      "baseline_size": 36216150948,
+      "lfs_sha256": "4715a005281978fc429c90d9f0440665b488634cbb829d2ebfa47d93b6d5541d",
+      "path": "ImitationLearning/CommercialSpaces/task_3641/343691_352441.tar.gz",
+      "repair_required": false,
+      "size": 36216150948
+    },
+    {
+      "baseline_size": 17549587195,
+      "lfs_sha256": "a448072ec6f0f557ee8009b926691bfcefc3505b92f53eaafc16e4adbed59a67",
+      "path": "ImitationLearning/CommercialSpaces/task_3705/312820_313211.tar.gz",
+      "repair_required": false,
+      "size": 17549587195
+    },
+    {
+      "baseline_size": 29269712942,
+      "lfs_sha256": "40a2d57ec263ed0f3ab36390c6e0949c12ac1f72b9e3fd28b930afbf7a34a948",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/325306_327364.tar.gz",
+      "repair_required": false,
+      "size": 29269712942
+    },
+    {
+      "baseline_size": 28217679774,
+      "lfs_sha256": "4586fef065b8258f0c33568e0ff1bd222c053c43389eacf98c64ac3bdd5938af",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/327380_328715.tar.gz",
+      "repair_required": false,
+      "size": 28217679774
+    },
+    {
+      "baseline_size": 28886423597,
+      "lfs_sha256": "4472df5e723ec6caf74ba8544fbad752d156cffb2065638b6176eeab67b85a6f",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/328722_329585.tar.gz",
+      "repair_required": false,
+      "size": 28886423597
+    },
+    {
+      "baseline_size": 28519779114,
+      "lfs_sha256": "c48b96095f7672848a55738dfb32f3cebf0519d639fd6d8e93ca1b6557b17696",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/329589_330129.tar.gz",
+      "repair_required": false,
+      "size": 28519779114
+    },
+    {
+      "baseline_size": 28241797198,
+      "lfs_sha256": "3b9a387288447cb5914a2c6f28b6c112b3417d254a98bd0c64522980b258dcc9",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/330132_331330.tar.gz",
+      "repair_required": false,
+      "size": 28241797198
+    },
+    {
+      "baseline_size": 28473530138,
+      "lfs_sha256": "badded0d2886c57480d960f52caadec12a7a0ae25b76dbed84ce1c5fb680a2b2",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/331358_333284.tar.gz",
+      "repair_required": false,
+      "size": 28473530138
+    },
+    {
+      "baseline_size": 28156169004,
+      "lfs_sha256": "7319b33b1fa9957f1762c2870be3f411cea36233234989ee817ca769e5fdf822",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/333286_336077.tar.gz",
+      "repair_required": false,
+      "size": 28156169004
+    },
+    {
+      "baseline_size": 28096912654,
+      "lfs_sha256": "8b31d465e71777da0cbc7ece08e57b721b0bb0d2a68221bea3621d1c9413b402",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/336089_338299.tar.gz",
+      "repair_required": false,
+      "size": 28096912654
+    },
+    {
+      "baseline_size": 27747865798,
+      "lfs_sha256": "3991f1e3cac75e23c6f054c6fadfcb5009183f1d426dc801e66576b50d0ada03",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/338316_342675.tar.gz",
+      "repair_required": false,
+      "size": 27747865798
+    },
+    {
+      "baseline_size": 30698424190,
+      "lfs_sha256": "0cfada4db06cb7e86de94b67c7b6585cd73000994423506440304b6793ff5a9a",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/342697_352057.tar.gz",
+      "repair_required": false,
+      "size": 30698424190
+    },
+    {
+      "baseline_size": 31483411852,
+      "lfs_sha256": "6adce750ce5a51a28f88f4b76b0f3317e169841504722e977c759c45bfaf6c84",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/352058_353519.tar.gz",
+      "repair_required": false,
+      "size": 31483411852
+    },
+    {
+      "baseline_size": 29356310152,
+      "lfs_sha256": "79fca6107af5062b4e4580ecaf54de5534602af819fb0f0687531ead3577e82a",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/353521_357589.tar.gz",
+      "repair_required": false,
+      "size": 29356310152
+    },
+    {
+      "baseline_size": 28449759495,
+      "lfs_sha256": "177c39b65496e5e7f82021c21ed6452e0fc2e7750a95f9b2c9bd122ba1136eb2",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/357780_362729.tar.gz",
+      "repair_required": false,
+      "size": 28449759495
+    },
+    {
+      "baseline_size": 31993608455,
+      "lfs_sha256": "4244a41deecee6516e19208bbba341e3bf688a9546f54ac5253f94d3c3293755",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/362736_365107.tar.gz",
+      "repair_required": false,
+      "size": 31993608455
+    },
+    {
+      "baseline_size": 29877351256,
+      "lfs_sha256": "0f9505ae5f84efc5573f675eb78f177ca905f8c36d26ada6500e9aba218e5c77",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/365112_368927.tar.gz",
+      "repair_required": false,
+      "size": 29877351256
+    },
+    {
+      "baseline_size": 34371752015,
+      "lfs_sha256": "9796b2f17000cf4065d044b92451d5eef890e0d12dbaf5b720547d844951c531",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/368929_370517.tar.gz",
+      "repair_required": false,
+      "size": 34371752015
+    },
+    {
+      "baseline_size": 34011769210,
+      "lfs_sha256": "dcada8d83cbca6b8bf9415c03a0e51754185e8179b333eae8774a89e2ee038c6",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/370529_373068.tar.gz",
+      "repair_required": false,
+      "size": 34011769210
+    },
+    {
+      "baseline_size": 34157794983,
+      "lfs_sha256": "965e09877d0c943e21c638768d8d19fa97c9ae486b361b09e02badacfdb9d5be",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/373071_374770.tar.gz",
+      "repair_required": false,
+      "size": 34157794983
+    },
+    {
+      "baseline_size": 34267179402,
+      "lfs_sha256": "5ca6d768f7a5ffea5eb81b2e022e71ac187ad21e103baf1eb833bffc64c0c27c",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/374778_377296.tar.gz",
+      "repair_required": false,
+      "size": 34267179402
+    },
+    {
+      "baseline_size": 33112305851,
+      "lfs_sha256": "9e28c46e806fa10ec9c25ce9c342d345e15437e1a35e8b3217f5acd18d3f6c58",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/377297_378412.tar.gz",
+      "repair_required": false,
+      "size": 33112305851
+    },
+    {
+      "baseline_size": 35215437949,
+      "lfs_sha256": "3822a4447a231e4008ab566f6fed107e77117b2eeb280d6c2ea1a5b8de730e6d",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/378413_380089.tar.gz",
+      "repair_required": false,
+      "size": 35215437949
+    },
+    {
+      "baseline_size": 36021814121,
+      "lfs_sha256": "19e755a6190b84f2df4be853cd4492b65ba1871a2c76cb1f3cf972d9c56c9a0c",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/380090_381352.tar.gz",
+      "repair_required": false,
+      "size": 36021814121
+    },
+    {
+      "baseline_size": 33098908901,
+      "lfs_sha256": "8ce5eb2127126043a6921242800b949da3e0d680da0ed407eaad5a6dccc5eb3b",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/381367_384922.tar.gz",
+      "repair_required": false,
+      "size": 33098908901
+    },
+    {
+      "baseline_size": 30432398774,
+      "lfs_sha256": "51cf5386f2711b1dafe9131d6c4cd513ca84b1e4448ba39ad7a643b15ec06ca8",
+      "path": "ImitationLearning/CommercialSpaces/task_3777/384931_386178.tar.gz",
+      "repair_required": false,
+      "size": 30432398774
+    },
+    {
+      "baseline_size": 38853357623,
+      "lfs_sha256": "a95afca59e14083cfb33f8440c3566f4e1027e807125596378974d6959b4668c",
+      "path": "ImitationLearning/CommercialSpaces/task_4053/368961_369296.tar.gz",
+      "repair_required": false,
+      "size": 38853357623
+    },
+    {
+      "baseline_size": 36815069988,
+      "lfs_sha256": "a0b5a23226d2ce6c588bb51793150be409330f86f56962cd7aa0fe16f18a8461",
+      "path": "ImitationLearning/CommercialSpaces/task_4053/369297_371773.tar.gz",
+      "repair_required": false,
+      "size": 36815069988
+    },
+    {
+      "baseline_size": 29661760492,
+      "lfs_sha256": "093af699bc32492ed01f5ef28f6d0ec3725f4eaec9e5ffd0378316a8a4295892",
+      "path": "ImitationLearning/CommercialSpaces/task_4053/371782_373846.tar.gz",
+      "repair_required": false,
+      "size": 29661760492
+    },
+    {
+      "baseline_size": 32901687922,
+      "lfs_sha256": "dcd8dfc9c306cd0461c85b7d27604995032c0a376ed85cf1a497c18fd9204c49",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/465501_467318.tar.gz",
+      "repair_required": false,
+      "size": 32901687922
+    },
+    {
+      "baseline_size": 31179232786,
+      "lfs_sha256": "36086b1ed42f4bcd7e8ef5c0f0551a74f3b3d5426f40de47ed7111ea27eff500",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/468833_471492.tar.gz",
+      "repair_required": false,
+      "size": 31179232786
+    },
+    {
+      "baseline_size": 30812712935,
+      "lfs_sha256": "57ec4435fc07341c0bf2cbd5fb1a4f777b25346be8b5f476d1eed0d3ff9f3685",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/471493_475790.tar.gz",
+      "repair_required": false,
+      "size": 30812712935
+    },
+    {
+      "baseline_size": 35079847540,
+      "lfs_sha256": "3578be070cd8fd241f5c2b1eafd8edae975a32c2efb689355b6a84f8eab4a554",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/475937_480093.tar.gz",
+      "repair_required": false,
+      "size": 35079847540
+    },
+    {
+      "baseline_size": 37276061695,
+      "lfs_sha256": "c892e6a023615f40ab6c09bd8ba23782fbc20ac26216adfe70f247f2a18c54c9",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/480102_484918.tar.gz",
+      "repair_required": false,
+      "size": 37276061695
+    },
+    {
+      "baseline_size": 37459203608,
+      "lfs_sha256": "b40eab30afa364ecaf3e2570fd6a0345612bb89a49fe6973f09e2ae0f972c910",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/484925_488212.tar.gz",
+      "repair_required": false,
+      "size": 37459203608
+    },
+    {
+      "baseline_size": 36625346945,
+      "lfs_sha256": "b3863c02786eb2265830f41fa186c6ff631e170c6ccfbb54aa3946ea7b700053",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/488223_496015.tar.gz",
+      "repair_required": false,
+      "size": 36625346945
+    },
+    {
+      "baseline_size": 33362101479,
+      "lfs_sha256": "b31539a94e45be4851503a528e6c36bacf66ad977f26ec8dc3550bd2fb1ef20c",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/496027_497478.tar.gz",
+      "repair_required": false,
+      "size": 33362101479
+    },
+    {
+      "baseline_size": 32913884291,
+      "lfs_sha256": "6d6c5507138b1d0c9680577828fba6885d175fa9f7a3ae32fa8804b8be6e172b",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/497493_498246.tar.gz",
+      "repair_required": false,
+      "size": 32913884291
+    },
+    {
+      "baseline_size": 33537702515,
+      "lfs_sha256": "de52ba56cd914dea1b69e913cff7a21509864b59ae38bb0618541b4cad81bc0e",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/498247_501111.tar.gz",
+      "repair_required": false,
+      "size": 33537702515
+    },
+    {
+      "baseline_size": 32980144535,
+      "lfs_sha256": "6a6b0b2f03b6f088fbe8c04821d194d04c2cb569c0e0dad86175d07cbfa1d8de",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/501113_502008.tar.gz",
+      "repair_required": true,
+      "size": 34144659796
+    },
+    {
+      "baseline_size": 34064136012,
+      "lfs_sha256": "ff8249b0b80cce5c03920ff452c037fd5c26b1d463b647f479b3c5ef873e5578",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/502012_505899.tar.gz",
+      "repair_required": false,
+      "size": 34064136012
+    },
+    {
+      "baseline_size": 33167373595,
+      "lfs_sha256": "079789705963926316b3942a794fb1568400888fe423f8a4683a27d05ad6b44b",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/505904_511914.tar.gz",
+      "repair_required": false,
+      "size": 33167373595
+    },
+    {
+      "baseline_size": 33714770051,
+      "lfs_sha256": "47e65b60e29357a21bb0af224bf504473da41f921587b164593fac6756989c59",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/511921_517083.tar.gz",
+      "repair_required": false,
+      "size": 33714770051
+    },
+    {
+      "baseline_size": 35977127540,
+      "lfs_sha256": "16b92f4a63b7faa7399f87fa88536ac18010426e2c7950c6040909c85a9f09a7",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/517196_521736.tar.gz",
+      "repair_required": false,
+      "size": 35977127540
+    },
+    {
+      "baseline_size": 37023323974,
+      "lfs_sha256": "5fc3d64f00b47a5c24a9fc794c56686861a2a68c94ab8f5a2e081216559dc65e",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/521742_523072.tar.gz",
+      "repair_required": false,
+      "size": 37023323974
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "b7a9712459dbb46e4f95e4d8385b428eaf99d4be4e58197ac35d65803c22745c",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/523075_527871.tar.gz",
+      "repair_required": true,
+      "size": 37302467559
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "8fe4d855cfc491e789516d3d7f0818a5e61f7dd9d6108e4f8db6820fcccf1391",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/527875_529177.tar.gz",
+      "repair_required": true,
+      "size": 37699651026
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "45c63b8b4e1706ae08a3ac61bce3b6eb0d0096c65a7579adecccbba277b11b1d",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/529178_531609.tar.gz",
+      "repair_required": true,
+      "size": 37862967830
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "d5241f69dc489271a4c4b691c2dd28cf09f242452f506612fea21f25a3d80935",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/531611_534822.tar.gz",
+      "repair_required": true,
+      "size": 37845502391
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "d46016c997ab4d4bf990d05331123477c586e3526fd264fb53e0c49be7764f5b",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/534825_536939.tar.gz",
+      "repair_required": true,
+      "size": 38171096852
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "7536108a7e893a5ff2d2108237c1e12f79b5b9def0e700b48542ba94c10d853b",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/536942_538152.tar.gz",
+      "repair_required": true,
+      "size": 38509394626
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "4809fa13a55d6cc850601fa68755eb163b3d4e1128e2c196ea4b834d891ac5a3",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/538158_543237.tar.gz",
+      "repair_required": true,
+      "size": 38616221927
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "da7a1ef932548b8aead63041ef2a809f1ed02bd2a3db1763fd940a249957a1d3",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/543246_545940.tar.gz",
+      "repair_required": true,
+      "size": 39109007073
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "99ba2e8582a839cc44f5dcaeac458679db1948a713c14ace2e353f53229c0ed2",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/545942_547298.tar.gz",
+      "repair_required": true,
+      "size": 38522291159
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "c38b9310b134a79a329244a66a1e383215f7b077047b294e4f97e888393fc22b",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/547302_553047.tar.gz",
+      "repair_required": true,
+      "size": 38779497978
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "e18843caa7fcc399e474801c8be8a3f919b17093728fe45c5038dc396dc46782",
+      "path": "ImitationLearning/CommercialSpaces/task_4542/553049_553079.tar.gz",
+      "repair_required": true,
+      "size": 1441527863
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "98bc4dff023a606e275cf951469aa1500db603236780301d93c0f81bc3f08252",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/520852_521864.tar.gz",
+      "repair_required": true,
+      "size": 33083631728
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "815b606391bf781b9915954ca2c400463ec316e044ed6ac7398424fcd0c6028c",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/521866_522631.tar.gz",
+      "repair_required": true,
+      "size": 32475941534
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "5e0060ed9ad67e0da7ce4667c8154c9f474c7797a32fe73e808a23abbf957045",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/522635_523073.tar.gz",
+      "repair_required": true,
+      "size": 32217968785
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "37d1e982645188111fe97bd482e5f7c2514cc277d93c44ba98ef5e23f990523c",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/523074_524492.tar.gz",
+      "repair_required": true,
+      "size": 31495527997
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "2dc8dde767e48f1d59139cf8f027ba2e0fbcfc1bc05fec4f9a8662368560b6b9",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/524513_527859.tar.gz",
+      "repair_required": true,
+      "size": 32630201597
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "50a02dc83ec9edf79b39f743d8d035b45bf171df59f1533d93fe30ef4e328589",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/527861_528707.tar.gz",
+      "repair_required": true,
+      "size": 33043743177
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "22d608dcdec7fdac325c17274cd63e372414796b2f82e23a953427bc29367fc5",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/528818_529261.tar.gz",
+      "repair_required": true,
+      "size": 33423165642
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "9b17eb37777476e824cce63ddf3427a389dac1e191674bafd412eff8c9b71900",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/529262_531565.tar.gz",
+      "repair_required": true,
+      "size": 32728215993
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "34907cbaf61acc523240bb138da0fd070b2a2bc59936cad52000e9d589796803",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/531569_532892.tar.gz",
+      "repair_required": true,
+      "size": 32668183305
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "cf6dd6b0ce12fd4642205fc700883c9add456184762e1b55266aa2025413479a",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/532904_535045.tar.gz",
+      "repair_required": true,
+      "size": 32923594559
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "7b904c3196efb26486571b49a50babee76f985404a3f919cc24c42c71d7950d5",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/535046_537085.tar.gz",
+      "repair_required": true,
+      "size": 32415386191
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "a80ec5126f46370feb1f653a750e3ae7fd7381563c353fa6fed1078dd54c2cc3",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/537092_538194.tar.gz",
+      "repair_required": true,
+      "size": 32563725742
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "4f5349604d5326631044a1b9beefc2a13ce343a5d3c0befa76cb73e36cc74a33",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/538199_539639.tar.gz",
+      "repair_required": true,
+      "size": 32466279323
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "e6a702bdfd53982ae76ba7656200ee86b4fd0008edd5ed929630bbdfee92b254",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/539640_539786.tar.gz",
+      "repair_required": true,
+      "size": 35796767986
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "5aa1a2394c9eff702d507023f99f71507e741aef8dbca5d5364ed88bd32533ff",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/539787_541219.tar.gz",
+      "repair_required": true,
+      "size": 36212719192
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "6eeb085d163bfd029066a91ac47c18500fcb9a2a857937710b9dd352f0831b02",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/541220_542411.tar.gz",
+      "repair_required": true,
+      "size": 36713895724
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "fa76f493f7983a10662cc7f680b2962a8e974df97b309657327d74bac15bfedd",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/542412_542490.tar.gz",
+      "repair_required": true,
+      "size": 35015187935
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "ab96f49e71a4caddb1221231e4841d34a2045c4fd06d4d316845a63855c3736b",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/542491_542593.tar.gz",
+      "repair_required": true,
+      "size": 35497660307
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "dcb8c83d47c4e8883b36f4781601c5d5e057de40d6dc2754290f9981c63bde60",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/542594_542876.tar.gz",
+      "repair_required": true,
+      "size": 34844606205
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "1fc9844ba53b2769741d83c83f2413b5f4e6a6d11b7159c63cc7456c0cab69c5",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/542882_547493.tar.gz",
+      "repair_required": true,
+      "size": 33456842890
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "236a7dcd58be158d6f755578ef7df59c79875dcd5e6f5b1fc321989a9b520d8c",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/547510_553161.tar.gz",
+      "repair_required": true,
+      "size": 36232032495
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "70821d7aa9c8ad407423ffe886a1d42da52e17dea7e67f30399285730292e289",
+      "path": "ImitationLearning/CommercialSpaces/task_4799/553173_553243.tar.gz",
+      "repair_required": true,
+      "size": 4505730425
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "6e22c3451535e4f6c408d59933dedc754e3e4748e026acbb8d2793c9de2cbbab",
+      "path": "ImitationLearning/Home/task_4713/502226_505908.tar.gz",
+      "repair_required": true,
+      "size": 29363869581
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "80f45be48cb49a406bc27f28b87fd406ad860400ae854eecee6a00d0066fd2d7",
+      "path": "ImitationLearning/Home/task_4713/505914_507691.tar.gz",
+      "repair_required": true,
+      "size": 29247459783
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "e0460c4e6dec9917a50fdebc2b128d8d18365f4e36de9db17a81d950a4a673f3",
+      "path": "ImitationLearning/Home/task_4713/507708_508595.tar.gz",
+      "repair_required": true,
+      "size": 31086779119
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "a9773cdc1a3de268bc4c8c345b304bed63aa7fdee4ad585d694ecaf7c032d4fa",
+      "path": "ImitationLearning/Home/task_4713/508596_508885.tar.gz",
+      "repair_required": true,
+      "size": 28855198066
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "79610d2ef5a5c3fe49fd229ff5e3a416b6d6501560db8b52a705812eb5799576",
+      "path": "ImitationLearning/Home/task_4713/508888_509224.tar.gz",
+      "repair_required": true,
+      "size": 29603384277
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "3f90efbcbcec3be196e75a284d998c0fd0c18b9e906d8e84c5df132c5bef941c",
+      "path": "ImitationLearning/Home/task_4713/509284_509558.tar.gz",
+      "repair_required": true,
+      "size": 30499174630
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "1e32e75454c27df90fe1d1c480caa9ff79ec8778c18a9d6f6afbab1f4ae9eee4",
+      "path": "ImitationLearning/Home/task_4713/509560_509994.tar.gz",
+      "repair_required": true,
+      "size": 30472239804
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "5c4a2067c5404a2c53060f124838ce873ea1f9711cfe44fc08e4c96cf7fd12ae",
+      "path": "ImitationLearning/Home/task_4713/509995_510027.tar.gz",
+      "repair_required": true,
+      "size": 3093267848
+    },
+    {
+      "baseline_size": 16711,
+      "git_blob_sha1": "b51dc5ad99c0932255b41cf940e0f2b6d173823b",
+      "path": "README.md",
+      "repair_required": false,
+      "size": 16711
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "94014fe8c44da58f926d1f3c03bd3339717c4f2f8e3cf46a42556d56f8badac8",
+      "path": "RichInteraction/CommercialSpaces/task_4158/387881_388058.tar.gz",
+      "repair_required": true,
+      "size": 22189588684
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "4e26c8e8df4b060cb0b127633a13b705692c7aeeea7215779fbd7963615d89cf",
+      "path": "RichInteraction/CommercialSpaces/task_4158/388059_396183.tar.gz",
+      "repair_required": true,
+      "size": 30805229271
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "176d9dbb158e43cde6f0aad2ac83e7ad452de4c3e88e5dac70641023a578bfa3",
+      "path": "RichInteraction/CommercialSpaces/task_4158/396214_398711.tar.gz",
+      "repair_required": true,
+      "size": 33389507699
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "0801e5553a8046eb46fe35e338822edb27c5f6d758e4d41fc504a278c9284367",
+      "path": "RichInteraction/CommercialSpaces/task_4158/398722_408892.tar.gz",
+      "repair_required": true,
+      "size": 29689097077
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "6617edd393457370ea0efb42180d360fe4f41776d6a1eef30ca1cb4771838271",
+      "path": "RichInteraction/CommercialSpaces/task_4158/408907_409243.tar.gz",
+      "repair_required": true,
+      "size": 30010474285
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "2bf3cfe16614c8be5f7427b4a1e796fd43d7f1f8d2e772dde3dc9083b081e758",
+      "path": "RichInteraction/CommercialSpaces/task_4158/409246_409501.tar.gz",
+      "repair_required": true,
+      "size": 29512928885
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "dd215b9734764df299993725227b7af92e1742ccde7f784d8dd339c5beb9e3bb",
+      "path": "RichInteraction/CommercialSpaces/task_4158/409503_416251.tar.gz",
+      "repair_required": true,
+      "size": 29288155803
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "3c46f06c9cd891828b4b1f1a6b65a987bb17890c4fdd029241fc4854dd543f76",
+      "path": "RichInteraction/CommercialSpaces/task_4158/416262_417681.tar.gz",
+      "repair_required": true,
+      "size": 27524930658
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "1190f0488bffc5b65a6eebd77f2c1fd9dda118331ff81d80b1da38ef41b0f15b",
+      "path": "RichInteraction/CommercialSpaces/task_4158/417687_422821.tar.gz",
+      "repair_required": true,
+      "size": 27848221620
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "1311515da44439c28468f67fd5d12eb72141c5eb32f6fa798acdc37162584af9",
+      "path": "RichInteraction/CommercialSpaces/task_4158/422835_429495.tar.gz",
+      "repair_required": true,
+      "size": 29302765969
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "ad6c4e40a45182779a26fa73ebeaaf560170f62b51637d9665fabe54721eaccc",
+      "path": "RichInteraction/CommercialSpaces/task_4158/429506_432094.tar.gz",
+      "repair_required": true,
+      "size": 26687797285
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "94dff3b05842fc3b9a3999c6773497d031a513bb5ea856912c91dd889d31ae21",
+      "path": "RichInteraction/CommercialSpaces/task_4158/432096_432360.tar.gz",
+      "repair_required": true,
+      "size": 29208765293
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "968826198612df8fbbb2feda07b339df88e718c97b4144534510462adcb56c21",
+      "path": "RichInteraction/CommercialSpaces/task_4158/432361_435905.tar.gz",
+      "repair_required": true,
+      "size": 30146805672
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "6186c1bc09ab3dda3842ccecb558fcd383c737f382f27366695fec10661ca711",
+      "path": "RichInteraction/CommercialSpaces/task_4158/435916_445820.tar.gz",
+      "repair_required": true,
+      "size": 29636930741
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "82304b006eeb128405228708e02757c0a62ff4c5cd9a6cdce07fd74d419086f6",
+      "path": "RichInteraction/CommercialSpaces/task_4158/445823_455449.tar.gz",
+      "repair_required": true,
+      "size": 28813396524
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "6ff37ecaaeb2a6cb1b4d4ceb5df276e91a5dc741c9c0ca8fc089e871f1f120ce",
+      "path": "RichInteraction/CommercialSpaces/task_4158/455458_457699.tar.gz",
+      "repair_required": true,
+      "size": 26489411566
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "2ff4a22ecf9ac014529a4cc01c8a1727b50b5617379f4709318e94f9373bbc0a",
+      "path": "RichInteraction/CommercialSpaces/task_4158/457721_459104.tar.gz",
+      "repair_required": true,
+      "size": 22210557449
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "b4c563aade26399d9e4142cd0c15e2de124122af4e7f008ce00b917a74496ef1",
+      "path": "RichInteraction/CommercialSpaces/task_4182/388087_388267.tar.gz",
+      "repair_required": true,
+      "size": 26946599728
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "0aaa19dc227b923c387a1fa904ff3a478e75f18f79f7fc8530e26f26e3fdba82",
+      "path": "RichInteraction/CommercialSpaces/task_4182/388269_405075.tar.gz",
+      "repair_required": true,
+      "size": 31731710399
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "995da76c3772462cae5f860a00f2b57c7dc9a235df6769b3b9b42eface414f67",
+      "path": "RichInteraction/CommercialSpaces/task_4182/405084_408664.tar.gz",
+      "repair_required": true,
+      "size": 32783447525
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "c5eb67e58117031decebb77d60797b6eeb9304c038aa29f87d487312feee2777",
+      "path": "RichInteraction/CommercialSpaces/task_4182/408668_409552.tar.gz",
+      "repair_required": true,
+      "size": 32313337589
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "9b39431f3c3142ccc9b49cee1e8c64f7db9cdfb711939572c23896062eb3d749",
+      "path": "RichInteraction/CommercialSpaces/task_4182/409554_411754.tar.gz",
+      "repair_required": true,
+      "size": 29485174358
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "627dc969dfd580f2e1ad2d7d23d3a9d20535e896dd1fa1689bef36dd88a3bfa8",
+      "path": "RichInteraction/CommercialSpaces/task_4182/411764_420343.tar.gz",
+      "repair_required": true,
+      "size": 30074580236
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "e07f8075120afb5cc57670e0805e54d4b93d46f1bc544616d98396438bc59628",
+      "path": "RichInteraction/CommercialSpaces/task_4182/420356_421555.tar.gz",
+      "repair_required": true,
+      "size": 30998760472
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "355ab4eca63e13829d87f13e5a17fde6a08e38b95b27e91eba09f964cec0a039",
+      "path": "RichInteraction/CommercialSpaces/task_4182/421564_425538.tar.gz",
+      "repair_required": true,
+      "size": 31916302600
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "3e169774ce6bfc21e632d7d69be9b93545d6e751a424c21340de34414952d6c3",
+      "path": "RichInteraction/CommercialSpaces/task_4182/425545_428744.tar.gz",
+      "repair_required": true,
+      "size": 29786233792
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "ddfc4cead1da7b88f0e0e5e7417e705432788438188d5afd58e49c1ca63c9476",
+      "path": "RichInteraction/CommercialSpaces/task_4182/428753_431894.tar.gz",
+      "repair_required": true,
+      "size": 32160975721
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "9118510d1866da684c644283823daee773d6c46a293e08f2b2631204d73d57d8",
+      "path": "RichInteraction/CommercialSpaces/task_4182/431896_432478.tar.gz",
+      "repair_required": true,
+      "size": 31983154604
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "359817b1bc6e501d2ef10fc4883d5d6a85e595ea09b06175ce44aeb88276b558",
+      "path": "RichInteraction/CommercialSpaces/task_4182/432482_441836.tar.gz",
+      "repair_required": true,
+      "size": 31283318150
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "6bcf10008cd28dc3ea69ae93eac5c287f5f8f95733b93c6c711fec2312800727",
+      "path": "RichInteraction/CommercialSpaces/task_4182/441861_453887.tar.gz",
+      "repair_required": true,
+      "size": 19830887670
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "dcc92b3004e0fff0ec16000c2017b77b3c2b1237b4f7e366fd37a6486eab552f",
+      "path": "RichInteraction/CommercialSpaces/task_4439/445758_455204.tar.gz",
+      "repair_required": true,
+      "size": 34722605980
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "8386ae49a771e9d1fa4cb044148739ec1f0934bcd6330dd86be0112e55a163d6",
+      "path": "RichInteraction/CommercialSpaces/task_4439/455282_458437.tar.gz",
+      "repair_required": true,
+      "size": 33081133731
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "d2de2288979bfaf8ebf0cdfae4afc08e3031d14a8594b7930d11a67d2bc34cfe",
+      "path": "RichInteraction/CommercialSpaces/task_4439/458713_458713.tar.gz",
+      "repair_required": true,
+      "size": 325891979
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "953de2ef1bb23872b28b5807e07e422114c914289f09fe8d8f097d290389c9c6",
+      "path": "RichInteraction/CommercialSpaces/task_4603/502810_508842.tar.gz",
+      "repair_required": true,
+      "size": 38037898817
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "97adafa67b93da66139b9e009e522efba157ab80e2b58d21ed798fa99449a5d8",
+      "path": "RichInteraction/CommercialSpaces/task_4603/508849_509565.tar.gz",
+      "repair_required": true,
+      "size": 36029715979
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "e9edbe5776909af56a50dd8a7feaad715f9123db0cb2d8234fad054fcdae570c",
+      "path": "RichInteraction/CommercialSpaces/task_4603/509567_509895.tar.gz",
+      "repair_required": true,
+      "size": 10123800012
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "8d0c3decf4c991d131cc776c4f2d4493a4b2b6af4a672fe44dbc738705bfa5fb",
+      "path": "RichInteraction/CommercialSpaces/task_4952/558894_561515.tar.gz",
+      "repair_required": true,
+      "size": 32455375242
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "9d282a6166f7d3fe2631b5f57dcd2146c97dcb1ecdd6d7ac714b7271efee1839",
+      "path": "RichInteraction/CommercialSpaces/task_4952/561543_568393.tar.gz",
+      "repair_required": true,
+      "size": 31179811352
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "7395238cea5cfd5322ff3b965fbf509b436156188729a32fc991c1116a5fec3d",
+      "path": "RichInteraction/CommercialSpaces/task_4952/568395_570481.tar.gz",
+      "repair_required": true,
+      "size": 34556207101
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "b20dfbc924abc7dcb2edb6f0d8e9b799f75f5f462bc9675b5e0322a37f67d534",
+      "path": "RichInteraction/CommercialSpaces/task_4952/570811_571756.tar.gz",
+      "repair_required": true,
+      "size": 4023723900
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "2137a554c161735265c694551b5dcee26d6d41b32352ae98dcbbf1d8ae8dccc7",
+      "path": "RichInteraction/CommercialSpaces/task_4962/554190_554893.tar.gz",
+      "repair_required": true,
+      "size": 33471271214
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "d03367b75732cc2826597e386161a57dc2a88c6bbe4ea74f5d796df555ffad66",
+      "path": "RichInteraction/CommercialSpaces/task_4962/554894_555920.tar.gz",
+      "repair_required": true,
+      "size": 33057529913
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "89db1d8ccd8d95caa38c5b6557ae18ee5daa608c25c24639d17220972796acc5",
+      "path": "RichInteraction/CommercialSpaces/task_4962/555922_557749.tar.gz",
+      "repair_required": true,
+      "size": 32663129784
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "ef85d1e9ceef81a30028b2d7d219b159bb945f598fec8f952a87ba7230b2147e",
+      "path": "RichInteraction/CommercialSpaces/task_4962/557751_559048.tar.gz",
+      "repair_required": true,
+      "size": 31458772585
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "d8363a0cc199eace4f57b591c2264de08e8ba90fe2ac536f2dd13211488064ce",
+      "path": "RichInteraction/CommercialSpaces/task_4962/559058_559739.tar.gz",
+      "repair_required": true,
+      "size": 29670645731
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "e17f58ac4d924a08390d68c5f2af3faa649b91629809c6fe90874cb35fe3bea3",
+      "path": "RichInteraction/CommercialSpaces/task_4962/559744_561542.tar.gz",
+      "repair_required": true,
+      "size": 30359220187
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "bde09924a6e6cf11b397dcbf50f4192a75808c44e0077b885e8dd00f45647485",
+      "path": "RichInteraction/CommercialSpaces/task_4962/561551_566817.tar.gz",
+      "repair_required": true,
+      "size": 30437478152
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "dfca8d28f78529d50c77d8e1055f59fc1b3b489b364f9b139fd6e6036fdb6c07",
+      "path": "RichInteraction/CommercialSpaces/task_4962/566818_568041.tar.gz",
+      "repair_required": true,
+      "size": 30147747830
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "cf9b6f5dc12aa771fa97473411a1e23b2cb2253f3d2212d3489db4c05964580e",
+      "path": "RichInteraction/CommercialSpaces/task_4962/568047_568907.tar.gz",
+      "repair_required": true,
+      "size": 30247572385
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "e7593fa6f5b458591c384f76fea82dca291e10b86e49371f2d5ea434dbb54bf4",
+      "path": "RichInteraction/CommercialSpaces/task_4962/568910_570793.tar.gz",
+      "repair_required": true,
+      "size": 31022007971
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "0c1af5e4a4375ce8dbe37db916d9d5dd4521456beaf108c1ac1b21792d943875",
+      "path": "RichInteraction/CommercialSpaces/task_4962/570794_572296.tar.gz",
+      "repair_required": true,
+      "size": 31052473483
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "74b8d3e3726df3a289ac87dac3c859d812cee6e66ef11f11c006c028faf8a883",
+      "path": "RichInteraction/CommercialSpaces/task_4962/572297_579900.tar.gz",
+      "repair_required": true,
+      "size": 32271691033
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "1b75e5faec678a20e2f2e1d42723a358ce2e5f7d430efc7e70e9c69f81daf07a",
+      "path": "RichInteraction/CommercialSpaces/task_4962/579903_581442.tar.gz",
+      "repair_required": true,
+      "size": 33230566959
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "52d17119eadc176b459d6025bd9afa5bf9b2288344c767a1a37d296acde2311c",
+      "path": "RichInteraction/CommercialSpaces/task_4962/581445_583438.tar.gz",
+      "repair_required": true,
+      "size": 30475433133
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "49b5927f7a234ce927773774fbd92fae040bd2e1b28806c23a4a2dcabb0730df",
+      "path": "RichInteraction/CommercialSpaces/task_4962/583440_595803.tar.gz",
+      "repair_required": true,
+      "size": 29874794158
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "544266825922e2a9bc4e05a347e6ca3f8d0588443c48ecf85d805d99d39dd479",
+      "path": "RichInteraction/CommercialSpaces/task_4962/595862_609348.tar.gz",
+      "repair_required": true,
+      "size": 29850773915
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "715bb3a46ee318b4482a351f7d77770cedf8d84db8733be57cedcb1c897d99b5",
+      "path": "RichInteraction/CommercialSpaces/task_4962/609362_612197.tar.gz",
+      "repair_required": true,
+      "size": 29220480257
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "4f4198164223fcbd40506e58db366f51ae6bf7d55eb618898c67fedf6e5e10a2",
+      "path": "RichInteraction/CommercialSpaces/task_4962/612203_614879.tar.gz",
+      "repair_required": true,
+      "size": 30871381591
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "e5295f4432001de7b01b0d1b9ef60bf652de0220f5986b37d7bac01c5f458a8f",
+      "path": "RichInteraction/CommercialSpaces/task_4962/614882_621511.tar.gz",
+      "repair_required": true,
+      "size": 33230634887
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "61fabebdebbd821f7c180f58251de0c2cf993e15e11b4fdfe07b0ce5ecfe4ddd",
+      "path": "RichInteraction/CommercialSpaces/task_4962/621519_624678.tar.gz",
+      "repair_required": true,
+      "size": 24367834755
+    },
+    {
+      "baseline_size": 0,
+      "lfs_sha256": "df9b666051b7d15bdc08deb89696f20db01a80b4fc538274f18479baa1844e4a",
+      "path": "RichInteraction/CommercialSpaces/task_4962/627019_627618.tar.gz",
+      "repair_required": true,
+      "size": 10449981449
+    },
+    {
+      "baseline_size": 9562354982,
+      "lfs_sha256": "f0a1b4a91d004786b8e684bae8187c1a012dff2fc362e9537eaa167a47258220",
+      "path": "RichInteraction/CommercialSpaces/task_4962/627622_635514.tar.gz",
+      "repair_required": false,
+      "size": 9562354982
+    },
+    {
+      "baseline_size": 22318305992,
+      "lfs_sha256": "0283f4a1b7a5688cbca6590b29f5c37104a4ff6c341cbcbae9e5ffc5c391a226",
+      "path": "RichInteraction/CommercialSpaces/task_4962/660618_663162.tar.gz",
+      "repair_required": false,
+      "size": 22318305992
+    },
+    {
+      "baseline_size": 19783208172,
+      "lfs_sha256": "bb9650c3bb3f8bcf30902a90964c34dadde83ec28f05e9d58ddb2d14e0e135fa",
+      "path": "RichInteraction/CommercialSpaces/task_4962/663166_665729.tar.gz",
+      "repair_required": false,
+      "size": 19783208172
+    },
+    {
+      "baseline_size": 24157240197,
+      "lfs_sha256": "6af7a4e6d2849ef8b4d60f0dbd4c8cdb819455f1c1977854c8034fae2bf755cd",
+      "path": "RichInteraction/CommercialSpaces/task_4962/665739_669169.tar.gz",
+      "repair_required": false,
+      "size": 24157240197
+    },
+    {
+      "baseline_size": 17596003656,
+      "lfs_sha256": "c1f07b7a31d63ed18d82e057094b66a8dd4c79f4f3178ebe981e46392f6abb5a",
+      "path": "RichInteraction/CommercialSpaces/task_4962/669172_679614.tar.gz",
+      "repair_required": false,
+      "size": 17596003656
+    },
+    {
+      "baseline_size": 29946702774,
+      "lfs_sha256": "989582f1968f7ebbfd307f9bc06cd2f03162ebf5019f86f4eaedf853312e4b41",
+      "path": "RichInteraction/Home/task_4224/404567_454257.tar.gz",
+      "repair_required": false,
+      "size": 29946702774
+    },
+    {
+      "baseline_size": 23517359131,
+      "lfs_sha256": "a0093a43dc0af14501f82360058e1b45b5c430c8240de63b9b3570854a8f8f84",
+      "path": "RichInteraction/Home/task_4231/404641_409206.tar.gz",
+      "repair_required": false,
+      "size": 23517359131
+    },
+    {
+      "baseline_size": 25754433672,
+      "lfs_sha256": "ab9c3a4f8557b6b68eeeebd0c16d68d4b33f003ad7bcc4d50532a7668f8909dd",
+      "path": "RichInteraction/Home/task_4231/409211_416621.tar.gz",
+      "repair_required": false,
+      "size": 25754433672
+    },
+    {
+      "baseline_size": 29704538198,
+      "lfs_sha256": "d131ec604cd7039688e10ac17695a0ae79949699ba9778dd3ff343f0b37057bb",
+      "path": "RichInteraction/Home/task_4231/416630_454362.tar.gz",
+      "repair_required": false,
+      "size": 29704538198
+    },
+    {
+      "baseline_size": 30640727847,
+      "lfs_sha256": "878cd0a9c51f4b0474f4115cc8aa133e3f86ddcdd2e85ae307de8c0ab96bf56b",
+      "path": "RichInteraction/Home/task_4231/454415_459125.tar.gz",
+      "repair_required": false,
+      "size": 30640727847
+    },
+    {
+      "baseline_size": 30033367031,
+      "lfs_sha256": "9057951a2880adcb567c00937c59e78c9ca104812465fa6b58c90576e954f5ab",
+      "path": "RichInteraction/Home/task_4560/470673_495707.tar.gz",
+      "repair_required": false,
+      "size": 30033367031
+    },
+    {
+      "baseline_size": 15625306344,
+      "lfs_sha256": "9271a5b4f57fd264f3b18f11af03b03d2982982eec32722dd3b49fa59e12c467",
+      "path": "RichInteraction/Home/task_4560/495820_501769.tar.gz",
+      "repair_required": false,
+      "size": 15625306344
+    },
+    {
+      "baseline_size": 30449485902,
+      "lfs_sha256": "7e9130e73d33fd67a163fcbddc32e51491c6cbaf39c7c56179049a63dd2de63c",
+      "path": "RichInteraction/Home/task_5015/579807_581448.tar.gz",
+      "repair_required": false,
+      "size": 30449485902
+    },
+    {
+      "baseline_size": 28888538901,
+      "lfs_sha256": "c4efe8cc8f82f0a0513d7a9eb981d764b9c22db58745d83593e07d57ae496cf6",
+      "path": "RichInteraction/Home/task_5015/581451_583398.tar.gz",
+      "repair_required": false,
+      "size": 28888538901
+    },
+    {
+      "baseline_size": 30771292753,
+      "lfs_sha256": "5db5d3c09f6f070d3cebb01561f1fce2f046a914769fcf3f05561c257db19c5a",
+      "path": "RichInteraction/Home/task_5015/583404_586652.tar.gz",
+      "repair_required": false,
+      "size": 30771292753
+    },
+    {
+      "baseline_size": 31480148261,
+      "lfs_sha256": "9251bdae4c172119e82123995f31b1441c51d9d5725265d2b9e78be125ad753b",
+      "path": "RichInteraction/Home/task_5015/586654_606644.tar.gz",
+      "repair_required": false,
+      "size": 31480148261
+    },
+    {
+      "baseline_size": 30422952030,
+      "lfs_sha256": "140e9b6ad75247cb1abe7a20d1387c2ed3a9eae84e372a196c0fcada50350c96",
+      "path": "RichInteraction/Home/task_5015/606653_611825.tar.gz",
+      "repair_required": false,
+      "size": 30422952030
+    },
+    {
+      "baseline_size": 31840110217,
+      "lfs_sha256": "283ef0a2d06b3d5532be6902d55235d711dcbb061516818f33fe199c3061c4b0",
+      "path": "RichInteraction/Home/task_5015/611831_613057.tar.gz",
+      "repair_required": false,
+      "size": 31840110217
+    },
+    {
+      "baseline_size": 32303691185,
+      "lfs_sha256": "3fdc342dc13807febaf98c8275ae05eaf26daaf8a952259b64d13c1e3d4e7b25",
+      "path": "RichInteraction/Home/task_5015/613079_621858.tar.gz",
+      "repair_required": false,
+      "size": 32303691185
+    },
+    {
+      "baseline_size": 33494343565,
+      "lfs_sha256": "55d7fe041e7842a4de3a40c91122807657ace5a9c33cc0d1d4862608373dd911",
+      "path": "RichInteraction/Home/task_5015/621872_624857.tar.gz",
+      "repair_required": false,
+      "size": 33494343565
+    },
+    {
+      "baseline_size": 31959662514,
+      "lfs_sha256": "c1232df71cb6539f716cc9b3e3a313c29f53b7cabb766ce6d2edf9e64d81a11d",
+      "path": "RichInteraction/Home/task_5015/624859_634312.tar.gz",
+      "repair_required": false,
+      "size": 31959662514
+    },
+    {
+      "baseline_size": 31092643704,
+      "lfs_sha256": "ba12e1b8fea287d3cb0db65b79e48c283653dbf3d86600ea95f01d0ef992ee79",
+      "path": "RichInteraction/Home/task_5015/634314_660378.tar.gz",
+      "repair_required": false,
+      "size": 31092643704
+    },
+    {
+      "baseline_size": 29667222472,
+      "lfs_sha256": "d783373820bd9ed644c912b87b2176b6168329b0159a8680a9b36908500c0e0d",
+      "path": "RichInteraction/Home/task_5015/660399_662363.tar.gz",
+      "repair_required": false,
+      "size": 29667222472
+    },
+    {
+      "baseline_size": 31724682863,
+      "lfs_sha256": "1d54cf1c217ab3835a57b5c26f7a168a33491f5f373c2b42a8336623c4999136",
+      "path": "RichInteraction/Home/task_5015/662381_669845.tar.gz",
+      "repair_required": false,
+      "size": 31724682863
+    },
+    {
+      "baseline_size": 31042857113,
+      "lfs_sha256": "dc6449c53abe9a7bd4df51d8fd936eb97ec470b9614b6e9171027c32abc915d7",
+      "path": "RichInteraction/Home/task_5015/669846_676965.tar.gz",
+      "repair_required": false,
+      "size": 31042857113
+    },
+    {
+      "baseline_size": 29408273955,
+      "lfs_sha256": "3fc2482c7bab7ce16126b3e4dd91517df0bb0727e4c02ebb0254c3b00c9f30ab",
+      "path": "RichInteraction/Home/task_5015/676988_681175.tar.gz",
+      "repair_required": false,
+      "size": 29408273955
+    },
+    {
+      "baseline_size": 31770063883,
+      "lfs_sha256": "f575cbf5b65c81eb8073fa36e302a86bbab237a1bca68ed2e3912b200a3aa0f0",
+      "path": "RichInteraction/Home/task_5015/681182_684999.tar.gz",
+      "repair_required": false,
+      "size": 31770063883
+    },
+    {
+      "baseline_size": 7122754059,
+      "lfs_sha256": "7526f2410694c5fe4d697808791bca34fd1ea18e4c38237dcfcb02eb81241f8a",
+      "path": "RichInteraction/Home/task_5015/685000_694807.tar.gz",
+      "repair_required": false,
+      "size": 7122754059
+    },
+    {
+      "baseline_size": 50033007,
+      "lfs_sha256": "559901b5e12cd740f9816103216b800c701c2c38124512500bda2cef871b4e16",
+      "path": "assets/teaser.gif",
+      "repair_required": false,
+      "size": 50033007
+    },
+    {
+      "baseline_size": 117337879,
+      "lfs_sha256": "9974d6fd33ef36a27637528df021380ab149527f937953c3d655aac855bbf1dc",
+      "path": "simulation/scoop_popcorn_to_bucket/g2_swift_picker/lite/data.tar.gz.000",
+      "repair_required": false,
+      "size": 117337879
+    },
+    {
+      "baseline_size": 1236363,
+      "lfs_sha256": "5116a16b1a16563ef755eaed66f5c7021eb44776f708bc095283b3c88c52a1db",
+      "path": "simulation/scoop_popcorn_to_bucket/g2_swift_picker/lite/meta.tar.gz.000",
+      "repair_required": false,
+      "size": 1236363
+    },
+    {
+      "baseline_size": 6551282895,
+      "lfs_sha256": "7be6238a1ed3f10b058c6cd1ccc29cb2650d9eff80b49bccc654aaf3d769369c",
+      "path": "simulation/scoop_popcorn_to_bucket/g2_swift_picker/lite/videos.tar.gz.000",
+      "repair_required": false,
+      "size": 6551282895
+    },
+    {
+      "baseline_size": 1260477,
+      "lfs_sha256": "b5d3ae9edb86f743fa04e56e9616e9f77edcc085d5c2f206aab4e4cc8dc1d9f1",
+      "path": "simulation/scoop_popcorn_to_bucket/g2_swift_picker/lite_depth_patch/meta.tar.gz.000",
+      "repair_required": false,
+      "size": 1260477
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "61a2b4c28df192239e8aaee6b5ba7459e59326738cbc8dc27d490d9afa6adfbe",
+      "path": "simulation/scoop_popcorn_to_bucket/g2_swift_picker/lite_depth_patch/videos.tar.gz.000",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "1eb7f963989b720c84b9b2e48a0f21bb75d4da18438d35e179eb30a5d7277de0",
+      "path": "simulation/scoop_popcorn_to_bucket/g2_swift_picker/lite_depth_patch/videos.tar.gz.001",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "b8ae317e735093baaead1d81076d309f2479516e996b47c36af561517eda74f9",
+      "path": "simulation/scoop_popcorn_to_bucket/g2_swift_picker/lite_depth_patch/videos.tar.gz.002",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "63c29bdf4fdf1aad16298e11b079bec4db652772e99e59bb84456a29822fe3a9",
+      "path": "simulation/scoop_popcorn_to_bucket/g2_swift_picker/lite_depth_patch/videos.tar.gz.003",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "74655f5e8e657024c9a6f8c4d9a6242237ec1d1a6df10711899c08f8051aee02",
+      "path": "simulation/scoop_popcorn_to_bucket/g2_swift_picker/lite_depth_patch/videos.tar.gz.004",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "2b3507077d43a7ec606479e05dcd3d510608da2ced4bc49c6e0e7bedf23e60b1",
+      "path": "simulation/scoop_popcorn_to_bucket/g2_swift_picker/lite_depth_patch/videos.tar.gz.005",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 5264885287,
+      "lfs_sha256": "d469abb3ecc09f31da8634e5da20146fbd6be28f7d9dd63f9cbc810eeac89966",
+      "path": "simulation/scoop_popcorn_to_bucket/g2_swift_picker/lite_depth_patch/videos.tar.gz.006",
+      "repair_required": false,
+      "size": 5264885287
+    },
+    {
+      "baseline_size": 105512325,
+      "lfs_sha256": "7cf0bfc31b339eeeda4fb497acaf6102d6359edd7762b4661e41f91cf9dd1afb",
+      "path": "simulation/take_bagged_food_to_cart/g2_swift_picker/lite/data.tar.gz.000",
+      "repair_required": false,
+      "size": 105512325
+    },
+    {
+      "baseline_size": 1206269,
+      "lfs_sha256": "953b9d92d2e0a706119fad637cd0754448aef688194101ef7af3ba9b30fd9243",
+      "path": "simulation/take_bagged_food_to_cart/g2_swift_picker/lite/meta.tar.gz.000",
+      "repair_required": false,
+      "size": 1206269
+    },
+    {
+      "baseline_size": 9162374964,
+      "lfs_sha256": "b030d56e4dcff0c18cc4594b6b743f7bb1ba5902c80ff87fd2ec4bfa09ae5cba",
+      "path": "simulation/take_bagged_food_to_cart/g2_swift_picker/lite/videos.tar.gz.000",
+      "repair_required": false,
+      "size": 9162374964
+    },
+    {
+      "baseline_size": 1220393,
+      "lfs_sha256": "72de9ae890a73f3ff2bd3a8fb603ca4f5333514fffaa9d3cf9ab24600d40cc9b",
+      "path": "simulation/take_bagged_food_to_cart/g2_swift_picker/lite_depth_patch/meta.tar.gz.000",
+      "repair_required": false,
+      "size": 1220393
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "87d6437e5c08dc2a63296826b017095f8151243c17549e49f47eb57596a730c7",
+      "path": "simulation/take_bagged_food_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.000",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "39099a7a4f30fdbdbd081709709d54875bcd0ec3b85561c59e81af7fb8c7b529",
+      "path": "simulation/take_bagged_food_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.001",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "57ca8b867d53dac23e95938bf43ac005e59188ef04db701abf0819ea55a1a1ea",
+      "path": "simulation/take_bagged_food_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.002",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 5853646794,
+      "lfs_sha256": "0606484497b438ca7e125daf6c62b5fe1c37b2c74c9588a44c7b4908ad654930",
+      "path": "simulation/take_bagged_food_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.003",
+      "repair_required": false,
+      "size": 5853646794
+    },
+    {
+      "baseline_size": 119118710,
+      "lfs_sha256": "ab03648e6d4d048a147dd66d71a78cb9717645f2f1563bb6cacf2676335acc5d",
+      "path": "simulation/take_cup_to_cart/g2_swift_picker/lite/data.tar.gz.000",
+      "repair_required": false,
+      "size": 119118710
+    },
+    {
+      "baseline_size": 1692460,
+      "lfs_sha256": "fdecc1da9098d152c06fcce597830dec10fe8f0e3e3d4e844a9f71ac2e49f1a3",
+      "path": "simulation/take_cup_to_cart/g2_swift_picker/lite/meta.tar.gz.000",
+      "repair_required": false,
+      "size": 1692460
+    },
+    {
+      "baseline_size": 10270938942,
+      "lfs_sha256": "e575834908cc213440d8fac9a42d8b1105531035964e6fb0ae36ed19c23fddcf",
+      "path": "simulation/take_cup_to_cart/g2_swift_picker/lite/videos.tar.gz.000",
+      "repair_required": false,
+      "size": 10270938942
+    },
+    {
+      "baseline_size": 1710620,
+      "lfs_sha256": "b6a9c29787c2fbe5a9f036f6c5c217c9ec425f8b54b890d4ef2b90d9c75ebde9",
+      "path": "simulation/take_cup_to_cart/g2_swift_picker/lite_depth_patch/meta.tar.gz.000",
+      "repair_required": false,
+      "size": 1710620
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "81709ece3314a59b86ad0654174d24e8c539b56cfdcfd78fae8f93fd1a060bbc",
+      "path": "simulation/take_cup_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.000",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "68341942869e870c502d113ced2e6d95062678a9841fd3bd1447330f6686bb87",
+      "path": "simulation/take_cup_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.001",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "8a7564b2a171940423c382c9421bfadfe4b8c03ede72c128c2ce43d5404292fb",
+      "path": "simulation/take_cup_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.002",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "4330e0b05c4ec7bf59c809396a8744083133f0c3834a7e479c53f464a22736dd",
+      "path": "simulation/take_cup_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.003",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 9827243378,
+      "lfs_sha256": "780cdacb4a75a0c46d8cdef096063cbc258f3dfbb7751ca65bfe77453e69daa1",
+      "path": "simulation/take_cup_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.004",
+      "repair_required": false,
+      "size": 9827243378
+    },
+    {
+      "baseline_size": 223696431,
+      "lfs_sha256": "f79cd4b4cf72a089b47ae8477e9e0ca2be710c42f10669e8bf619e3a31de3b7c",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite/data.tar.gz.000",
+      "repair_required": false,
+      "size": 223696431
+    },
+    {
+      "baseline_size": 1238912,
+      "lfs_sha256": "3441dab604781e5a57ba857b4a82600692e2b2d7ad96bd96cbff403ff060643d",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite/meta.tar.gz.000",
+      "repair_required": false,
+      "size": 1238912
+    },
+    {
+      "baseline_size": 15947197466,
+      "lfs_sha256": "83e6a6eee5a1dad1d05532369350718cf2c4e1bacd5191ef78ab51da61adf786",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite/videos.tar.gz.000",
+      "repair_required": false,
+      "size": 15947197466
+    },
+    {
+      "baseline_size": 1254512,
+      "lfs_sha256": "d0306a8d36b5f52aaeb5f8f92cb08695a5c110341718f193ad461c27ca868e27",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/meta.tar.gz.000",
+      "repair_required": false,
+      "size": 1254512
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "d790bd51846e8897d6d8760f0e85da64711ce57b0bab8bb33ef6d68511b88e71",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.000",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "60d76c829ae20ec6ff0536b69bd821fee74d27ea0b2bfd6ecff73699b863bbc6",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.001",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "6254153fe098c83f50d63954341dbcdc8c197de381b8f682c7df0e40fee363dd",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.002",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "65db5ccf9f1eb6e6eac8bee1c02dff9bbd7a2c780b584fa8157d2d6c5bca57aa",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.003",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "e491502a1c08d3fc12043e12866fdb52c957fcb691b041de5a24b631d174154e",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.004",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "1196f03a6879257adeb2af5d1df59367d8a644ea59917a331051594b77e0dfe5",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.005",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "d4b51cf131cea69bad577fc17b50affec248b22a97c4b465af1eba5fdb0d07bf",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.006",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "c5bdcd81a2e8c5948d0dc6df089db6aa7ee5084a7ed26b67ba3daf330d9b4006",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.007",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "514773d1f8e9dd72d95938653b6f7b34218fa1f959d421c3b8059ac17faa1c5c",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.008",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "4cc0f575693b000188ae13826f180937a4840298a0f307279974bba1ef10a846",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.009",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "12c4c44fdf9e362868439dacd45ff5fa3666ef155d5ed316eec0fa42a5e5808e",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.010",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "e57b170b4b610f057f7510816d99a8241355685457fafc0563dbc4f1d6829ade",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.011",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "a1528f26505feeca62bed3fd4a0d11db8731b2ba8e665a7e90dd81a56b10178a",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.012",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "76fdf266bbd5b8485e6d357293c670a98a7c16d6c5cf287a6acb2ec99304c5fd",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.013",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "ab0f3fd03af94a13e72a5d052b732ba6f4f71ea3e7bcf2b743224562eae26174",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.014",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "b8a74bb61381ca1fcbe9c5101dbdfc265644258c31d78114e0d29a6e560039bd",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.015",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 6591397933,
+      "lfs_sha256": "71f59d7f14e24baa0758c5aff27d204cb38e8189546afc73e6610df00f06fb71",
+      "path": "simulation/take_drink_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.016",
+      "repair_required": false,
+      "size": 6591397933
+    },
+    {
+      "baseline_size": 181497893,
+      "lfs_sha256": "07e8e4646c3510f0260de5ab25b383d86034d6fa34e458f76e8fb5b26895a0ca",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite/data.tar.gz.000",
+      "repair_required": false,
+      "size": 181497893
+    },
+    {
+      "baseline_size": 1754295,
+      "lfs_sha256": "cb1dbb344786201430c062eae0935c4e1a67b96dfd235912bdb185762e268423",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite/meta.tar.gz.000",
+      "repair_required": false,
+      "size": 1754295
+    },
+    {
+      "baseline_size": 13029801523,
+      "lfs_sha256": "e60d3ccb52693e1ba04cf7bd3df5fe62d881f5db17638dc47f555fad38ae23c8",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite/videos.tar.gz.000",
+      "repair_required": false,
+      "size": 13029801523
+    },
+    {
+      "baseline_size": 1774974,
+      "lfs_sha256": "166a6c33740324b34ba831fc030052961e5ed7eda0ec56d7264be68afd27b920",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite_depth_patch/meta.tar.gz.000",
+      "repair_required": false,
+      "size": 1774974
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "f9b25306d7f8c7752fba7b9885fc9588fb21402872eb59ee2b45d67d13ffe37a",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.000",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "d9ef078119c8bb1f9209755d89574703859d511a131171fd910552e352a10624",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.001",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "932153e4d7ec2b0cbcefa4106c25a1a8236478e22e50491a9aa9c973304f2cfc",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.002",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "6be51dcc844579a1d47434b2529ece1ccd54279d90002148d5a8a57057f194c0",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.003",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "e5aa8bf106dd4798ee2be4c53d295da0b53fedae244ce2e217bb17ada33447e2",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.004",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "751e7decf8216663a062fa83387de563b98553a5d1a83a5654792479759c4312",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.005",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "3393ed604d10f0e4b8225e9e2fa74769814dc1f187ec3a471e14f9f1aa35676a",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.006",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "22c4b2ad750f11386fba6d39272068c5f6e5e6014d38cab25a7fac32cba3338a",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.007",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "c997860c6199b1be9e80da10590d66da59c5f00a5f86493ed634669495080159",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.008",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 35444284453,
+      "lfs_sha256": "de9a4d0c0b68368fbbdb26c3e8aafc1a945112d56564606d7e475ec674d4c73a",
+      "path": "simulation/take_laundry_detergent_to_cart/g2_swift_picker/lite_depth_patch/videos.tar.gz.009",
+      "repair_required": false,
+      "size": 35444284453
+    },
+    {
+      "baseline_size": 283478124,
+      "lfs_sha256": "5abe7c2ac738209120bc0b4f5103c0011235a2c998fd9188a831470e081c8c4b",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite/data.tar.gz.000",
+      "repair_required": false,
+      "size": 283478124
+    },
+    {
+      "baseline_size": 1180944,
+      "lfs_sha256": "c35019b5f9f7db1cf34eef82a7f81b51b011c742ffae9c715ccc5f7641493c9b",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite/meta.tar.gz.000",
+      "repair_required": false,
+      "size": 1180944
+    },
+    {
+      "baseline_size": 22510242728,
+      "lfs_sha256": "e90041d4d31a8e918656b0aeb92ff325031d4f136a438c92d7ce963e4424585c",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite/videos.tar.gz.000",
+      "repair_required": false,
+      "size": 22510242728
+    },
+    {
+      "baseline_size": 1197413,
+      "lfs_sha256": "e73874ea0414fe08f8fd8cbfe5c8893ac3250d36c0a2ef16e42173dfa275ce2e",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/meta.tar.gz.000",
+      "repair_required": false,
+      "size": 1197413
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "45210bb1b7db420a23d881580f715c51eb1a469cc11a133333696f080a5b1bfe",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.000",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "7cb8d4f15fa8f7cf5d6190ff72e0835c021bfe970acddbd93356b8038af25b6c",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.001",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "65728552db53d8bb6200995f74087be9d019f9fc80fcc135a6d2ef1f7ac4ac6a",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.002",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "5b92ca3b8623a0d85009ed5b674bb313f2808a26b9ea929942bcf757c02b6ac0",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.003",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "8a9249a4a36f2240ba18517115d574037899c737d289384ec8322e29ba329e7d",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.004",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "5dd365cd31ae6e53149ffae32cd8cd8a8b56563bf14da7b66382f3fbae847bba",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.005",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "8f4316b95bf64d0e3195a2072a833497c7871825117bfd0f04c8cd91cdf94292",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.006",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "95e1089040f9bed0bc29c251a0c4fbcbb26ae2c37a860b36813cdf08f22eb7a7",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.007",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "a7d892ce14721ee5bd8833102d4c4edb785f895b059278264445a79a1ac4c33f",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.008",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "5d3a8e652ab40654365f61a3ea5b3c3988373e4df6ac84057f8ba5ccde95e19a",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.009",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "dca4123366073f10b6a2cddb6e74e455a4869a58f068bbc5a68527e573285cbf",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.010",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "f6e6d77a9c3e712bf8d27114fc8ee8f50437aa50dde6ffd88db54e2a09c641c2",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.011",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 37580963840,
+      "lfs_sha256": "999adc3edff3cffb2863a526ef5645a05c5e1b543fe4bfa49939c57e9bcd1239",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.012",
+      "repair_required": false,
+      "size": 37580963840
+    },
+    {
+      "baseline_size": 21292983842,
+      "lfs_sha256": "d320d46353042bbfd8aa34452aece9af2bb83ac6ffe8145013da64f6fd70d0c4",
+      "path": "simulation/tidy_up_food_in_freezer/g2_swift_picker/lite_depth_patch/videos.tar.gz.013",
+      "repair_required": false,
+      "size": 21292983842
+    },
+    {
+      "baseline_size": 7181,
+      "lfs_sha256": "97b907efb9a90e59fbbafbfca016efe3cb6466aa2ef045ad7a1584c6cc801c4a",
+      "path": "split_episodes_tool.zip",
+      "repair_required": false,
+      "size": 7181
+    }
+  ],
+  "manifest_sha256": "1171ce4a7adb098fcfed8c900efc523e9289529530c7b9b1cb81dadbfbb8f861",
+  "provenance": {
+    "baseline_snapshot": "/mnt/data/embodied_datasets/public_datasets_raw/agibot_world",
+    "captured_at": "2026-08-26T00:00:00Z",
+    "scope_rule": "all files at the pinned revision except ReinforcementLearning/**"
+  },
+  "repo_id": "agibot-world/AgiBotWorld2026",
+  "revision": "4423752b8fa754533c0cd1e6fa3ff9e4cc690566",
+  "schema_version": 1,
+  "scope": {
+    "missing_bytes_in_baseline": 3065673156175,
+    "file_count": 320,
+    "repair_bytes": 3098653300710,
+    "repair_file_count": 103,
+    "total_bytes": 9362161628659
+  }
+}

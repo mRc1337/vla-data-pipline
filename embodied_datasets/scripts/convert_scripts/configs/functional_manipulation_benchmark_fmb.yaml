@@ -1,0 +1,4 @@
+dataset_uid: functional_manipulation_benchmark_fmb
+format: fmb_npy
+robot_type: franka_panda
+fps: 10

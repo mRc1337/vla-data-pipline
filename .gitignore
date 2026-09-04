@@ -1,0 +1,33 @@
+.claude/
+.pytest_cache/
+.loopx/
+.codex/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+*.sqlite3
+.local-run/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Single Python 3.12+ venv for the whole repo (process_scripts needs
+# lerobot -- requires >=3.12).
+# README.md instructs users to create this with `python3.12 -m venv .venv`.
+/.venv/
+
+# Large reference materials kept locally, not tracked in git (see design doc
+# section 1 for why they're referenced by relative path but not committed).
+/VLA Research.xlsx
+/Qwen_RobotManip.pdf
+/2606.02800v4.pdf
+
+# Design docs / plans written while working the superpowers skill chain
+# (brainstorming -> writing-plans) -- process artifacts, kept locally only.
+docs/superpowers/
+
+# Subagent-driven-development session artifacts (task briefs, review diffs,
+# progress ledger) -- scratch state from the superpowers dev workflow, kept
+# locally only. (Was previously only excluded by its own nested
+# .superpowers/sdd/.gitignore; listed explicitly here for robustness.)
+.superpowers/

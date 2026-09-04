@@ -1,0 +1,5 @@
+dataset_uid: dexmimicgen
+format: dexmimicgen_hdf5
+robot_type: heterogeneous; overridden from each partition's official env_args
+source_directory: dexmimicgen
+source_file: generated/two_arm_transport.hdf5

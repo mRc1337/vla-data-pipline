@@ -1,0 +1,35 @@
+# Template for a single-arm (or otherwise action-unambiguous) HDF5 dataset,
+# handled by readers/hdf5_reader.py via convert_dataset.py. Fill in the real
+# key names/dims after running:
+#
+#   python3 dump_dataset_schema.py --dataset-root /data/public_datasets_raw/<dataset_uid>
+#
+# Mobile ALOHA's dual-arm + mobile-base dataset (14+2 action split, verified
+# against /base_action) is NOT this case -- it keeps using
+# convert_mobile_aloha_to_lerobot.py directly. This template is for a plain
+# HDF5 dataset where state/action are each a single unambiguous vector.
+
+dataset_uid: example_single_arm_hdf5
+format: hdf5
+robot_type: example_single_arm
+
+# Fallback FPS only; the reader prefers measuring FPS from camera timestamps
+# or an fps/frame_rate HDF5 attribute (see convert_core/hdf5_common.py).
+fps: 30
+
+episode_glob: "*/*.h5"          # relative to <raw-root>/<dataset_uid>; .hdf5 is also tried automatically
+images_key: "/observations/images"
+instruction_source: path_parent  # each episode's parent directory name is the instruction
+uncompressed_color_order: bgr
+
+vector_fields:
+  - feature_key: observation.state
+    source_key: /observations/qpos
+    dim: 7
+  - feature_key: action
+    source_key: /action
+    dim: 7
+
+# cameras: omit this entirely to auto-discover every RGB dataset below
+# images_key (this is what Mobile ALOHA's own converter does). Only list
+# cameras explicitly if you need to force one specific HDF5 key.

@@ -1,0 +1,97 @@
+"""Stage2: state-action trend alignment via per-dimension cross-correlation
+lag estimation + directional agreement. Only the real quality-gate failure
+(trend_misaligned) sets rejected=True; "couldn't run the check at all"
+skip_reasons (insufficient_frames_for_trend_alignment,
+no_common_state_action_dims) leave rejected=False so run_pipeline.py passes
+the episode through unchanged, matching stage1's skip-vs-reject convention.
+See design doc section 7 row 2.
+"""
+from __future__ import annotations
+
+from dataclasses import replace
+
+import numpy as np
+from scipy.signal import correlate
+
+from episode import Episode, StageResult
+from common.schema import ProcessConfig
+
+
+def apply(episode: Episode, config: ProcessConfig) -> StageResult:
+    state = episode.state
+    action = episode.action
+    num_frames = state.shape[0]
+    if num_frames < 2:
+        return StageResult(episode=episode, skip_reason="insufficient_frames_for_trend_alignment")
+
+    state_delta = np.diff(state, axis=0, prepend=state[:1])
+    # action_frame="absolute" means `action` holds target positions, not
+    # already a per-frame change -- comparing it directly against
+    # state_delta (a rate-of-change quantity) is a unit mismatch that
+    # produces a wrong lag (independently verified: wrong sign). Diffing the
+    # absolute action mirrors Qwen-RobotManip's own handling of this case
+    # ("integrate delta actions to recover absolute values before
+    # comparison") in the opposite direction -- differencing the absolute
+    # signal instead of integrating the delta one avoids the unbounded
+    # numerical drift a long episode's cumulative sum would accumulate.
+    # Any other action_frame value (including unset) falls back to treating
+    # `action` as-is, matching this stage's original delta-action behavior.
+    if config.action_frame == "absolute":
+        action_for_correlation = np.diff(action, axis=0, prepend=action[:1])
+    else:
+        action_for_correlation = action
+    num_dims = min(state_delta.shape[1], action_for_correlation.shape[1])
+    if num_dims == 0:
+        return StageResult(episode=episode, skip_reason="no_common_state_action_dims")
+
+    lags = []
+    directional_agreements = []
+    for dim in range(num_dims):
+        a = action_for_correlation[:, dim]
+        s = state_delta[:, dim]
+        a_centered = a - a.mean()
+        s_centered = s - s.mean()
+        corr = correlate(s_centered, a_centered, mode="full")
+        lag = int(np.argmax(corr) - (len(a_centered) - 1))
+        lags.append(lag)
+        shifted_a = np.roll(a, lag)
+        directional_agreements.append(float(np.mean(np.sign(shifted_a) == np.sign(s))))
+
+    lag = int(np.median(lags))
+    directional_agreement = float(np.mean(directional_agreements))
+
+    if abs(lag) > config.max_lag_frames or directional_agreement < config.da_threshold:
+        return StageResult(
+            episode=episode,
+            rejected=True,
+            skip_reason="trend_misaligned",
+            stats={"lag": lag, "directional_agreement": directional_agreement},
+        )
+
+    if lag == 0:
+        aligned_state, aligned_action = state, action
+        aligned_base_action = episode.base_action
+        aligned_frames = episode.frames
+    elif lag > 0:
+        aligned_state, aligned_action = state[lag:], action[:-lag]
+        aligned_base_action = episode.base_action[:-lag] if episode.base_action is not None else None
+        # Mirror state's trim (not action's -- state and frames are the two
+        # arrays being shifted forward by `lag`; action is trimmed from the
+        # opposite end instead). Matches the keep_mask-based frame rebuild
+        # stage3/check3 do when they drop frames.
+        aligned_frames = {view: frames[lag:] for view, frames in episode.frames.items()}
+    else:
+        aligned_state, aligned_action = state[:lag], action[-lag:]
+        aligned_base_action = episode.base_action[-lag:] if episode.base_action is not None else None
+        aligned_frames = {view: frames[:lag] for view, frames in episode.frames.items()}
+
+    new_length = aligned_state.shape[0]
+    new_episode = replace(
+        episode,
+        state=aligned_state,
+        action=aligned_action,
+        base_action=aligned_base_action,
+        timestamps=episode.timestamps[:new_length],
+        frames=aligned_frames,
+    )
+    return StageResult(episode=new_episode, stats={"lag": lag, "directional_agreement": directional_agreement})

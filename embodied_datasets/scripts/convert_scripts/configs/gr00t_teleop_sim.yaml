@@ -1,0 +1,17 @@
+dataset_uid: gr00t_teleop_sim
+source_lerobot_subdir: LeRobot
+source_hdf5_subdir: HDF5
+source_part_glob: gr1_unified.*
+source_version: v2.0
+target_version: v3.0
+robot_type: GR1ArmsAndWaistFourierHands
+fps: 20
+task_source: episode_remarks
+preserve_meta_files:
+  - embodiment.json
+  - metadata.json
+  - modality.json
+  - initial_actions.npz
+data_file_size_in_mb: 100
+video_file_size_in_mb: 500
+crosscheck_hdf5: true

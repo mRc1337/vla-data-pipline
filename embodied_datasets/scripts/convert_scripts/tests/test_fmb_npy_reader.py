@@ -1,0 +1,458 @@
+from __future__ import annotations
+
+from argparse import Namespace
+from io import BytesIO
+import os
+from pathlib import Path
+import zipfile
+
+import numpy as np
+import pytest
+
+import convert_fmb_to_lerobot as converter
+from convert_core.dataset_config import DatasetConversionConfig
+from convert_core.errors import ConversionError
+from convert_core.dataset_config import load_dataset_config
+from convert_core.lerobot_writer import build_manifest
+from convert_core.parallel import ParallelWorkUnit
+from convert_fmb_to_lerobot import (
+    FmbWorkerPayload,
+    _catalog_for_run,
+    _cleanup_legacy_datasets_cache,
+    _cleanup_unit_datasets_cache,
+    _unit_datasets_cache_root,
+)
+from readers.fmb_npy_reader import (
+    inspect_fmb,
+    iter_fmb_frames,
+    stage_fmb_unit_sources,
+    validate_extracted_fmb_root,
+)
+
+
+def _trajectory(*, multi: bool, frames: int = 3) -> dict[str, np.ndarray]:
+    result: dict[str, np.ndarray] = {
+        **{f"obs/{name}": np.full((frames, 256, 256, 3), [1, 2, 3], dtype=np.uint8) for name in ("side_1", "side_2", "wrist_1", "wrist_2")},
+        **{f"obs/{name}_depth": np.arange(frames * 256 * 256, dtype=np.uint16).reshape(frames, 256, 256) for name in ("side_1", "side_2", "wrist_1", "wrist_2")},
+        "obs/tcp_pose": np.ones((frames, 7), dtype=np.float64),
+        "obs/tcp_vel": np.ones((frames, 6), dtype=np.float64),
+        "obs/tcp_force": np.ones((frames, 3), dtype=np.float64),
+        "obs/tcp_torque": np.ones((frames, 3), dtype=np.float64),
+        "obs/q": np.ones((frames, 7), dtype=np.float64),
+        "obs/dq": np.ones((frames, 7), dtype=np.float64),
+        "obs/jacobian": np.ones((frames, 6, 7), dtype=np.float64),
+        "obs/gripper_pose": np.arange(frames, dtype=np.int64),
+        "action": np.ones((frames, 7), dtype=np.float64),
+        "primitive": np.asarray(["grasp", "insert", "release"][:frames]),
+    }
+    if multi:
+        result["object_id"] = np.full((frames,), 4, dtype=np.int64)
+    else:
+        result["object_info"] = {
+            "length": "S",
+            "size": "M",
+            "shape": "1",
+            "color": "2",
+            "angle": "horizontal",
+            "distractor": "n",
+        }
+    return result
+
+
+def _write_archive(root: Path, name: str, member: str, payload: dict[str, np.ndarray]) -> None:
+    buffer = BytesIO()
+    np.save(buffer, payload, allow_pickle=True)
+    with zipfile.ZipFile(root / name, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(member, buffer.getvalue())
+
+
+def _write_extracted(root: Path, directory: str, member: str, payload: dict[str, np.ndarray]) -> None:
+    target = root / directory / member
+    target.parent.mkdir(parents=True, exist_ok=True)
+    np.save(target, payload, allow_pickle=True)
+    (root / directory / ".EXTRACTED_OK").write_text("ok\n", encoding="utf-8")
+
+
+def _config() -> DatasetConversionConfig:
+    return DatasetConversionConfig(
+        dataset_uid="functional_manipulation_benchmark_fmb",
+        format="fmb_npy",
+        robot_type="franka_panda",
+        fps=10,
+    )
+
+
+def test_fmb_unit_cache_cleanup_is_scoped_and_preserves_resume(tmp_path: Path) -> None:
+    runtime = tmp_path / "cache" / "runtime"
+    committed = _unit_datasets_cache_root(runtime, "partition-a", 7)
+    pending = _unit_datasets_cache_root(runtime, "partition-a", 8)
+    committed.mkdir(parents=True)
+    pending.mkdir(parents=True)
+    (committed / "arrow.bin").write_bytes(b"rebuildable")
+    (pending / "arrow.bin").write_bytes(b"still-needed")
+    resume = tmp_path / "resume" / "committed" / "unit-7.json"
+    resume.parent.mkdir(parents=True)
+    resume.write_text("durable marker", encoding="utf-8")
+
+    _cleanup_unit_datasets_cache(runtime, "partition-a", 7)
+
+    assert not committed.exists()
+    assert pending.is_dir()
+    assert resume.is_file()
+
+
+def test_legacy_cache_cleanup_does_not_touch_preflight_or_resume(tmp_path: Path) -> None:
+    legacy = tmp_path / "cache" / "runtime" / "datasets"
+    legacy.mkdir(parents=True)
+    (legacy / "arrow.bin").write_bytes(b"legacy")
+    preflight = tmp_path / "cache" / "preflight.json"
+    preflight.write_text("catalog", encoding="utf-8")
+    resume = tmp_path / "resume" / "unit.json"
+    resume.parent.mkdir(parents=True)
+    resume.write_text("marker", encoding="utf-8")
+
+    _cleanup_legacy_datasets_cache(tmp_path)
+
+    assert not legacy.exists()
+    assert preflight.is_file()
+    assert resume.is_file()
+
+
+def test_worker_routes_write_and_validation_through_unit_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shared_cache = tmp_path / "shared-cache"
+    unit_cache = tmp_path / "unit-cache"
+    monkeypatch.setenv("VLA_DATASETS_CACHE_ROOT", str(shared_cache))
+    observed: dict[str, str | None] = {}
+
+    def record_cache(stage: str):
+        def callback(*_args, **_kwargs) -> None:
+            observed[stage] = os.environ.get("VLA_DATASETS_CACHE_ROOT")
+
+        return callback
+
+    def stage_sources(_plan, _raw_root, source_root: Path, **_kwargs) -> None:
+        source_root.mkdir(parents=True)
+
+    monkeypatch.setattr(converter, "stage_fmb_unit_sources", stage_sources)
+    monkeypatch.setattr(converter, "write_dataset", record_cache("write"))
+    monkeypatch.setattr(converter, "validate_written_dataset", record_cache("dataset_validation"))
+    monkeypatch.setattr(converter, "validate_video_files", record_cache("video_validation"))
+    monkeypatch.setattr(converter, "globalize_unit_data_files", record_cache("globalize"))
+    monkeypatch.setattr(converter, "write_verified_unit_marker", lambda _unit: None)
+    monkeypatch.setattr(converter, "_fmb_rgb_encoder", lambda: object())
+
+    unit = ParallelWorkUnit(
+        index=0,
+        key="partition/unit-000000",
+        dataset_uid="fixture",
+        target_path=str(tmp_path / "work" / "unit-000000"),
+        episode_start=0,
+        episode_end=1,
+        frame_start=0,
+        frame_end=1,
+        task_indices=(0,),
+        weight=1,
+        estimated_memory_bytes=1,
+        estimated_temp_bytes=1,
+        fingerprint="fixture",
+        payload=FmbWorkerPayload(
+            plan=object(),
+            raw_root=str(tmp_path / "raw"),
+            encoder_threads=1,
+            conversion_options={"datasets_cache_root": str(unit_cache)},
+        ),
+    )
+
+    converter._worker(unit)
+
+    assert observed == {
+        "write": str(unit_cache),
+        "dataset_validation": str(unit_cache),
+        "video_validation": str(unit_cache),
+        "globalize": str(shared_cache),
+    }
+    assert os.environ["VLA_DATASETS_CACHE_ROOT"] == str(shared_cache)
+
+
+def test_inspect_partitions_and_preserves_schema(tmp_path: Path) -> None:
+    _write_archive(
+        tmp_path,
+        "single_object_manipulation.zip",
+        "media/fmb/np_release/single_object_manipulation/insert_only_1_S_S_1_n_7.npy",
+        _trajectory(multi=False),
+    )
+    _write_archive(
+        tmp_path,
+        "multi_object_manipulation_assembly_2.zip",
+        "media/fmb/np_release/multi_object_manipulation/board_2/trajectory_4_8.npy",
+        _trajectory(multi=True),
+    )
+
+    catalog = inspect_fmb(_config(), tmp_path)
+
+    assert {partition.plan.extra["source_kind"] for partition in catalog.partitions} == {"single_object", "multi_object"}
+    multi = next(partition for partition in catalog.partitions if partition.plan.extra["source_kind"] == "multi_object")
+    single = next(partition for partition in catalog.partitions if partition.plan.extra["source_kind"] == "single_object")
+    assert multi.plan.fps == 10
+    assert multi.plan.num_frames == 3
+    assert multi.plan.episodes[0].instruction == "Pick up the red object and insert it."
+    assert single.plan.episodes[0].instruction == "Insert the rectangle object."
+    assert single.plan.episodes[0].extra["object_info"]["shape"] == "1"
+    assert "observation.depth.side_1" in multi.plan.feature_schema()
+    assert multi.plan.feature_schema()["observation.primitive"]["dtype"] == "string"
+    assert multi.plan.feature_schema()["observation.object_id"]["dtype"] == "int64"
+    assert catalog.sample_evidence[0]["frames"] == 3
+    assert catalog.fingerprint_payload["task_mapping"][0]["task"]
+    camera_mapping = next(row for row in catalog.mapping_table if row["source_field"] == "obs/side_1")
+    assert camera_mapping["lossy"] is True
+    manifest = build_manifest(multi.plan, reader_format="fmb_npy")
+    assert manifest["episodes"][0]["source_provenance"]["member"].endswith("trajectory_4_8.npy")
+    assert "timestamp_provenance" in multi.plan.extra
+
+
+def test_iter_frames_reverses_bgr_only_and_keeps_numeric_values(tmp_path: Path) -> None:
+    member = "media/fmb/np_release/multi_object_manipulation/board_2/trajectory_4_8.npy"
+    _write_archive(tmp_path, "multi_object_manipulation_assembly_2.zip", member, _trajectory(multi=True))
+    catalog = inspect_fmb(_config(), tmp_path)
+    partition = catalog.partitions[0]
+    episode = partition.plan.episodes[0]
+    frame = next(iter_fmb_frames(partition.plan, episode, tmp_path))
+
+    assert frame["observation.images.side_1"][0, 0].tolist() == [3, 2, 1]
+    assert frame["observation.depth.side_1"].dtype == np.uint16
+    assert frame["action"].dtype == np.float64
+    assert frame["observation.primitive"] == "grasp"
+    assert frame["observation.gripper_pose"].shape == (1,)
+    assert frame["observation.object_id"].tolist() == [4]
+
+
+def test_extracted_directory_layout_matches_zip_layout(tmp_path: Path) -> None:
+    member = "media/nvmep3p/fmb2/np_release/multi_object_manipulation/board_2/trajectory_4_8.npy"
+    payload = _trajectory(multi=True)
+    zip_root = tmp_path / "zip"
+    extracted_root = tmp_path / "extracted"
+    zip_root.mkdir()
+    extracted_root.mkdir()
+    _write_archive(zip_root, "multi_object_manipulation_assembly_2.zip", member, payload)
+    _write_extracted(extracted_root, "assembly_2", member, payload)
+
+    zip_catalog = inspect_fmb(_config(), zip_root)
+    extracted_catalog = inspect_fmb(_config(), extracted_root)
+    zip_partition = zip_catalog.partitions[0]
+    extracted_partition = extracted_catalog.partitions[0]
+    assert [episode.source_relative_path for episode in extracted_partition.plan.episodes] == [
+        episode.source_relative_path for episode in zip_partition.plan.episodes
+    ]
+    assert extracted_partition.plan.feature_schema() == zip_partition.plan.feature_schema()
+    assert extracted_partition.entries[0].source_mode == "extracted_directory"
+    assert extracted_partition.entries[0].archive == "multi_object_manipulation_assembly_2.zip"
+    zip_frame = next(iter_fmb_frames(zip_partition.plan, zip_partition.plan.episodes[0], zip_root))
+    extracted_frame = next(iter_fmb_frames(extracted_partition.plan, extracted_partition.plan.episodes[0], extracted_root))
+    np.testing.assert_array_equal(extracted_frame["observation.images.side_1"], zip_frame["observation.images.side_1"])
+    np.testing.assert_array_equal(extracted_frame["action"], zip_frame["action"])
+
+
+def test_stage_unit_sources_uses_local_extracted_layout(tmp_path: Path) -> None:
+    member = "media/fmb/np_release/multi_object_manipulation/board_2/trajectory_4_8.npy"
+    source_root = tmp_path / "source"
+    local_root = tmp_path / "local-unit-source"
+    _write_extracted(source_root, "assembly_2", member, _trajectory(multi=True))
+    catalog = inspect_fmb(_config(), source_root)
+    plan = catalog.partitions[0].plan
+
+    messages: list[str] = []
+    stage_fmb_unit_sources(plan, source_root, local_root, progress=messages.append)
+
+    staged = local_root / "assembly_2" / member
+    assert staged.is_file()
+    assert staged.stat().st_size == plan.episodes[0].extra["source_uncompressed_bytes"]
+    frame = next(iter_fmb_frames(plan, plan.episodes[0], local_root))
+    assert frame["observation.object_id"].tolist() == [4]
+    assert any("staged" in message for message in messages)
+
+
+def test_preflight_can_parse_only_local_temporary_members(tmp_path: Path) -> None:
+    member = "media/fmb/np_release/multi_object_manipulation/board_2/trajectory_4_8.npy"
+    source_root = tmp_path / "source"
+    preflight_root = tmp_path / "preflight-source"
+    _write_extracted(source_root, "assembly_2", member, _trajectory(multi=True))
+
+    messages: list[str] = []
+    catalog = inspect_fmb(
+        _config(),
+        source_root,
+        local_preflight_root=preflight_root,
+        progress=messages.append,
+    )
+
+    assert catalog.partitions[0].entries[0].source_mode == "extracted_directory"
+    assert not (preflight_root / "current.npy").exists()
+    assert not (preflight_root / "sample.npy").exists()
+    assert any("preflight scanned" in message for message in messages)
+
+
+def test_production_root_requires_all_completed_extracted_shards(tmp_path: Path) -> None:
+    for directory in ("assembly_1", "assembly_2", "assembly_3", "single_object"):
+        shard = tmp_path / directory
+        shard.mkdir()
+        (shard / ".EXTRACTED_OK").write_text("ok\n", encoding="utf-8")
+
+    assert validate_extracted_fmb_root(tmp_path) == tmp_path
+    (tmp_path / "single_object_manipulation.zip").write_bytes(b"not allowed")
+    try:
+        validate_extracted_fmb_root(tmp_path)
+    except ConversionError as exc:
+        assert "extracted shards only" in str(exc)
+    else:
+        raise AssertionError("production root accepted a ZIP archive")
+
+
+def test_plural_action_alias_is_canonicalized(tmp_path: Path) -> None:
+    payload = _trajectory(multi=True)
+    payload["actions"] = payload.pop("action")
+    member = "media/fmb/np_release/multi_object_manipulation/board_2/trajectory_4_8.npy"
+    _write_archive(tmp_path, "multi_object_manipulation_assembly_2.zip", member, payload)
+    catalog = inspect_fmb(_config(), tmp_path)
+    assert "action" in catalog.partitions[0].plan.feature_schema()
+    assert "actions" not in catalog.partitions[0].plan.feature_schema()
+
+
+def test_single_object_filename_is_retained_when_object_info_is_absent(tmp_path: Path) -> None:
+    payload = _trajectory(multi=False)
+    payload.pop("object_info")
+    member = "media/fmb/np_release/single_object_manipulation/insert_only_1_S_S_1_horizontal_n_7.npy"
+    _write_archive(tmp_path, "single_object_manipulation.zip", member, payload)
+    catalog = inspect_fmb(_config(), tmp_path)
+    provenance = catalog.partitions[0].plan.episodes[0].extra["object_info"]
+    assert provenance == {
+        "shape": "1",
+        "size": "S",
+        "length": "S",
+        "color": "1",
+        "angle": "horizontal",
+        "distractor": "n",
+    }
+
+
+def test_incomplete_zip_is_rejected(tmp_path: Path) -> None:
+    (tmp_path / "broken.zip").write_bytes(b"PK\x03\x04partial")
+    try:
+        inspect_fmb(_config(), tmp_path)
+    except ConversionError as exc:
+        assert "incomplete or invalid" in str(exc)
+    else:
+        raise AssertionError("incomplete archive was accepted")
+
+
+def test_schema_validation_covers_all_cameras_and_multi_object_id(tmp_path: Path) -> None:
+    payload = _trajectory(multi=True)
+    payload["obs/side_2"] = payload["obs/side_2"][:, :128]
+    _write_archive(
+        tmp_path,
+        "multi_object_manipulation_assembly_2.zip",
+        "media/fmb/np_release/multi_object_manipulation/board_2/trajectory_4_8.npy",
+        payload,
+    )
+    try:
+        inspect_fmb(_config(), tmp_path)
+    except ConversionError as exc:
+        assert "obs/side_2" in str(exc)
+    else:
+        raise AssertionError("invalid camera schema was accepted")
+
+    missing_id_root = tmp_path / "missing-id"
+    missing_id_root.mkdir()
+    payload = _trajectory(multi=True)
+    payload.pop("object_id")
+    _write_archive(
+        missing_id_root,
+        "multi_object_manipulation_assembly_2.zip",
+        "media/fmb/np_release/multi_object_manipulation/board_2/trajectory_4_8.npy",
+        payload,
+    )
+    try:
+        inspect_fmb(_config(), missing_id_root)
+    except ConversionError as exc:
+        assert "object_id" in str(exc)
+    else:
+        raise AssertionError("multi-object trajectory without object_id was accepted")
+
+
+def test_unrecognized_payload_field_is_not_silently_dropped(tmp_path: Path) -> None:
+    payload = _trajectory(multi=False)
+    payload["obs/undocumented"] = np.zeros((3, 1), dtype=np.float64)
+    _write_archive(
+        tmp_path,
+        "single_object_manipulation.zip",
+        "media/fmb/np_release/single_object_manipulation/insert_only_1_S_S_1_n_7.npy",
+        payload,
+    )
+    try:
+        inspect_fmb(_config(), tmp_path)
+    except ConversionError as exc:
+        assert "would be dropped" in str(exc)
+    else:
+        raise AssertionError("unrecognized payload field was silently dropped")
+
+
+def test_partial_shard_cache_is_not_reused_for_full_preflight(tmp_path: Path) -> None:
+    for index in (1, 2):
+        _write_archive(
+            tmp_path,
+            f"{index:02d}.zip",
+            f"media/fmb/np_release/single_object_manipulation/task_{index}_1.npy",
+            _trajectory(multi=False),
+        )
+    config_path = Path(__file__).parents[1] / "configs" / "functional_manipulation_benchmark_fmb.yaml"
+    config = load_dataset_config(config_path)
+    cache_root = tmp_path / "cache"
+    partial_args = Namespace(config=config_path, max_shards=1)
+    partial = _catalog_for_run(config, tmp_path, cache_root, partial_args)
+    assert len(partial.partitions[0].entries) == 1
+
+    full_args = Namespace(config=config_path, max_shards=None)
+    full = _catalog_for_run(config, tmp_path, cache_root, full_args)
+    assert len(full.partitions[0].entries) == 2
+
+
+def test_schema_fingerprint_ignores_episode_length_and_unicode_width(tmp_path: Path) -> None:
+    first = _trajectory(multi=False)
+    second = _trajectory(multi=False, frames=2)
+    second["primitive"] = np.asarray(["a", "bb"])
+    member_prefix = "media/fmb/np_release/single_object_manipulation/"
+    _write_archive(
+        tmp_path,
+        "01.zip",
+        member_prefix + "task_1_1.npy",
+        first,
+    )
+    _write_archive(
+        tmp_path,
+        "02.zip",
+        member_prefix + "task_2_1.npy",
+        second,
+    )
+
+    catalog = inspect_fmb(_config(), tmp_path)
+
+    assert len(catalog.partitions) == 1
+    assert len(catalog.partitions[0].entries) == 2
+
+
+def test_worker_payload_is_revalidated_against_preflight(tmp_path: Path) -> None:
+    member = "media/fmb/np_release/multi_object_manipulation/board_2/trajectory_4_8.npy"
+    _write_archive(tmp_path, "multi_object_manipulation_assembly_2.zip", member, _trajectory(multi=True))
+    catalog = inspect_fmb(_config(), tmp_path)
+    partition = catalog.partitions[0]
+    episode = partition.plan.episodes[0]
+    from dataclasses import replace
+
+    stale_episode = replace(episode, num_frames=episode.num_frames - 1)
+    try:
+        next(iter_fmb_frames(partition.plan, stale_episode, tmp_path))
+    except ConversionError as exc:
+        assert "payload has" in str(exc)
+    else:
+        raise AssertionError("changed payload length was not rejected")

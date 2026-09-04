@@ -1,0 +1,25 @@
+# System dependency (not pip-installable): ffmpeg must be present on the
+# machine for real video-bearing datasets. lerobot's video decoder
+# (torchcodec) only checks that it's *importable*, not that its native lib
+# can actually dlopen -- without system ffmpeg, decoding a real dataset's
+# video crashes at runtime even though every synthetic-fixture test (which
+# never decodes real video) passes. Install via `brew install ffmpeg` (macOS)
+# or `sudo apt update && sudo apt install ffmpeg` (Ubuntu/Debian, the actual
+# deployment target) before running against real datasets.
+lerobot[dataset]==0.6.0
+h5py==3.12.1
+numpy==2.2.6
+scipy==1.17.1
+opencv-python-headless==4.12.0.88
+openai==1.109.1
+torch==2.11.0
+transformers==5.14.1
+ikpy==4.0.0
+pydantic==2.10.3
+PyYAML==6.0.2
+pytest==8.3.4
+streamlit==1.51.0
+plotly==6.5.0
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+celery[redis]==5.4.0
