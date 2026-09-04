@@ -1746,14 +1746,15 @@ function App() {
                 <video className="episode-video" playsInline muted preload="metadata" src={video.url} data-camera={video.camera}
                   onClick={togglePlayback} ref={(element) => { videoRefs.current[video.camera] = element; }}
                   onLoadedMetadata={(event) => {
+                    const media = event.currentTarget;
                     setBrowserVideoMetadata((current) => ({ ...current, [video.camera]: {
-                      width: event.currentTarget.videoWidth,
-                      height: event.currentTarget.videoHeight,
-                      duration: event.currentTarget.duration,
+                      width: media.videoWidth,
+                      height: media.videoHeight,
+                      duration: media.duration,
                     } }));
                     const target = videoWindow(video, timeline.duration).start;
-                    event.currentTarget.playbackRate = effectivePlaybackRateRef.current;
-                    if (Math.abs(event.currentTarget.currentTime - target) > 0.1) event.currentTarget.currentTime = target;
+                    media.playbackRate = effectivePlaybackRateRef.current;
+                    if (Math.abs(media.currentTime - target) > 0.1) media.currentTime = target;
                   }}
                   onWaiting={() => { if (isPlaying) setPlaybackStatus("buffering"); }}
                   onStalled={() => { if (isPlaying) setPlaybackStatus("stalled"); }}
