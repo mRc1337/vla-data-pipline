@@ -13,6 +13,31 @@ from typing import Any, Callable, Iterable, Iterator
 from .stage_index import MANIFEST_NAME as STAGE_INDEX_MANIFEST, SCHEMA_VERSION as STAGE_INDEX_SCHEMA
 
 
+# Bump these when the corresponding derived index semantics change.  The
+# source metadata can remain byte-for-byte unchanged while an old index still
+# contains incomplete derived values, so source mtimes alone are not enough to
+# decide whether an index is reusable.
+CATALOG_INDEX_VERSION = 2
+EPISODE_SEARCH_INDEX_VERSION = 2
+
+
+def derive_cameras(features: Any) -> list[str]:
+    """Return camera feature keys supported by both old and current schemas."""
+    if not isinstance(features, dict):
+        return []
+    cameras: list[str] = []
+    for key, feature in features.items():
+        if not isinstance(key, str):
+            continue
+        # Older LeRobot exports did not always annotate image features with a
+        # video dtype, so retain their established observation.images rule.
+        is_legacy_image = key.startswith("observation.images")
+        is_video = isinstance(feature, dict) and feature.get("dtype") == "video"
+        if is_legacy_image or is_video:
+            cameras.append(key)
+    return sorted(set(cameras))
+
+
 ADVANCED_STAGE_SPECS: dict[int, dict[str, Any]] = {
     4: {
         "name": "Kinematic Consistency",
@@ -121,6 +146,8 @@ class Catalog:
               root TEXT PRIMARY KEY, dataset_uid TEXT NOT NULL,
               info_mtime_ns INTEGER NOT NULL, info_size INTEGER NOT NULL,
               episodes_mtime_ns INTEGER NOT NULL DEFAULT 0,
+              episodes_size INTEGER NOT NULL DEFAULT 0,
+              catalog_index_version INTEGER NOT NULL DEFAULT 0,
               scanned_at REAL NOT NULL
             );
             CREATE TABLE IF NOT EXISTS scan_jobs (
@@ -209,6 +236,17 @@ class Catalog:
             if "metadata_json" not in search_columns:
                 db.execute(
                     "ALTER TABLE episode_search ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            scan_fingerprint_columns = {
+                row[1] for row in db.execute("PRAGMA table_info(scan_fingerprints)").fetchall()
+            }
+            if "episodes_size" not in scan_fingerprint_columns:
+                db.execute(
+                    "ALTER TABLE scan_fingerprints ADD COLUMN episodes_size INTEGER NOT NULL DEFAULT 0"
+                )
+            if "catalog_index_version" not in scan_fingerprint_columns:
+                db.execute(
+                    "ALTER TABLE scan_fingerprints ADD COLUMN catalog_index_version INTEGER NOT NULL DEFAULT 0"
                 )
 
     def create_scan_job(self, job: dict[str, Any]) -> None:
@@ -329,10 +367,10 @@ class Catalog:
             size += stat.st_size
         return marker, size
 
-    def _fingerprint(self, root: Path, info_path: Path) -> tuple[int, int, int]:
+    def _fingerprint(self, root: Path, info_path: Path) -> tuple[int, int, int, int]:
         info_stat = info_path.stat()
-        episode_mtime, _ = self._episode_marker(root)
-        return info_stat.st_mtime_ns, info_stat.st_size, episode_mtime
+        episode_mtime, episode_size = self._episode_marker(root)
+        return info_stat.st_mtime_ns, info_stat.st_size, episode_mtime, episode_size
 
     @staticmethod
     def _media_files(root: Path) -> Iterable[Path]:
@@ -507,10 +545,17 @@ class Catalog:
         for position, (root, info_path) in enumerate(roots, start=1):
             if cancel and cancel.is_set():
                 break
-            info_mtime, info_size, episodes_mtime = self._fingerprint(root, info_path)
+            info_mtime, info_size, episodes_mtime, episodes_size = self._fingerprint(root, info_path)
             with self._connect() as db:
-                previous = db.execute("SELECT info_mtime_ns,info_size,episodes_mtime_ns FROM scan_fingerprints WHERE root=?", (str(root),)).fetchone()
-                if mode == "quick" and previous and tuple(previous) == (info_mtime, info_size, episodes_mtime):
+                previous = db.execute(
+                    """SELECT info_mtime_ns,info_size,episodes_mtime_ns,episodes_size,
+                        catalog_index_version
+                        FROM scan_fingerprints WHERE root=?""",
+                    (str(root),),
+                ).fetchone()
+                if mode == "quick" and previous and tuple(previous) == (
+                    info_mtime, info_size, episodes_mtime, episodes_size, CATALOG_INDEX_VERSION
+                ):
                     existing = db.execute("SELECT * FROM datasets WHERE root=?", (str(root),)).fetchone()
                     if existing:
                         row = self._dataset_row(existing)
@@ -525,12 +570,7 @@ class Catalog:
             if uid == "dataset" and root.parent.parent != self.data_root:
                 uid = root.parent.parent.name
             features = info.get("features", {})
-            cameras = sorted(
-                key for key, feature in features.items()
-                if key.startswith("observation.images") or (
-                    isinstance(feature, dict) and feature.get("dtype") == "video"
-                )
-            )
+            cameras = derive_cameras(features)
             episodes = int(info.get("total_episodes", 0) or 0)
             frames = int(info.get("total_frames", 0) or 0)
             total_bytes = 0
@@ -579,8 +619,13 @@ class Catalog:
                     # materializing the full table, so it is safe for both
                     # standard browser indexing and deep integrity scans.
                     self._scan_parquet_files(db, uid, root)
-                db.execute("INSERT OR REPLACE INTO scan_fingerprints(root,dataset_uid,info_mtime_ns,info_size,episodes_mtime_ns,scanned_at) VALUES(?,?,?,?,?,?)",
-                            (str(root), uid, info_mtime, info_size, episodes_mtime, time.time()))
+                db.execute("""INSERT OR REPLACE INTO scan_fingerprints(
+                    root,dataset_uid,info_mtime_ns,info_size,episodes_mtime_ns,
+                    episodes_size,catalog_index_version,scanned_at
+                ) VALUES(?,?,?,?,?,?,?,?)""", (
+                    str(root), uid, info_mtime, info_size, episodes_mtime,
+                    episodes_size, CATALOG_INDEX_VERSION, time.time(),
+                ))
             found.append(row)
             if progress:
                 progress({"phase": "indexing", "current": position, "total": total, "uid": uid, "skipped": False})
@@ -731,17 +776,37 @@ class Catalog:
             value = camera.lower()
             if "front" in value or "external" in value or "cam_high" in value:
                 return camera
+        # Prefer a colour/RGB stream over depth when a schema has no named
+        # front camera.  This keeps the primary stream useful for generic
+        # schemas such as observation.rgb.* plus observation.depth_linear.*.
+        for camera in cameras:
+            value = camera.lower()
+            if "wrist" not in value and ("rgb" in value or "image" in value) and "depth" not in value:
+                return camera
         return next((camera for camera in cameras if "wrist" not in camera.lower()), cameras[0])
 
     def _collection_name(self, dataset_root: Path, uid: str) -> str:
         keys = self._curation_dataset_keys(uid, dataset_root)
         return keys[0].split("/", 1)[0] if "/" in keys[0] else uid
 
-    def _episode_search_fingerprint(self, root: Path) -> str:
+    def _episode_search_fingerprint(
+        self,
+        root: Path,
+        cameras: list[str] | None = None,
+        primary_camera: str | None = None,
+    ) -> str:
+        if cameras is None:
+            cameras = derive_cameras(self._json(root / "meta" / "info.json").get("features", {}))
+        if primary_camera is None:
+            primary_camera = self._primary_camera(cameras)
         paths = [root / "meta" / "info.json", root / "meta" / "tasks.parquet", root / "meta" / "tasks.jsonl"]
         paths.extend(sorted(root.glob("meta/episodes*.parquet")))
         paths.extend(sorted(root.glob("meta/episodes/**/*.parquet")))
-        values: list[str] = []
+        values: list[str] = [json.dumps({
+            "version": EPISODE_SEARCH_INDEX_VERSION,
+            "cameras": cameras,
+            "primary_camera": primary_camera,
+        }, sort_keys=True, separators=(",", ":"))]
         for path in dict.fromkeys(paths):
             try:
                 stat = path.stat()
@@ -755,7 +820,9 @@ class Catalog:
         if not dataset:
             return 0
         root = Path(dataset["root"])
-        fingerprint = self._episode_search_fingerprint(root)
+        cameras = list(dataset.get("cameras") or [])
+        primary_camera = self._primary_camera(cameras)
+        fingerprint = self._episode_search_fingerprint(root, cameras, primary_camera)
         with self._connect() as db:
             previous = db.execute(
                 "SELECT fingerprint FROM stage_index_sources WHERE dataset_uid=? AND stage_id=0",
@@ -772,8 +839,6 @@ class Catalog:
                     and int(existing["missing_metadata"] or 0) == 0):
                 return int(existing["total"])
         info = self._json(root / "meta" / "info.json")
-        cameras = list(dataset.get("cameras") or [])
-        primary_camera = self._primary_camera(cameras)
         task_map = self._load_task_map(root)
         video_template = info.get(
             "video_path", "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
