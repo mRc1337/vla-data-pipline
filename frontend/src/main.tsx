@@ -93,6 +93,41 @@ type SearchStageFacets = Record<string, {
   artifact_statuses: Array<{ value: string; count: number }>;
 }>;
 
+async function fetchEpisodePage(
+  uid: string,
+  taskIndex?: number,
+  cursor?: string | null,
+  query = "",
+): Promise<EpisodePage> {
+  const params = new URLSearchParams({ page_size: "100" });
+  if (taskIndex !== undefined) params.set("task_index", String(taskIndex));
+  if (cursor) params.set("cursor", cursor);
+  if (query) params.set("query", query);
+  const response = await fetch(`/api/datasets/${encodeURIComponent(uid)}/episodes?${params.toString()}`);
+  const payload: unknown = await response.json();
+  if (!response.ok) {
+    const detail = payload && typeof payload === "object" && "detail" in payload
+      ? String((payload as { detail: unknown }).detail)
+      : "Episode 列表读取失败";
+    throw new Error(detail);
+  }
+  if (Array.isArray(payload)) {
+    return { items: payload as Episode[], next_cursor: null, page_size: payload.length };
+  }
+  const page = payload as Partial<EpisodePage>;
+  return {
+    items: Array.isArray(page.items) ? page.items : [],
+    next_cursor: page.next_cursor ?? null,
+    page_size: Number(page.page_size || 100),
+  };
+}
+
+function mergeEpisodeOptions(current: Episode[], incoming: Episode[]): Episode[] {
+  const byIndex = new Map<number, Episode>();
+  [...current, ...incoming].forEach((episode) => byIndex.set(episode.episode_index, episode));
+  return Array.from(byIndex.values()).sort((left, right) => left.episode_index - right.episode_index);
+}
+
 type StageVerdictInput = {
   stage_id: number;
   artifact_status?: string | null;
@@ -1013,6 +1048,9 @@ function App() {
   const [tasks, setTasks] = useState<DatasetTask[]>([]);
   const [taskIndex, setTaskIndex] = useState<number>();
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [episodeNextCursor, setEpisodeNextCursor] = useState<string | null>(null);
+  const [episodeOptionQuery, setEpisodeOptionQuery] = useState("");
+  const [episodeOptionsLoading, setEpisodeOptionsLoading] = useState(false);
   const [episodeIndex, setEpisodeIndex] = useState<number>();
   const [preview, setPreview] = useState<Preview>();
   const [loadingStageDetails, setLoadingStageDetails] = useState<Set<number>>(new Set());
@@ -1041,6 +1079,9 @@ function App() {
   const lastHardSeek = useRef<Record<string, number>>({});
   const workbenchRef = useRef<HTMLDivElement>(null);
   const navigationTarget = useRef<EpisodeSearchItem | undefined>(undefined);
+  const episodeOptionSequence = useRef(0);
+  const episodeSearchTimer = useRef<number | undefined>(undefined);
+  const episodeOptionsLoadingRef = useRef(false);
   const searchSequence = useRef(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDatasets, setSearchDatasets] = useState<string[]>([]);
@@ -1061,6 +1102,62 @@ function App() {
     setSelected(collection.datasets.length === 1 ? collection.datasets[0] : undefined);
     setTasks([]); setTaskIndex(undefined); setEpisodes([]); setEpisodeIndex(undefined);
     setPreview(undefined); setSeries([]);
+  };
+
+  const searchEpisodeOptions = (value: string) => {
+    if (episodeSearchTimer.current !== undefined) window.clearTimeout(episodeSearchTimer.current);
+    const dataset = selected;
+    const requestedTask = taskIndex;
+    const requestedQuery = value.trim();
+    episodeSearchTimer.current = window.setTimeout(() => {
+      if (!dataset) return;
+      const sequence = ++episodeOptionSequence.current;
+      episodeOptionsLoadingRef.current = true;
+      setEpisodeOptionsLoading(true);
+      void fetchEpisodePage(dataset.uid, requestedTask, null, requestedQuery)
+        .then((page) => {
+          if (sequence !== episodeOptionSequence.current) return;
+          setEpisodeOptionQuery(requestedQuery);
+          setEpisodeNextCursor(page.next_cursor ?? null);
+          setEpisodes((current) => {
+            const selectedEpisode = current.find((item) => item.episode_index === episodeIndex);
+            return mergeEpisodeOptions(page.items, selectedEpisode ? [selectedEpisode] : []);
+          });
+        })
+        .catch((error) => {
+          if (sequence === episodeOptionSequence.current) {
+            message.error(error instanceof Error ? error.message : "Episode 列表读取失败");
+          }
+        })
+        .finally(() => {
+          if (sequence === episodeOptionSequence.current) {
+            episodeOptionsLoadingRef.current = false;
+            setEpisodeOptionsLoading(false);
+          }
+        });
+    }, 250);
+  };
+
+  const loadMoreEpisodeOptions = async () => {
+    if (!selected || !episodeNextCursor || episodeOptionsLoadingRef.current) return;
+    const sequence = ++episodeOptionSequence.current;
+    episodeOptionsLoadingRef.current = true;
+    setEpisodeOptionsLoading(true);
+    try {
+      const page = await fetchEpisodePage(selected.uid, taskIndex, episodeNextCursor, episodeOptionQuery);
+      if (sequence !== episodeOptionSequence.current) return;
+      setEpisodes((current) => mergeEpisodeOptions(current, page.items));
+      setEpisodeNextCursor(page.next_cursor ?? null);
+    } catch (error) {
+      if (sequence === episodeOptionSequence.current) {
+        message.error(error instanceof Error ? error.message : "Episode 列表读取失败");
+      }
+    } finally {
+      if (sequence === episodeOptionSequence.current) {
+        episodeOptionsLoadingRef.current = false;
+        setEpisodeOptionsLoading(false);
+      }
+    }
   };
 
   const makeSearchBody = (
@@ -1212,14 +1309,17 @@ function App() {
   useEffect(() => {
     if (!selected) { setEpisodes([]); setEpisodeIndex(undefined); return; }
     let cancelled = false;
+    const sequence = ++episodeOptionSequence.current;
+    if (episodeSearchTimer.current !== undefined) window.clearTimeout(episodeSearchTimer.current);
     setPreview(undefined); setSeries([]); setEpisodeIndex(undefined);
-    const query = new URLSearchParams({ page_size: "100" });
-    if (taskIndex !== undefined) query.set("task_index", String(taskIndex));
-    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes${query}`)
-      .then((response) => response.json()).then((payload: EpisodePage) => {
-        if (cancelled) return;
-        const items = Array.isArray(payload) ? payload : payload.items || [];
+    setEpisodes([]); setEpisodeNextCursor(null); setEpisodeOptionQuery("");
+    episodeOptionsLoadingRef.current = true;
+    setEpisodeOptionsLoading(true);
+    void fetchEpisodePage(selected.uid, taskIndex).then((payload) => {
+        if (cancelled || sequence !== episodeOptionSequence.current) return;
+        const items = payload.items;
         setEpisodes(items);
+        setEpisodeNextCursor(payload.next_cursor ?? null);
         const target = navigationTarget.current;
         if (target?.dataset_uid === selected.uid
           && (target.task_index == null || target.task_index === taskIndex)) {
@@ -1227,8 +1327,20 @@ function App() {
           navigationTarget.current = undefined;
           window.setTimeout(() => workbenchRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
         } else if (items.length) setEpisodeIndex(items[0].episode_index);
-      }).catch(() => { if (!cancelled) message.error("Episode 列表读取失败"); });
-    return () => { cancelled = true; };
+      }).catch((error) => {
+        if (!cancelled && sequence === episodeOptionSequence.current) {
+          message.error(error instanceof Error ? error.message : "Episode 列表读取失败");
+        }
+      }).finally(() => {
+        if (!cancelled && sequence === episodeOptionSequence.current) {
+          episodeOptionsLoadingRef.current = false;
+          setEpisodeOptionsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+      if (episodeSearchTimer.current !== undefined) window.clearTimeout(episodeSearchTimer.current);
+    };
   }, [selected, taskIndex]);
 
   useEffect(() => {
@@ -1745,7 +1857,17 @@ function App() {
               <div className="episode-selector-row episode-selector-secondary">
                 <div className="episode-selector-field">
                   <span>Episode</span>
-                  <Select showSearch virtual optionFilterProp="label" placeholder="选择 Episode" value={episodeIndex} options={episodeOptions} onChange={setEpisodeIndex} />
+                  <Select key={`${selected.uid}:${taskIndex ?? "all"}`} showSearch virtual filterOption={false}
+                    placeholder="选择或搜索 Episode 编号 / Instruction" value={episodeIndex}
+                    options={episodeOptions} loading={episodeOptionsLoading}
+                    notFoundContent={episodeOptionsLoading ? <Spin size="small" /> : "No data"}
+                    onSearch={searchEpisodeOptions} onChange={setEpisodeIndex}
+                    onPopupScroll={(event) => {
+                      const target = event.currentTarget;
+                      if (target.scrollHeight - target.scrollTop - target.clientHeight < 48) {
+                        void loadMoreEpisodeOptions();
+                      }
+                    }} />
                 </div>
                 {episodeIndex !== undefined && <div className="episode-selector-field episode-number-field">
                   <span>编号</span>

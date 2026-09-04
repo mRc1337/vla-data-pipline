@@ -98,6 +98,34 @@ def indexed_catalog(tmp_path: Path) -> Catalog:
     return catalog
 
 
+def test_episode_browser_uses_search_index_cursor_and_server_query(tmp_path):
+    catalog = indexed_catalog(tmp_path)
+
+    first = catalog.list_episodes_page("demo", page_size=2)
+    assert [item["episode_index"] for item in first["items"]] == [0, 1]
+    assert first["next_cursor"] == "1"
+    second = catalog.list_episodes_page("demo", page_size=2, cursor=1)
+    assert [item["episode_index"] for item in second["items"]] == [2]
+    assert second["next_cursor"] is None
+
+    by_number = catalog.list_episodes_page("demo", page_size=10, query="Episode 2")
+    assert [item["episode_index"] for item in by_number["items"]] == [2]
+    by_instruction = catalog.list_episodes_page("demo", page_size=10, query="towel")
+    assert [item["episode_index"] for item in by_instruction["items"]] == [1, 2]
+    task_page = catalog.list_episodes_page("demo", task_index=1, page_size=1)
+    assert [item["episode_index"] for item in task_page["items"]] == [1]
+    assert task_page["next_cursor"] == "1"
+
+    # A partial legacy row must not shadow the complete episode_search index.
+    with catalog._connect() as db:
+        db.execute("DELETE FROM episodes WHERE dataset_uid='demo'")
+        db.execute("""INSERT INTO episodes(
+            dataset_uid,episode_index,frames,duration,instruction,task_index,metadata_json
+        ) VALUES('demo',2,10,0.5,'fold the towel',1,'{}')""")
+    complete = catalog.list_episodes_page("demo", page_size=10)
+    assert [item["episode_index"] for item in complete["items"]] == [0, 1, 2]
+
+
 def test_search_index_dataset_selectors_accept_collection_names(tmp_path):
     collection = tmp_path / "lerobot_v3_0" / "demo_collection"
     make_search_dataset(collection / "member_a")

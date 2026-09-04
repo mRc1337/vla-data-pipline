@@ -484,10 +484,13 @@ async def episodes(
     task_index: int | None = Query(None, ge=0),
     page_size: int | None = Query(None, ge=1, le=500),
     cursor: int | None = Query(None, ge=-1),
+    query: str | None = Query(None, max_length=200),
 ) -> list[dict[str, Any]] | dict[str, Any]:
     if not catalog.get_dataset(uid): raise HTTPException(404, "dataset not indexed")
-    if page_size is not None or cursor is not None:
-        return await asyncio.to_thread(catalog.list_episodes_page, uid, task_index, page_size or 100, cursor)
+    if page_size is not None or cursor is not None or query is not None:
+        return await asyncio.to_thread(
+            catalog.list_episodes_page, uid, task_index, page_size or 100, cursor, query
+        )
     return catalog.list_episodes(uid, task_index)
 
 

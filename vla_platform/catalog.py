@@ -820,7 +820,7 @@ class Catalog:
 
     def list_episodes_page(
         self, uid: str, task_index: int | None = None, page_size: int = 100,
-        cursor: int | None = None,
+        cursor: int | None = None, query: str | None = None,
     ) -> dict[str, Any]:
         """Return a bounded Episode page using episode_index as a cursor."""
         dataset = self.get_dataset(uid)
@@ -828,32 +828,48 @@ class Catalog:
             return {"items": [], "next_cursor": None, "page_size": page_size}
         page_size = max(1, min(int(page_size), 500))
         after = -1 if cursor is None else int(cursor)
+        search_text = (query or "").strip()
+        episode_text = search_text.casefold()
+        if episode_text.startswith("episode"):
+            episode_text = episode_text.removeprefix("episode").strip()
+
+        def search_clause() -> tuple[str, list[Any]]:
+            if not search_text:
+                return "", []
+            if episode_text.isdigit():
+                return " AND episode_index=?", [int(episode_text)]
+            escaped = search_text.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            return " AND lower(COALESCE(instruction,'')) LIKE ? ESCAPE '\\'", [f"%{escaped}%"]
+
         with self._connect() as db:
-            columns = "dataset_uid,episode_index,frames,duration,instruction,task_index"
+            # Prefer the complete search index.  The legacy episodes table may
+            # contain only a handful of rows materialized by on-demand preview
+            # requests, which must not hide the rest of the indexed Episodes.
+            use_search_index = db.execute(
+                "SELECT 1 FROM episode_search WHERE dataset_uid=? LIMIT 1", (uid,)
+            ).fetchone() is not None
             task_sql = " AND task_index=?" if task_index is not None else ""
             task_args: list[Any] = [uid]
             if task_index is not None:
                 task_args.append(task_index)
+            filter_sql, filter_args = search_clause()
             task_args.append(after)
-            rows = db.execute(
-                f"SELECT {columns} FROM episodes WHERE dataset_uid=?{task_sql} "
-                "AND episode_index>? ORDER BY episode_index LIMIT ?",
-                [*task_args, page_size + 1],
-            ).fetchall()
-            if not rows:
-                search_sql = " AND task_index=?" if task_index is not None else ""
-                search_args: list[Any] = [uid]
-                if task_index is not None:
-                    search_args.append(task_index)
-                search_args.append(after)
+            if use_search_index:
                 rows = db.execute(
                     """SELECT dataset_uid,episode_index,frame_count AS frames,duration,
                         instruction,task_index FROM episode_search
-                        WHERE dataset_uid=?""" + search_sql +
+                        WHERE dataset_uid=?""" + task_sql + filter_sql +
                     " AND episode_index>? ORDER BY episode_index LIMIT ?",
-                    [*search_args, page_size + 1],
+                    [*task_args[:-1], *filter_args, after, page_size + 1],
                 ).fetchall()
-        if not rows and task_index is None:
+            else:
+                rows = db.execute(
+                    """SELECT dataset_uid,episode_index,frames,duration,instruction,task_index
+                        FROM episodes WHERE dataset_uid=?""" + task_sql + filter_sql +
+                    " AND episode_index>? ORDER BY episode_index LIMIT ?",
+                    [*task_args[:-1], *filter_args, after, page_size + 1],
+                ).fetchall()
+        if not rows and task_index is None and not search_text:
             end = min(dataset["episodes"], after + 1 + page_size + 1)
             rows = [
                 {"dataset_uid": uid, "episode_index": index, "frames": 0,
