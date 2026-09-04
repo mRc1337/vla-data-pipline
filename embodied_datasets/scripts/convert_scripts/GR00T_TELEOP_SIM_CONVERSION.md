@@ -273,7 +273,7 @@ decoded-frame comparisons. It has 454 frames and preserves the official “cup�
 and “can” instructions at:
 
 ```text
-/home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/gr00t_teleop_sim_smoke_2ep
+$HOME/gr00t_teleop_sim_staging/lerobot_v3_0/gr00t_teleop_sim_smoke_2ep
 ```
 
 Resume behavior was also fault-injected against four real episodes from two
@@ -325,7 +325,7 @@ reads or local disk. The live ETA is the authoritative full-run estimate.
 
 ## Commands
 
-Run from `/home/pai/zxw/vla-data-pipeline` with the project `.venv`.
+Run from `$HOME/vla-data-pipeline` with the project `.venv`.
 
 Full read-only preflight (every Parquet/HDF5 episode and every video header):
 
@@ -333,7 +333,7 @@ Full read-only preflight (every Parquet/HDF5 episode and every video header):
 .venv/bin/python \
   embodied_datasets/scripts/convert_scripts/convert_gr00t_teleop_sim_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
-  --staging-root /home/pai/zxw/gr00t_teleop_sim_staging \
+  --staging-root $HOME/gr00t_teleop_sim_staging \
   --dry-run --eta-interval-seconds 10
 ```
 
@@ -344,7 +344,7 @@ first/middle/last episode of each part. A two-episode real smoke run is:
 .venv/bin/python \
   embodied_datasets/scripts/convert_scripts/convert_gr00t_teleop_sim_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
-  --staging-root /home/pai/zxw/gr00t_teleop_sim_staging \
+  --staging-root $HOME/gr00t_teleop_sim_staging \
   --dataset-uid gr00t_teleop_sim_smoke_2ep \
   --source-task PnPCupToDrawerClose \
   --max-episodes-per-part 2 --overwrite
@@ -354,31 +354,31 @@ first/middle/last episode of each part. A two-episode real smoke run is:
 background conversion and save its PID/log with:
 
 ```bash
-mkdir -p /home/pai/zxw/gr00t_teleop_sim_logs
+mkdir -p $HOME/gr00t_teleop_sim_logs
 nohup .venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_gr00t_teleop_sim_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
-  --staging-root /home/pai/zxw/gr00t_teleop_sim_staging \
+  --staging-root $HOME/gr00t_teleop_sim_staging \
   --sample-video-headers --workers 8 --resume --eta-interval-seconds 10 \
-  > /home/pai/zxw/gr00t_teleop_sim_logs/convert.log 2>&1 &
-echo $! > /home/pai/zxw/gr00t_teleop_sim_logs/convert.pid
+  > $HOME/gr00t_teleop_sim_logs/convert.log 2>&1 &
+echo $! > $HOME/gr00t_teleop_sim_logs/convert.pid
 ```
 
 Progress lines contain current part/episode, completed/total, throughput,
 elapsed time, and ETA. Inspect the process and follow the log with:
 
 ```bash
-ps -fp "$(cat /home/pai/zxw/gr00t_teleop_sim_logs/convert.pid)"
-tail -f /home/pai/zxw/gr00t_teleop_sim_logs/convert.log
+ps -fp "$(cat $HOME/gr00t_teleop_sim_logs/convert.pid)"
+tail -f $HOME/gr00t_teleop_sim_logs/convert.log
 ```
 
 Resume messages report how many completed parts were independently verified
 and reused. Inspect the retained checkpoint after an interruption with:
 
 ```bash
-find /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume-state \
+find $HOME/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume-state \
   -maxdepth 2 -type f -print
-du -sh /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume
+du -sh $HOME/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume
 ```
 
 If the fingerprint mismatch is intentional, move both checkpoint directories
@@ -386,16 +386,16 @@ aside for investigation before starting a new run; do not combine old state
 with new arguments:
 
 ```bash
-mv /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume \
-  /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume.previous
-mv /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume-state \
-  /home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume-state.previous
+mv $HOME/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume \
+  $HOME/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume.previous
+mv $HOME/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume-state \
+  $HOME/gr00t_teleop_sim_staging/lerobot_v3_0/.gr00t_teleop_sim.resume-state.previous
 ```
 
 The completed full target will be:
 
 ```text
-/home/pai/zxw/gr00t_teleop_sim_staging/lerobot_v3_0/gr00t_teleop_sim
+$HOME/gr00t_teleop_sim_staging/lerobot_v3_0/gr00t_teleop_sim
 ```
 
 Do not encode or stage directly on `/mnt/data`; the mounted OSS/FUSE path may

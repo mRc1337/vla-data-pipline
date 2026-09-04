@@ -1,6 +1,6 @@
 # Qwen-RobotManip Stage 1–3（LeRobot v3.0 Filter Manifest）
 
-本目录实现 [Qwen-RobotManip Technical Report](https://arxiv.org/abs/2606.17846) 第 2.4 节前三阶段的数据过滤语义。输入保持 LeRobot v3.0，不使用 `/home/pai/zxw/公开数据集格式规范.docx`，也不生成跨本体 canonical 表示。
+本目录实现 [Qwen-RobotManip Technical Report](https://arxiv.org/abs/2606.17846) 第 2.4 节前三阶段的数据过滤语义。输入保持 LeRobot v3.0，不依赖仓库外的私有格式规范文档，也不生成跨本体 canonical 表示。
 
 原始 `data/`、`videos/` 和 `meta/` 始终只读。Stage 只写标签、逐帧有效性 Mask、Episode Filter 和 Manifest；不复制或重编码视频，不重写源 Parquet，不插值或替换 state/action。新产物格式为 `vla_curation_filter` schema v2，不能与旧 `vla_curation_overlay` repair 产物混用；遇到旧 Manifest 时必须重跑前序 Stage。
 
@@ -151,7 +151,7 @@ LIBERO-Plus 全量运行：
   --dataset-path /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/libero_plus \
   --dataset-id libero_plus \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/data_curation \
-  --work-root /home/pai/zxw/qwen_robotmanip_work \
+  --work-root $HOME/qwen_robotmanip_work \
   --overwrite
 ```
 

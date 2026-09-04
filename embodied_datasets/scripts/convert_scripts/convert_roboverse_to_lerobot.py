@@ -1226,7 +1226,7 @@ def _summary(collection: CollectionPlan) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw-root", type=Path, default=Path("/mnt/data/embodied_datasets/public_datasets_raw"))
-    parser.add_argument("--staging-root", type=Path, default=Path("/home/pai/zxw/roboverse_staging"))
+    parser.add_argument("--staging-root", type=Path, default=Path.home() / "roboverse_staging")
     parser.add_argument("--dataset-uid", default="roboverse")
     parser.add_argument(
         "--source-directory",

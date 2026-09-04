@@ -101,14 +101,14 @@ layout is:
 ```text
 /mnt/data/.../lerobot_v3_0/1x_world_model_dataset/          # final Parquet/MP4/metadata only
 /mnt/data/.../lerobot_v3_0/.conversion_locks/...            # transient publication lock
-/home/pai/zxw/1x_world_model_dataset_staging/
+$HOME/1x_world_model_dataset_staging/
   .conversion_work/1x_world_model_dataset/<run_id>/         # unit output and temp
   .conversion_resume/1x_world_model_dataset/                 # small durable checkpoints
   .conversion_logs/1x_world_model_dataset/                   # local audit records
   .conversion_cache/                                         # persistent decoder/model cache
 ```
 
-`--local-work-root` defaults to `/home/pai/zxw/1x_world_model_dataset_staging`. Startup resolves and
+`--local-work-root` defaults to `$HOME/1x_world_model_dataset_staging`. Startup resolves and
 validates the local and OSS roots independently, rejects symlink escapes and root overlap, and rejects
 writes to `public_datasets`. It explicitly redirects `TMPDIR`, `TMP`,
 `TEMP`, `XDG_CACHE_HOME`, `HF_HOME`, `HF_DATASETS_CACHE`, `TORCH_HOME`, `MPLCONFIGDIR`,
@@ -225,8 +225,8 @@ utilization is preferred.
 Full read-only preflight (loads no decoder and writes no dataset):
 
 ```bash
-cd /home/pai/zxw/vla-data-pipeline
-/home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python \
+cd $HOME/vla-data-pipeline
+$HOME/1x_world_model_dataset_staging/smoke-venv/bin/python \
   embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
   --inspect-only
@@ -237,12 +237,12 @@ shown; both use the approved W1 configuration:
 
 ```bash
 # v1
-/home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
+$HOME/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
   --version v1.1 --output-dataset-uid 1x_world_model_dataset_smoke_v1 \
   --max-episodes 1 --resume \
-  --v1-decoder-repo /home/pai/zxw/1x_world_model_dataset_staging/decoders/1Xgpt \
+  --v1-decoder-repo $HOME/1x_world_model_dataset_staging/decoders/1Xgpt \
   --video-codec h264 --video-quality 18 --video-preset medium \
   --workers 1 --encoder-threads-per-worker 8 \
   --max-local-temp-bytes 100000000000 --min-local-free-bytes 200000000000 \
@@ -250,12 +250,12 @@ shown; both use the approved W1 configuration:
   --max-inflight-units 1 --storage-check-interval-seconds 10
 
 # v2
-/home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
+$HOME/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
   --version v2.0 --output-dataset-uid 1x_world_model_dataset_smoke_v2 \
   --max-episodes 1 --resume \
-  --cosmos-decoder-path /home/pai/zxw/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
+  --cosmos-decoder-path $HOME/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
   --video-codec h264 --video-quality 18 --video-preset medium \
   --workers 1 --encoder-threads-per-worker 8 \
   --max-local-temp-bytes 100000000000 --min-local-free-bytes 200000000000 \
@@ -266,12 +266,12 @@ shown; both use the approved W1 configuration:
 Bounded W1/W2/W4 diagnostic benchmark (never use its W2/W4 outputs as formal data):
 
 ```bash
-/home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
+$HOME/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
   --version v2.0 --max-checkpoint-units 4 \
   --output-dataset-uid 1x_world_model_parallel_benchmark_v2 \
-  --cosmos-decoder-path /home/pai/zxw/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
+  --cosmos-decoder-path $HOME/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
   --benchmark-workers 1 2 4 --encoder-threads-per-worker 8 \
   --video-codec h264 --video-quality 18 --video-preset medium \
   --max-inflight-units 4 \
@@ -295,26 +295,26 @@ env \
   CUDA_CACHE_PATH=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/cache/cuda \
   TORCH_EXTENSIONS_DIR=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/cache/torch-extensions \
   NUMBA_CACHE_DIR=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/1x_evaluation/cache/numba \
-  /home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
+  $HOME/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/evaluate_1x_world_model_conversion.py \
   --collection-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/1x_world_model_dataset_smoke_v1 \
-  --v1-decoder-repo /home/pai/zxw/1x_world_model_dataset_staging/decoders/1Xgpt \
+  --v1-decoder-repo $HOME/1x_world_model_dataset_staging/decoders/1Xgpt \
   --output /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_logs/1x_world_model_dataset_smoke_v1/evaluation.json
 ```
 
 The authorized resumable GPU3/W1/U2 production command is:
 
 ```bash
-mkdir -p /home/pai/zxw/1x_world_model_dataset_staging/console_logs
+mkdir -p $HOME/1x_world_model_dataset_staging/console_logs
 env CUDA_VISIBLE_DEVICES=3 PYTHONDONTWRITEBYTECODE=1 \
-  /home/pai/zxw/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
+  $HOME/1x_world_model_dataset_staging/smoke-venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_1x_world_model_dataset.py \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
-  --local-work-root /home/pai/zxw/1x_world_model_dataset_staging \
+  --local-work-root $HOME/1x_world_model_dataset_staging \
   --output-dataset-uid 1x_world_model_dataset \
   --resume \
-  --v1-decoder-repo /home/pai/zxw/1x_world_model_dataset_staging/decoders/1Xgpt \
-  --cosmos-decoder-path /home/pai/zxw/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
+  --v1-decoder-repo $HOME/1x_world_model_dataset_staging/decoders/1Xgpt \
+  --cosmos-decoder-path $HOME/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit \
   --video-codec h264 --video-quality 18 --video-preset fast \
   --workers 1 --encoder-threads-per-worker 8 \
   --decode-batch-size 8 --v1-postprocess-device gpu --decoder-cpu-threads 8 \
@@ -325,16 +325,16 @@ env CUDA_VISIBLE_DEVICES=3 PYTHONDONTWRITEBYTECODE=1 \
   --max-inflight-units 1 \
   --storage-check-interval-seconds 10 \
   --eta-interval-seconds 10 2>&1 | \
-  tee -a /home/pai/zxw/1x_world_model_dataset_staging/console_logs/convert-fast-local.log
+  tee -a $HOME/1x_world_model_dataset_staging/console_logs/convert-fast-local.log
 ```
 
 Monitor or resume with the unchanged command:
 
 ```bash
-tail -f /home/pai/zxw/1x_world_model_dataset_staging/console_logs/convert-fast-local.log
+tail -f $HOME/1x_world_model_dataset_staging/console_logs/convert-fast-local.log
 pgrep -af '[c]onvert_1x_world_model_dataset.py.*--output-dataset-uid 1x_world_model_dataset'
-du -sh /home/pai/zxw/1x_world_model_dataset_staging/.conversion_{work,resume,logs,cache}
-find /home/pai/zxw/1x_world_model_dataset_staging/.conversion_resume/1x_world_model_dataset/committed -type f | wc -l
+du -sh $HOME/1x_world_model_dataset_staging/.conversion_{work,resume,logs,cache}
+find $HOME/1x_world_model_dataset_staging/.conversion_resume/1x_world_model_dataset/committed -type f | wc -l
 ```
 
 The final output is uploaded directly to preassigned paths below

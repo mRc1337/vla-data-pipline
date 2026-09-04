@@ -95,13 +95,13 @@ splitting them into named features. Homogeneous named singleton arrays retain
 their inner source axis (for example LIBERO-90 `dof_pos` is `[9, 1]`, not
 silently squeezed to `[9]`). The hard case is a single named component changing
 dtype or shape over time. Machine-readable size/hash/run evidence is stored at
-`/home/pai/zxw/roboverse_logs/source_integrity_evidence.json`.
+`$HOME/roboverse_logs/source_integrity_evidence.json`.
 
 A targeted read-only post-repair preflight selected exactly those 52 CALVIN
 paths and exited zero: 52 source files / 52 episodes / 17,145 frames / zero
 blocking issues. Evidence is at
-`/home/pai/zxw/roboverse_logs/calvin_repair_preflight_summary.json` and
-`/home/pai/zxw/roboverse_logs/calvin_repair_preflight.log`.
+`$HOME/roboverse_logs/calvin_repair_preflight_summary.json` and
+`$HOME/roboverse_logs/calvin_repair_preflight.log`.
 
 On 2026-08-19 converter v10 also completed a read-only preflight of the entire
 ManiSkill suite with `--allow-lossless-dtype-promotion`: 1,014 source files,
@@ -109,8 +109,8 @@ ManiSkill suite with `--allow-lossless-dtype-promotion`: 1,014 source files,
 component/episode promotion records, and zero source issues. This includes all
 1,003 previously blocking files and proves that every observed integer value is
 exactly representable in its component's existing floating dtype. Evidence is
-at `/home/pai/zxw/roboverse_logs/maniskill_dtype_promotion_preflight.json` and
-`/home/pai/zxw/roboverse_logs/maniskill_dtype_promotion_preflight.log`.
+at `$HOME/roboverse_logs/maniskill_dtype_promotion_preflight.json` and
+`$HOME/roboverse_logs/maniskill_dtype_promotion_preflight.log`.
 
 ### Post-repair v10 full preflight
 
@@ -123,8 +123,8 @@ files and all 1,003 ManiSkill drift files are included. The report records
 zero blocking issues, and zero NaN/+Inf/-Inf values. The only reported source
 issues are the 20 official zero-byte BiDex static sidecars, all explicitly
 nonblocking. Evidence is at
-`/home/pai/zxw/roboverse_logs/preflight_v10_post_repair.json` and
-`/home/pai/zxw/roboverse_logs/preflight_v10_post_repair.log`.
+`$HOME/roboverse_logs/preflight_v10_post_repair.json` and
+`$HOME/roboverse_logs/preflight_v10_post_repair.log`.
 
 ### Historical pre-repair full preflight
 
@@ -142,8 +142,8 @@ blocking trajectory files: the then-truncated 52 CALVIN files and 1,003 ManiSkil
 within-episode dtype changes described above. There are no other blocking issue
 kinds. The expected nonzero exit records those blockers; it does not indicate
 an incomplete scan. Full JSON and progress evidence:
-`/home/pai/zxw/roboverse_logs/preflight_summary.json` and
-`/home/pai/zxw/roboverse_logs/preflight.log`. The report also includes source
+`$HOME/roboverse_logs/preflight_summary.json` and
+`$HOME/roboverse_logs/preflight.log`. The report also includes source
 action/state frame totals, per-suite length ranges, aligned/unequal/action-only/
 state-only counts, robots, tasks, and splits. Statistics are accumulated per
 fixed-schema part and merged into the report; episode arrays are not retained
@@ -157,8 +157,8 @@ blockers because its reader incorrectly rejected 64 valid LIBERO-90 files whose
 named singleton components have shape `(1,)`. Version 9 preserves the resulting
 `[9, 1]` and `[3, 1]` axes; the full scan accepts all 65 LIBERO-90 files / 3,250
 episodes. The diagnostic log/report remain at
-`/home/pai/zxw/roboverse_logs/preflight_v8.log` and
-`/home/pai/zxw/roboverse_logs/preflight_v8_summary.json`.
+`$HOME/roboverse_logs/preflight_v8.log` and
+`$HOME/roboverse_logs/preflight_v8_summary.json`.
 
 | Suite | Parts | Output episodes | Frames |
 |---|---:|---:|---:|
@@ -364,25 +364,25 @@ reopening parts. It is validation scratch space outside the collection; no
 cache directory is permitted inside the published collection.
 The conversion path rejects any resolved `--staging-root` below `/mnt/data`;
 the default and documented output remain server-local under
-`/home/pai/zxw/roboverse_staging`.
+`$HOME/roboverse_staging`.
 
 ## Commands
 
 Full read-only preflight (safe to run; no staging writes):
 
 ```bash
-cd /home/pai/zxw/vla-data-pipeline
-mkdir -p /home/pai/zxw/roboverse_logs /home/pai/zxw/.cache/huggingface
+cd $HOME/vla-data-pipeline
+mkdir -p $HOME/roboverse_logs $HOME/.cache/huggingface
 set -o pipefail
-HF_HOME=/home/pai/zxw/.cache/huggingface \
+HF_HOME=$HOME/.cache/huggingface \
   .venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_roboverse_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
   --source-directory roboverse --dataset-uid roboverse --inspect-only \
   --allow-lossless-dtype-promotion \
-  --inspection-report /home/pai/zxw/roboverse_logs/preflight_summary.json \
+  --inspection-report $HOME/roboverse_logs/preflight_summary.json \
   --eta-interval-seconds 10 \
-  2>&1 | tee /home/pai/zxw/roboverse_logs/preflight.log
+  2>&1 | tee $HOME/roboverse_logs/preflight.log
 ```
 
 Deterministic small-sample selection is available through repeatable
@@ -394,29 +394,29 @@ metadata rather than the release path.
 Three one-episode smokes (already verified with independent UIDs):
 
 ```bash
-HF_HOME=/home/pai/zxw/.cache/huggingface \
+HF_HOME=$HOME/.cache/huggingface \
   .venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_roboverse_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
-  --staging-root /home/pai/zxw/roboverse_staging \
+  --staging-root $HOME/roboverse_staging \
   --source-directory roboverse --dataset-uid roboverse_smoke \
   --source-path trajs/rlbench/basketball_in_hoop/v2/franka_v2.pkl.gz \
   --max-episodes 1 --allow-ordinal-timebase --resume
 
-HF_HOME=/home/pai/zxw/.cache/huggingface \
+HF_HOME=$HOME/.cache/huggingface \
   .venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_roboverse_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
-  --staging-root /home/pai/zxw/roboverse_staging \
+  --staging-root $HOME/roboverse_staging \
   --source-directory roboverse --dataset-uid roboverse_mixed_dtype_smoke \
   --source-path trajs/maniskill/draw_triangle/v2/franka_v2.pkl.gz \
   --max-episodes 1 --allow-ordinal-timebase --resume
 
-HF_HOME=/home/pai/zxw/.cache/huggingface \
+HF_HOME=$HOME/.cache/huggingface \
   .venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_roboverse_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
-  --staging-root /home/pai/zxw/roboverse_staging \
+  --staging-root $HOME/roboverse_staging \
   --source-directory roboverse --dataset-uid roboverse_multidimensional_smoke \
   --source-path trajs/libero90/libero_90_kitchen_scene10_close_the_top_drawer_of_the_cabinet_and_put_the_black_bowl_on_top_of_it_traj_v2.pkl \
   --max-episodes 1 --allow-ordinal-timebase --resume
@@ -441,18 +441,18 @@ metadata/names, tasks, FPS/timestamps, provenance, zero videos, and checkpoint/
 cache cleanup. Run it with:
 
 ```bash
-HF_HOME=/home/pai/zxw/.cache/huggingface \
+HF_HOME=$HOME/.cache/huggingface \
   .venv/bin/python \
   embodied_datasets/scripts/convert_scripts/evaluate_roboverse_conversion.py \
-  --collection-root /home/pai/zxw/roboverse_staging/lerobot_v3_0/roboverse_smoke \
+  --collection-root $HOME/roboverse_staging/lerobot_v3_0/roboverse_smoke \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw/roboverse \
-  --report /home/pai/zxw/roboverse_logs/smoke_evaluation.json
+  --report $HOME/roboverse_logs/smoke_evaluation.json
 ```
 
 All three v9 reports pass at
-`/home/pai/zxw/roboverse_logs/smoke_evaluation.json` and
-`/home/pai/zxw/roboverse_logs/mixed_dtype_smoke_evaluation.json`, and
-`/home/pai/zxw/roboverse_logs/multidimensional_smoke_evaluation.json`.
+`$HOME/roboverse_logs/smoke_evaluation.json` and
+`$HOME/roboverse_logs/mixed_dtype_smoke_evaluation.json`, and
+`$HOME/roboverse_logs/multidimensional_smoke_evaluation.json`.
 `meta/info.json` and Parquet retain source dtype exactly. LeRobot 0.6.0's stock
 PyTorch transform turns Python floating-point lists into `torch.float32` at
 read time, even for a declared/stored float64 feature; the RLBench source
@@ -481,21 +481,21 @@ zero blocking issues. With the explicit ordinal-time and sidecar policies below,
 the resumable background command is:
 
 The intended full local output is
-`/home/pai/zxw/roboverse_staging/lerobot_v3_0/roboverse`; it has not been
+`$HOME/roboverse_staging/lerobot_v3_0/roboverse`; it has not been
 created by this work.
 
 ```bash
-nohup env HF_HOME=/home/pai/zxw/.cache/huggingface \
+nohup env HF_HOME=$HOME/.cache/huggingface \
   .venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_roboverse_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
-  --staging-root /home/pai/zxw/roboverse_staging \
+  --staging-root $HOME/roboverse_staging \
   --source-directory roboverse --dataset-uid roboverse \
   --allow-ordinal-timebase --allow-lossless-dtype-promotion \
   --allow-source-sidecar-issues --resume \
   --workers 4 --eta-interval-seconds 10 \
-  > /home/pai/zxw/roboverse_logs/convert.log 2>&1 &
-echo $! > /home/pai/zxw/roboverse_logs/convert.pid
+  > $HOME/roboverse_logs/convert.log 2>&1 &
+echo $! > $HOME/roboverse_logs/convert.pid
 ```
 
 All three `--allow-*` switches are explicit policy decisions, not defaults.
@@ -505,9 +505,9 @@ values if those become available.
 Monitor or resume with:
 
 ```bash
-tail -f /home/pai/zxw/roboverse_logs/convert.log
-ps -fp "$(cat /home/pai/zxw/roboverse_logs/convert.pid)"
-find /home/pai/zxw/roboverse_staging/lerobot_v3_0/.roboverse.resume-state/parts \
+tail -f $HOME/roboverse_logs/convert.log
+ps -fp "$(cat $HOME/roboverse_logs/convert.pid)"
+find $HOME/roboverse_staging/lerobot_v3_0/.roboverse.resume-state/parts \
   -name '*.json' | wc -l
 # After Ctrl-C/SIGTERM, rerun the exact nohup command.
 ```
@@ -517,6 +517,6 @@ the user may inspect the following read-only dry run:
 
 ```bash
 rsync -rcn --itemize-changes \
-  /home/pai/zxw/roboverse_staging/lerobot_v3_0/roboverse/ \
+  $HOME/roboverse_staging/lerobot_v3_0/roboverse/ \
   /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/roboverse/
 ```

@@ -24,7 +24,7 @@ Range 响应。
 ```
 
 ```bash
-cd /home/pai/zxw/vla-data-pipeline
+cd $HOME/vla-data-pipeline
 .venv/bin/pip install -r requirements.txt
 VLA_DATA_ROOT=/mnt/data/embodied_datasets/public_datasets_staging \
   .venv/bin/uvicorn vla_platform.api:app --host 0.0.0.0 --port 8000

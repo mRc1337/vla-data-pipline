@@ -82,7 +82,7 @@ metadata, stats, and the collection manifest finalize.
 Run the two-task preflight (no writes):
 
 ```bash
-cd /home/pai/zxw/vla-data-pipeline
+cd $HOME/vla-data-pipeline
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=embodied_datasets/scripts/convert_scripts \
   .venv/bin/python embodied_datasets/scripts/convert_scripts/convert_robocoin_to_lerobot.py \
   --inspect-only \
@@ -106,20 +106,20 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=embodied_datasets/scripts/convert_scripts \
 Formal background conversion (provided only; not run):
 
 ```bash
-mkdir -p /home/pai/zxw/robocoin_staging/logs
-cd /home/pai/zxw/vla-data-pipeline
+mkdir -p $HOME/robocoin_staging/logs
+cd $HOME/vla-data-pipeline
 nohup env PYTHONDONTWRITEBYTECODE=1 \
   PYTHONPATH=embodied_datasets/scripts/convert_scripts \
   .venv/bin/python embodied_datasets/scripts/convert_scripts/convert_robocoin_to_lerobot.py \
   --resume --workers 1 --encoder-threads-per-worker 8 --upload-workers 1 \
   --min-local-free-bytes 200000000000 \
-  > /home/pai/zxw/robocoin_staging/logs/formal.log 2>&1 &
+  > $HOME/robocoin_staging/logs/formal.log 2>&1 &
 ```
 
 Status and resume:
 
 ```bash
-find /home/pai/zxw/robocoin_staging/resume/committed -type f | sort
+find $HOME/robocoin_staging/resume/committed -type f | sort
 test -f /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/robocoin/_SUCCESS
 
 # Resume with exactly the same semantic selection/output options.

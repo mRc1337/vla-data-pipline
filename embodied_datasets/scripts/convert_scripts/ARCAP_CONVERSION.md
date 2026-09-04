@@ -71,7 +71,7 @@ remain separate.
 
 Complete phase groups are greedily combined up to 8,000 frames, yielding about 32 work units.
 Four persistent spawned workers avoid repeated LeRobot imports. Each worker owns one isolated
-mini-dataset at `/home/pai/zxw/arcap_staging/work/<run_id>/unit-XXXXXX`. After reopen validation, one or
+mini-dataset at `$HOME/arcap_staging/work/<run_id>/unit-XXXXXX`. After reopen validation, one or
 two uploader threads sequentially copy each Parquet/MP4 to its preassigned OSS final path. The
 uploader checks exact size, reopens the Parquet footer/physical schema or MP4 stream, and compares
 SHA-256 samples from the first/middle/last byte ranges. Full remote SHA-256 is diagnostic-only.
@@ -80,7 +80,7 @@ Only after validation does it delete local bulk and move compact unit metadata u
 never performs a second full bulk copy.
 
 The source/selection/schema/task/FPS/robot/output/conversion fingerprint is stored under
-`/home/pai/zxw/arcap_staging/resume/arcap`. Recovery revalidates remote size, format and sample
+`$HOME/arcap_staging/resume/arcap`. Recovery revalidates remote size, format and sample
 evidence; retained local sources are retransmitted, while missing/corrupt objects without a local
 copy rebuild only that unit. A 250 ms per-worker RSS watchdog enforces 8 GiB. Arrow,
 OpenMP and BLAS nested threading are fixed at one because ARCap has no video encoder. `flock` is
@@ -207,7 +207,7 @@ Repeat the final four-unit conversion/uploader matrix (it cleans all generated o
 .venv/bin/python embodied_datasets/scripts/convert_scripts/convert_arcap_to_lerobot.py \
   --partition assemble --max-phase-groups 4 --max-frames-per-unit 1 \
   --benchmark-workers 1 2 4 --benchmark-upload-workers 1 2 \
-  --benchmark-report /home/pai/zxw/arcap_staging/logs/benchmark.json
+  --benchmark-report $HOME/arcap_staging/logs/benchmark.json
 ```
 
 For a formal-candidate gate, use enough units to amortize persistent-worker initialization and
@@ -217,13 +217,13 @@ optionally retain the complete metric report under local logs:
 .venv/bin/python embodied_datasets/scripts/convert_scripts/convert_arcap_to_lerobot.py \
   --partition assemble --max-phase-groups 32 --max-frames-per-unit 400 \
   --benchmark-workers 1 2 4 --benchmark-upload-workers 1 2 \
-  --benchmark-report /home/pai/zxw/arcap_staging/logs/representative-benchmark.json
+  --benchmark-report $HOME/arcap_staging/logs/representative-benchmark.json
 ```
 
 Formal background command (provided only; **not executed**):
 
 ```bash
-LOCAL=/home/pai/zxw/arcap_staging
+LOCAL=$HOME/arcap_staging
 mkdir -p "$LOCAL/logs/arcap"
 
 nohup .venv/bin/python -u \
@@ -244,13 +244,13 @@ echo $! > "$LOCAL/logs/arcap/pid"
 The recovery command is identical with `--resume` added. Observe it with:
 
 ```bash
-tail -f /home/pai/zxw/arcap_staging/logs/arcap/nohup.log
-tail -f /home/pai/zxw/arcap_staging/logs/arcap/*.coordinator.jsonl
-tail -f /home/pai/zxw/arcap_staging/logs/arcap/*.worker-*.jsonl
-ps -fp "$(cat /home/pai/zxw/arcap_staging/logs/arcap/pid)"
+tail -f $HOME/arcap_staging/logs/arcap/nohup.log
+tail -f $HOME/arcap_staging/logs/arcap/*.coordinator.jsonl
+tail -f $HOME/arcap_staging/logs/arcap/*.worker-*.jsonl
+ps -fp "$(cat $HOME/arcap_staging/logs/arcap/pid)"
 du -sb /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/arcap \
-  /home/pai/zxw/arcap_staging/{work,resume,logs,cache}
-find /home/pai/zxw/arcap_staging/resume/arcap -path '*/committed/*.json' | wc -l
+  $HOME/arcap_staging/{work,resume,logs,cache}
+find $HOME/arcap_staging/resume/arcap -path '*/committed/*.json' | wc -l
 ```
 
 After `_SUCCESS` exists and `_INCOMPLETE` is absent:

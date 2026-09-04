@@ -10,7 +10,7 @@ The normal release therefore writes `robogene/dual_arm` and
 `robogene/single_arm`; a split containing multiple schemas receives stable
 `--schema-<hash>` suffixes instead of mixing incompatible fields.
 
-Runtime files are confined to `/home/pai/zxw/robogene_staging`.  Each verified
+Runtime files are confined to `$HOME/robogene_staging`.  Each verified
 local unit is copied to its final OSS chunk name, validated there (size,
 sample ranges, Parquet footer/schema, and video container metadata), then its
 local bulk files are removed.  Compact unit metadata and a frozen preflight
@@ -22,7 +22,7 @@ fresh output it initializes the resume state, and on an incomplete output it
 requires that existing state.
 
 ```bash
-cd /home/pai/zxw/vla-data-pipeline
+cd $HOME/vla-data-pipeline
 PYTHONPATH=embodied_datasets/scripts/convert_scripts .venv/bin/python \
   embodied_datasets/scripts/convert_scripts/convert_robogene_to_lerobot.py \
   --resume --workers 4 --encoder-threads-per-worker 8 --upload-workers 1 \

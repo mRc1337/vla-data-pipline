@@ -70,7 +70,7 @@ from convert_core.dataset_config import load_dataset_config
 
 
 DEFAULT_RAW_ROOT = Path("/mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted")
-DEFAULT_LOCAL_WORK_ROOT = Path("/home/pai/zxw/functional_manipulation_benchmark_fmb_staging")
+DEFAULT_LOCAL_WORK_ROOT = Path.home() / "functional_manipulation_benchmark_fmb_staging"
 DEFAULT_CONFIG = Path(__file__).with_name("configs") / "functional_manipulation_benchmark_fmb.yaml"
 DEFAULT_ENCODER_THREADS = 8
 COPY_FINGERPRINT_VERSION = 1

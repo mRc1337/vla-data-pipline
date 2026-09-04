@@ -19,9 +19,7 @@ class _Reader:
 
 def test_local_pipeline_defaults_are_bounded():
     args = converter._build_parser().parse_args([])
-    assert args.local_work_root == Path(
-        "/home/pai/zxw/1x_world_model_dataset_staging"
-    )
+    assert args.local_work_root == Path.home() / "1x_world_model_dataset_staging"
     assert args.max_local_temp_bytes == 100_000_000_000
     assert args.min_local_free_bytes == 200_000_000_000
     assert args.upload_workers == 1

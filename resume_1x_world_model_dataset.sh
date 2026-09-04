@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-repo_root=/home/pai/zxw/vla-data-pipeline
-local_root=/home/pai/zxw/1x_world_model_dataset_staging
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+local_root="${HOME}/1x_world_model_dataset_staging"
 output_root=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0
-decoder_path=/home/pai/zxw/1x_world_model_dataset_staging/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit
+decoder_path="${local_root}/decoders/Cosmos-0.1-Tokenizer-DV8x8x8/decoder.jit"
 min_free_bytes=200000000000
 log_path="$local_root/console_logs/convert-fast-local.log"
 

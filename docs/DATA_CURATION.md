@@ -19,7 +19,7 @@
 从仓库根目录执行：
 
 ```bash
-cd /home/pai/zxw/vla-data-pipeline
+cd $HOME/vla-data-pipeline
 ```
 
 安装依赖：
@@ -111,8 +111,8 @@ embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/config.exampl
   run \
   --dataset-path /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/libero_plus \
   --dataset-id libero_plus \
-  --output-root /home/pai/zxw/qwen_robotmanip_smoke \
-  --work-root /home/pai/zxw/qwen_robotmanip_work_smoke \
+  --output-root $HOME/qwen_robotmanip_smoke \
+  --work-root $HOME/qwen_robotmanip_work_smoke \
   --stages 1,2,3 \
   --max-episodes 20 \
   --overwrite
@@ -138,7 +138,7 @@ embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/config.exampl
   --dataset-path /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/libero_plus \
   --dataset-id libero_plus \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/data_curation \
-  --work-root /home/pai/zxw/qwen_robotmanip_work \
+  --work-root $HOME/qwen_robotmanip_work \
   --stages 1,2,3 \
   --overwrite
 ```
@@ -156,7 +156,7 @@ embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/config.exampl
   run --dataset-path /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/libero_plus \
   --dataset-id libero_plus \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/data_curation \
-  --work-root /home/pai/zxw/qwen_robotmanip_work --stages 1 --overwrite
+  --work-root $HOME/qwen_robotmanip_work --stages 1 --overwrite
 
 # Stage 2
 .venv/bin/python embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/curate.py \
@@ -164,7 +164,7 @@ embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/config.exampl
   run --dataset-path /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/libero_plus \
   --dataset-id libero_plus \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/data_curation \
-  --work-root /home/pai/zxw/qwen_robotmanip_work --stages 2 --overwrite
+  --work-root $HOME/qwen_robotmanip_work --stages 2 --overwrite
 
 # Stage 3
 .venv/bin/python embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/curate.py \
@@ -172,7 +172,7 @@ embodied_datasets/scripts/process_scripts/qwen_robotmanip_curation/config.exampl
   run --dataset-path /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/libero_plus \
   --dataset-id libero_plus \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/data_curation \
-  --work-root /home/pai/zxw/qwen_robotmanip_work --stages 3 --overwrite
+  --work-root $HOME/qwen_robotmanip_work --stages 3 --overwrite
 ```
 
 后续阶段会从相同 `output-root` 自动读取前序 Manifest。必须保持相同的 `dataset-id`、配置和输出根目录。

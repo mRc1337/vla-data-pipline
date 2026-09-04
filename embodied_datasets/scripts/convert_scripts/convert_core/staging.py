@@ -26,7 +26,7 @@ from convert_core.errors import ConversionError
 DEFAULT_OUTPUT_ROOT = Path(
     "/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0"
 )
-DEFAULT_LOCAL_WORK_ROOT = Path("/home/pai/zxw/1x_world_model_dataset_staging")
+DEFAULT_LOCAL_WORK_ROOT = Path.home() / "1x_world_model_dataset_staging"
 DEFAULT_MAX_LOCAL_TEMP_BYTES = 100_000_000_000
 DEFAULT_MIN_LOCAL_FREE_BYTES = 200_000_000_000
 DEFAULT_RAW_DATASET_ROOT = Path(

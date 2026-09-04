@@ -52,7 +52,7 @@ PYTHONPATH=embodied_datasets/scripts/convert_scripts .venv/bin/python \
   embodied_datasets/scripts/convert_scripts/convert_roboomni_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw/robomni \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/roboomni \
-  --local-work-root /home/pai/zxw/roboomni_staging \
+  --local-work-root $HOME/roboomni_staging \
   --output-dataset-uid roboomni --fps 10 --inspect-only --max-shards 1
 ```
 
@@ -63,7 +63,7 @@ PYTHONPATH=embodied_datasets/scripts/convert_scripts .venv/bin/python \
   embodied_datasets/scripts/convert_scripts/convert_roboomni_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw/robomni \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
-  --local-work-root /home/pai/zxw/roboomni_staging \
+  --local-work-root $HOME/roboomni_staging \
   --output-dataset-uid roboomni_smoke_<run-id> --fps 10 --max-shards 1 \
   --max-tasks 2 --max-episodes 1 --workers 1 \
   --encoder-threads-per-worker 2 --upload-workers 1 \
@@ -77,7 +77,7 @@ PYTHONPATH=embodied_datasets/scripts/convert_scripts .venv/bin/python \
   embodied_datasets/scripts/convert_scripts/convert_roboomni_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw/robomni \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
-  --local-work-root /home/pai/zxw/roboomni_staging \
+  --local-work-root $HOME/roboomni_staging \
   --output-dataset-uid roboomni --fps <confirmed-output-fps> --resume \
   --workers 1 --encoder-threads-per-worker 8 --upload-workers 1 \
   --min-local-free-bytes 200000000000
@@ -86,8 +86,8 @@ PYTHONPATH=embodied_datasets/scripts/convert_scripts .venv/bin/python \
 查看状态：
 
 ```bash
-cat /home/pai/zxw/roboomni_staging/.conversion_resume/roboomni/global_state.json
-find /home/pai/zxw/roboomni_staging/.conversion_resume/roboomni/tasks \
+cat $HOME/roboomni_staging/.conversion_resume/roboomni/global_state.json
+find $HOME/roboomni_staging/.conversion_resume/roboomni/tasks \
   -name commit.json -print
 ```
 
