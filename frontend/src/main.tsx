@@ -89,6 +89,18 @@ const playbackStatusLabels: Record<PlaybackStatus, string> = {
   stalled: "读取停滞", playing: "播放中", paused: "已暂停", error: "播放失败",
 };
 
+const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+const PLAYBACK_RATE_STORAGE_KEY = "vla.preview.playbackRate";
+
+function initialPlaybackRate(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(PLAYBACK_RATE_STORAGE_KEY));
+    return PLAYBACK_RATES.includes(stored as (typeof PLAYBACK_RATES)[number]) ? stored : 1;
+  } catch {
+    return 1;
+  }
+}
+
 const stageFilterOptions: Record<number, Array<{ label: string; value: string }>> = {
   1: [
     { label: "通过", value: "pass" }, { label: "有突变", value: "anomaly" },
@@ -946,8 +958,10 @@ function App() {
   const [browserVideoMetadata, setBrowserVideoMetadata] = useState<Record<string, BrowserVideoMetadata>>({});
   const [currentTime, setCurrentTime] = useState(0);
   const [currentFrame, setCurrentFrame] = useState(0);
+  const [selectedPlaybackRate, setSelectedPlaybackRate] = useState(initialPlaybackRate);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const currentTimeRef = useRef(0);
+  const effectivePlaybackRateRef = useRef(1);
   const playbackRequest = useRef(0);
   const lastFollowerSync = useRef(0);
   const lastUiUpdate = useRef(0);
@@ -1176,7 +1190,7 @@ function App() {
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      video.playbackRate = 1;
+      video.playbackRate = effectivePlaybackRateRef.current;
     });
     currentTimeRef.current = 0;
     lastUiUpdate.current = 0;
@@ -1317,6 +1331,24 @@ function App() {
   }, [preview, readyProxyVideos, timeline.duration, useOriginalVideo]);
 
   const technicalVideos = activeVideos.length ? activeVideos : (preview?.videos || []);
+  const supportsPlaybackRate = activeVideos.length > 0 && activeVideos.every((video) => video.is_proxy);
+  const effectivePlaybackRate = supportsPlaybackRate ? selectedPlaybackRate : 1;
+  const playbackRateIndex = PLAYBACK_RATES.indexOf(selectedPlaybackRate as (typeof PLAYBACK_RATES)[number]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PLAYBACK_RATE_STORAGE_KEY, String(selectedPlaybackRate));
+    } catch {
+      // Playback still works when storage is unavailable or disabled.
+    }
+  }, [selectedPlaybackRate]);
+
+  useEffect(() => {
+    effectivePlaybackRateRef.current = effectivePlaybackRate;
+    Object.values(videoRefs.current).forEach((video) => {
+      if (video) video.playbackRate = effectivePlaybackRate;
+    });
+  }, [activeVideos, effectivePlaybackRate]);
 
   useEffect(() => {
     if (!preview) return;
@@ -1331,7 +1363,7 @@ function App() {
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      video.playbackRate = 1;
+      video.playbackRate = effectivePlaybackRateRef.current;
       const meta = activeVideos.find((item) => item.camera === video.dataset.camera);
       if (meta && video.readyState >= 1) video.currentTime = videoWindow(meta, timeline.duration).start;
     });
@@ -1350,7 +1382,7 @@ function App() {
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      video.playbackRate = 1;
+      video.playbackRate = effectivePlaybackRateRef.current;
     });
     setIsPlaying(false);
     setPlaybackStatus(status);
@@ -1364,6 +1396,8 @@ function App() {
   const syncTime = (source: HTMLVideoElement) => {
     const sourceMeta = activeVideos.find((item) => item.camera === source.dataset.camera);
     if (!sourceMeta) return;
+    const baseRate = effectivePlaybackRateRef.current;
+    if (source.playbackRate !== baseRate) source.playbackRate = baseRate;
     const sourceWindow = videoWindow(sourceMeta, timeline.duration);
     if (source.currentTime < sourceWindow.start) source.currentTime = sourceWindow.start;
     if (source.currentTime >= sourceWindow.end - 0.5 / fps) {
@@ -1391,12 +1425,13 @@ function App() {
         const camera = video.dataset.camera || "unknown";
         if (Math.abs(drift) > 0.5 && now - (lastHardSeek.current[camera] || 0) >= 1000) {
           lastHardSeek.current[camera] = now;
-          video.playbackRate = 1;
+          video.playbackRate = baseRate;
           video.currentTime = target;
         } else if (Math.abs(drift) > 0.2) {
-          video.playbackRate = Math.min(1.05, Math.max(0.95, 1 + drift * 0.2));
+          const correction = Math.min(1.05, Math.max(0.95, 1 + drift * 0.2));
+          video.playbackRate = Math.min(4, Math.max(0.25, baseRate * correction));
         } else {
-          video.playbackRate = 1;
+          video.playbackRate = baseRate;
         }
       });
     }
@@ -1437,7 +1472,7 @@ function App() {
         const meta = activeVideos.find((item) => item.camera === video.dataset.camera);
         if (!meta) return Promise.resolve();
         const window = videoWindow(meta, timeline.duration);
-        video.playbackRate = 1;
+        video.playbackRate = effectivePlaybackRateRef.current;
         return seekMedia(video, Math.min(window.end, window.start + relativeTime));
       }));
       if (request !== playbackRequest.current) return;
@@ -1717,6 +1752,7 @@ function App() {
                       duration: event.currentTarget.duration,
                     } }));
                     const target = videoWindow(video, timeline.duration).start;
+                    event.currentTarget.playbackRate = effectivePlaybackRateRef.current;
                     if (Math.abs(event.currentTarget.currentTime - target) > 0.1) event.currentTarget.currentTime = target;
                   }}
                   onWaiting={() => { if (isPlaying) setPlaybackStatus("buffering"); }}
@@ -1735,7 +1771,24 @@ function App() {
                   </Button>
                   <Button disabled={!activeVideos.length} onClick={() => seek(currentTime - 1 / fps)}>上一帧</Button>
                   <Button disabled={!activeVideos.length} onClick={() => seek(currentTime + 1 / fps)}>下一帧</Button>
+                  <Space.Compact className="playback-rate-control">
+                    <Button disabled={!supportsPlaybackRate || playbackRateIndex <= 0}
+                      onClick={() => setSelectedPlaybackRate(PLAYBACK_RATES[playbackRateIndex - 1])}>
+                      减速
+                    </Button>
+                    <Select aria-label="代理视频播放速度" value={selectedPlaybackRate}
+                      disabled={!supportsPlaybackRate} style={{ width: 92 }}
+                      options={PLAYBACK_RATES.map((rate) => ({ value: rate, label: `${rate}×` }))}
+                      onChange={setSelectedPlaybackRate} />
+                    <Button disabled={!supportsPlaybackRate || playbackRateIndex >= PLAYBACK_RATES.length - 1}
+                      onClick={() => setSelectedPlaybackRate(PLAYBACK_RATES[playbackRateIndex + 1])}>
+                      加速
+                    </Button>
+                  </Space.Compact>
                 </Space>
+                {!supportsPlaybackRate && <span className="playback-rate-hint">
+                  {useOriginalVideo ? "倍速仅支持 Episode H.264 代理视频" : "代理视频就绪后可调整倍速"}
+                </span>}
                 <span>Episode {currentTime.toFixed(2)} / {timeline.duration.toFixed(2)} s · Frame {currentFrame}</span>
                 <input aria-label="Episode 时间轴" type="range" min={0} max={timeline.duration || 1} step={1 / fps}
                   disabled={!activeVideos.length} value={Math.min(currentTime, timeline.duration || 1)} onChange={(event) => seek(Number(event.target.value))} />
