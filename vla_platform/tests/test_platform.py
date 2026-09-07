@@ -250,6 +250,17 @@ def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_p
 
     catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
     catalog.scan(mode="standard")
+    with catalog._connect() as db:
+        parquet_row = db.execute(
+            "SELECT rows,schema_json,integrity_status,error FROM parquet_files "
+            "WHERE dataset_uid='demo' AND relative_path='data/chunk-000/file-000.parquet'"
+        ).fetchone()
+    assert parquet_row["rows"] == 2
+    assert parquet_row["integrity_status"] == "pass"
+    assert parquet_row["error"] is None
+    assert set(json.loads(parquet_row["schema_json"])) >= {
+        "observation.state", "action", "episode_index",
+    }
     assert catalog.list_tasks("demo") == [{"task_index": 0, "name": "move the block", "episodes": 1}]
     assert catalog.list_episodes("demo", 0)[0]["task_index"] == 0
     preview = catalog.episode_preview("demo", 0)
@@ -304,6 +315,51 @@ def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_p
     assert response.status_code == 200
     assert response.json()["view"] == "repaired"
     assert response.json()["rows"][1]["observation.state"] == [20.0, 30.0]
+
+
+def test_episode_series_reads_split_state_and_plural_actions(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    dataset = tmp_path / "geek_data" / "agilex_demo"
+    (dataset / "meta" / "episodes" / "chunk-000").mkdir(parents=True)
+    (dataset / "data" / "chunk-000").mkdir(parents=True)
+    (dataset / "meta" / "info.json").write_text(json.dumps({
+        "codebase_version": "v3.0", "total_episodes": 1, "total_frames": 2, "fps": 30,
+        "features": {
+            "observation.state.joint": {"dtype": "float32", "shape": [2]},
+            "observation.state.end": {"dtype": "float32", "shape": [2]},
+            "actions": {"dtype": "float32", "shape": [3]},
+        },
+    }))
+    pq.write_table(pa.table({
+        "episode_index": pa.array([0]), "length": pa.array([2]),
+        "data/chunk_index": pa.array([0]), "data/file_index": pa.array([0]),
+    }), dataset / "meta" / "episodes" / "chunk-000" / "file-000.parquet")
+    pq.write_table(pa.table({
+        "observation.state.joint": pa.array([[1.0, 2.0], [3.0, 4.0]]),
+        "observation.state.end": pa.array([[5.0, 6.0], [7.0, 8.0]]),
+        "actions": pa.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]),
+        "timestamp": pa.array([0.0, 1 / 30]), "frame_index": pa.array([0, 1]),
+        "episode_index": pa.array([0, 0]),
+    }), dataset / "data" / "chunk-000" / "file-000.parquet")
+
+    catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+    catalog.scan(mode="standard", scan_root=dataset)
+    rows = catalog.episode_series(
+        "agilex_demo", 0,
+        ["timestamp", "frame_index", "observation.state.joint", "observation.state.end", "actions"],
+        limit=2,
+    )
+
+    assert rows[0]["observation.state.joint"] == [1.0, 2.0]
+    assert rows[0]["observation.state.end"] == [5.0, 6.0]
+    assert rows[0]["actions"] == pytest.approx([0.1, 0.2, 0.3])
+    with catalog._connect() as db:
+        parquet_row = db.execute(
+            "SELECT integrity_status,schema_json FROM parquet_files WHERE dataset_uid='agilex_demo'"
+        ).fetchone()
+    assert parquet_row["integrity_status"] == "pass"
+    assert "actions" in json.loads(parquet_row["schema_json"])
 
 
 def test_filter_manifest_exposes_validity_without_fake_repairs(monkeypatch, tmp_path):

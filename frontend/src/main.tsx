@@ -9,6 +9,7 @@ import {
   VideoPreviewErrorBoundary,
   type BrowserVideoMetadata,
 } from "./videoPreview";
+import { discoverSeriesFields } from "./seriesFields";
 import "./style.css";
 import "./playbackRate.css";
 
@@ -18,7 +19,8 @@ const ReactECharts = lazy(() => import("echarts-for-react"));
 
 type Dataset = {
   uid: string; episodes: number; frames: number; duration: number; bytes: number;
-  cameras: string[]; codebase_version: string; root?: string; schema?: Record<string, unknown>;
+  cameras: string[]; codebase_version: string; display_name?: string; root?: string;
+  schema?: Record<string, unknown>;
 };
 type DatasetCollection = {
   id: string; name: string; datasets: Dataset[]; episodes: number; frames: number; duration: number; bytes: number;
@@ -199,7 +201,8 @@ const artifactFilterOptions = [
 function searchStatusLabel(value: string): string {
   const labels: Record<string, string> = {
     pass: "通过", anomaly: "有异常", filtered: "Episode 已过滤", fail: "失败",
-    unscored: "无法评分", warning: "警告", aligned: "已对齐", not_candidate: "非训练候选",
+    pass_joint_space: "关节空间通过", unscored: "无法评分", warning: "警告",
+    aligned: "已对齐", not_candidate: "非训练候选",
     complete: "已完成", needs_review: "需复核", insufficient_confidence: "低置信度",
     skip: "跳过", retain: "保留", exclude_affected_sample_windows: "排除窗口",
     exclude_episode_from_training: "排除 Episode", available: "已有产物",
@@ -234,7 +237,7 @@ function stagePresentation(stage: StageVerdictInput): { text: string; color?: st
   const redVerdicts = new Set(["fail", "filtered", "not_candidate"]);
   const orangeVerdicts = new Set(["anomaly"]);
   const goldVerdicts = new Set(["warning", "unscored", "needs_review", "insufficient_confidence", "skip"]);
-  const greenVerdicts = new Set(["pass", "complete", "aligned", "retain"]);
+  const greenVerdicts = new Set(["pass", "pass_joint_space", "complete", "aligned", "retain"]);
   const color = redVerdicts.has(verdict)
     ? "red"
     : orangeVerdicts.has(verdict)
@@ -356,6 +359,10 @@ function collectionName(dataset: Dataset): string {
   const versionIndex = parts.findIndex((part) => /^lerobot_v\d+_\d+$/i.test(part));
   if (versionIndex >= 0 && parts[versionIndex + 1]) return parts[versionIndex + 1];
   return dataset.uid;
+}
+
+function datasetLabel(dataset: Dataset): string {
+  return dataset.display_name?.trim() || dataset.uid;
 }
 
 function buildCollections(rows: Dataset[]): DatasetCollection[] {
@@ -506,7 +513,7 @@ function firstRecordFrom(stage: StageResult, fileName: string): Record<string, u
 function resultTag(value: unknown) {
   const status = String(value ?? "unknown").toLowerCase();
   const text = typeof value === "boolean" ? (value ? "是" : "否") : searchStatusLabel(status);
-  if (["pass", "passed", "complete", "available", "retain", "true"].includes(status)) {
+  if (["pass", "passed", "pass_joint_space", "complete", "available", "aligned", "retain", "true"].includes(status)) {
     return <Tag color="green">{text}</Tag>;
   }
   if (["fail", "failed", "invalid", "exclude_episode_from_training", "false"].includes(status)) {
@@ -623,7 +630,7 @@ function Curve({ title, rows, field, elementNames, fps, intervals = [], playhead
       } : undefined,
     })),
   }), [chartSeries, elementNames, field, intervals, playhead]);
-  if (!rows.length || !width) return <Card size="small" title={title}><Alert type="info" showIcon message="该字段暂无可绘制数据，请先运行 standard 扫描或检查 Parquet schema。" /></Card>;
+  if (!rows.length || !width) return <Card size="small" title={title}><Alert type="info" showIcon message="该字段在当前 Episode 中暂无可绘制数值。" /></Card>;
   const onEvents = onSeek ? {
     click: (params: { value?: unknown }) => {
       const value = Array.isArray(params.value) ? Number(params.value[0]) : Number(params.value);
@@ -791,6 +798,40 @@ function StageVisualizations({ stages, timeline, onSeek, onLoadStage, loadingSta
           const accepted = episodeSummary?.accepted !== false;
           const strategy = (stage.summary?.kinematic_strategy || {}) as Record<string, unknown>;
           const thresholds = (strategy.thresholds || {}) as Record<string, unknown>;
+          const jointSpace = Boolean(episodeSummary?.s4_evaluation_level)
+            || episodeSummary?.status === "pass_joint_space";
+          if (jointSpace) {
+            const tracking = (episodeSummary?.absolute_joint_target_tracking_norm || {}) as Record<string, unknown>;
+            const velocity = (episodeSummary?.qvel_vs_finite_difference_norm || {}) as Record<string, unknown>;
+            const nonfinite = numeric(episodeSummary?.nonfinite_frames) ?? 0;
+            const stagePassed = String(episodeSummary?.status || "").startsWith("pass") && nonfinite === 0;
+            const upstreamCandidate = episodeSummary?.upstream_training_candidate !== false;
+            const children = <>
+              <Alert type={stagePassed ? upstreamCandidate ? "success" : "warning" : "error"} showIcon
+                message={stagePassed ? "关节空间运动学一致性检测通过" : "关节空间数据包含非有限值或检测失败"}
+                description={!upstreamCandidate && stagePassed
+                  ? "Stage 4 自身检测通过；该 Episode 因前序 Stage 结果不是训练候选。"
+                  : "当前数据缺少可靠的 EEF 位姿或机器人模型，因此使用关节目标跟踪与速度有限差分进行验证。"} />
+              <Descriptions size="small" column={{ xs: 1, md: 3 }} className="stage-details">
+                <Descriptions.Item label="Stage 4 状态">{resultTag(episodeSummary?.status)}</Descriptions.Item>
+                <Descriptions.Item label="上游训练候选">{resultTag(upstreamCandidate)}</Descriptions.Item>
+                <Descriptions.Item label="评估级别">关节空间</Descriptions.Item>
+                <Descriptions.Item label="总帧/有限帧/非有限帧" span={3}>
+                  {String(episodeSummary?.num_frames ?? "—")} / {String(episodeSummary?.finite_frames ?? "—")} / {String(episodeSummary?.nonfinite_frames ?? "—")}
+                </Descriptions.Item>
+                <Descriptions.Item label="关节目标跟踪范数 中位/P95/最大" span={3}>
+                  {fixed(tracking.median, 6)} / {fixed(tracking.p95, 6)} / {fixed(tracking.max, 6)}
+                </Descriptions.Item>
+                <Descriptions.Item label="速度与有限差分范数 中位/P95/最大" span={3}>
+                  {fixed(velocity.median, 6)} / {fixed(velocity.p95, 6)} / {fixed(velocity.max, 6)}
+                </Descriptions.Item>
+                <Descriptions.Item label="全量关节空间 Episode">{String(stage.summary?.joint_space_only_episodes ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="全量训练候选">{String(stage.summary?.accepted_episodes ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="全量非有限帧">{String(stage.summary?.nonfinite_flagged_frames ?? "—")}</Descriptions.Item>
+              </Descriptions>
+            </>;
+            return { key: String(stage.stage_id), label, children };
+          }
           const children = <>
             <Alert type={accepted ? ranges.length ? "warning" : "success" : "error"} showIcon
               message={accepted
@@ -823,7 +864,39 @@ function StageVisualizations({ stages, timeline, onSeek, onLoadStage, loadingSta
         }
         if (stage.stage_id === 5 && stage.artifact_status === "available") {
           const transform = firstRecordFrom(stage, "episode_transform.parquet");
+          const episodeSummary = firstRecordFrom(stage, "episode_summary.parquet");
           const transformation = (stage.summary?.transformation || {}) as Record<string, unknown>;
+          const actionSemantics = (stage.summary?.action_semantics || {}) as Record<string, unknown>;
+          const canonicalSchema = (stage.summary?.canonical_schema || {}) as Record<string, unknown>;
+          const validation = (stage.summary?.validation || stage.summary?.s5 || {}) as Record<string, unknown>;
+          const canonicalJointSpace = Object.keys(actionSemantics).length > 0
+            || canonicalSchema.schema_version === "cross_embodiment_v1.0";
+          if (canonicalJointSpace) {
+            const candidate = episodeSummary?.upstream_training_candidate !== false;
+            const valid = String(validation.status || "").toLowerCase() === "pass";
+            const children = <>
+              <Alert type={!valid ? "error" : candidate ? "success" : "warning"} showIcon
+                message={!valid ? "跨本体规范化验证未通过" : candidate
+                  ? "跨本体 State/Action 规范化产物可用于训练"
+                  : "规范化产物已生成，但该 Episode 不是上游训练候选"}
+                description="原始字段保持不变；规范化字段、可用槽位掩码和视频引用已写入 Stage 5 输出数据集。" />
+              <Descriptions size="small" column={{ xs: 1, md: 2 }} className="stage-details">
+                <Descriptions.Item label="验证状态">{resultTag(validation.status)}</Descriptions.Item>
+                <Descriptions.Item label="上游训练候选">{resultTag(candidate)}</Descriptions.Item>
+                <Descriptions.Item label="规范版本">{String(canonicalSchema.schema_version ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="已转换帧数">{String(validation.frames ?? stage.summary?.frames ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="State 有效槽位" span={2}>{stringList(canonicalSchema.state_mask_true_indices).join(", ") || "—"}</Descriptions.Item>
+                <Descriptions.Item label="Action 有效槽位" span={2}>{stringList(canonicalSchema.action_mask_true_indices).join(", ") || "—"}</Descriptions.Item>
+                <Descriptions.Item label="原始 Action 语义" span={2}>{String(actionSemantics.raw_action_semantics ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="规范 Action 语义" span={2}>{String(actionSemantics.canonical_action_semantics ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="关节名称" span={2}>{stringList(actionSemantics.joint_names).join(", ") || "—"}</Descriptions.Item>
+                <Descriptions.Item label="关节 Action 变换" span={2}>{String(transformation.joint_action_transform ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="移动底座策略" span={2}>{String(actionSemantics.base_action_policy ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="不可用信息" span={2}>{stringList(canonicalSchema.unavailable).join("；") || "无"}</Descriptions.Item>
+              </Descriptions>
+            </>;
+            return { key: String(stage.stage_id), label, children };
+          }
           const candidate = transform?.s4_training_candidate !== false;
           const children = <>
             <Alert type={candidate ? "success" : "warning"} showIcon
@@ -1108,6 +1181,11 @@ function App() {
   const [searchIndexTask, setSearchIndexTask] = useState<SearchIndexTask>();
   const [searchIndexAvailable, setSearchIndexAvailable] = useState<boolean>();
   const [searchStageFacets, setSearchStageFacets] = useState<SearchStageFacets>({});
+  const seriesFields = useMemo(
+    () => discoverSeriesFields(preview?.dataset.schema),
+    [preview?.dataset.schema],
+  );
+  const seriesFieldKeys = seriesFields.map((field) => field.key).join(",");
 
   const refresh = () => fetch("/api/datasets").then((response) => response.json()).then(setDatasets)
     .catch(() => message.error("后端未启动"));
@@ -1445,11 +1523,11 @@ function App() {
   }, [preview?.curation?.format, seriesView]);
 
   useEffect(() => {
-    if (!selected || episodeIndex === undefined) return;
+    if (!selected || episodeIndex === undefined || preview?.dataset.uid !== selected.uid) return;
     let cancelled = false;
     setLoadingSeries(true); setSeries([]);
     const query = new URLSearchParams({
-      fields: "timestamp,frame_index,observation.state,action",
+      fields: ["timestamp", "frame_index", ...seriesFields.map((field) => field.key)].join(","),
       limit: "5000",
       view: seriesView,
     });
@@ -1463,7 +1541,7 @@ function App() {
       .catch((error) => { if (!cancelled) message.error(error instanceof Error ? error.message : "曲线数据读取失败"); })
       .finally(() => { if (!cancelled) setLoadingSeries(false); });
     return () => { cancelled = true; };
-  }, [episodeIndex, selected, seriesView]);
+  }, [episodeIndex, preview?.dataset.uid, selected, seriesFieldKeys, seriesView]);
 
   useEffect(() => {
     if (!preview) {
@@ -1785,16 +1863,8 @@ function App() {
     };
   }, [activeVideos, isPlaying, playableVideos, preview, timeline.duration, videoErrors]);
 
-  const stateWidth = vector(series.find((row) => vector(row["observation.state"]).length)?.["observation.state"]).length;
-  const actionWidth = vector(series.find((row) => vector(row.action).length)?.action).length;
-  const stateElementNames = useMemo(
-    () => featureElementNames(preview?.dataset || selected, "observation.state", stateWidth),
-    [preview?.dataset, selected, stateWidth],
-  );
-  const actionElementNames = useMemo(
-    () => featureElementNames(preview?.dataset || selected, "action", actionWidth),
-    [actionWidth, preview?.dataset, selected],
-  );
+  const stateSeriesFields = seriesFields.filter((field) => field.kind === "state");
+  const actionSeriesFields = seriesFields.filter((field) => field.kind === "action");
   const seriesViewOptions = preview?.curation?.format === "vla_curation_filter"
     ? [{ label: "原始数据", value: "raw" }, { label: "有效帧", value: "valid" }]
     : preview?.curation?.has_repairs
@@ -1893,7 +1963,7 @@ function App() {
           {selectedCollection && !selected && <Card title={`数据集 / ${selectedCollection.name}`}>
             <Alert type="info" showIcon message="该集合包含多个物理数据集，请先选择其中一个，再选择 Task 和 Episode。" />
             <Select showSearch virtual optionFilterProp="label" placeholder="选择子数据集 / Task 集合" style={{ width: "100%", marginTop: 12 }}
-              options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${item.uid} · ${item.episodes} episodes · ${item.frames} frames` }))}
+              options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${datasetLabel(item)} · ${item.episodes} episodes · ${item.frames} frames` }))}
               onChange={(uid) => {
                 navigationTarget.current = undefined;
                 setTasksLoaded(false);
@@ -1906,7 +1976,7 @@ function App() {
                 {selectedCollection && selectedCollection.datasets.length > 1 && <div className="episode-selector-field">
                   <span>子数据集</span>
                   <Select showSearch virtual optionFilterProp="label" value={selected.uid}
-                    placeholder="选择子数据集" options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${item.uid} · ${item.episodes} episodes` }))}
+                    placeholder="选择子数据集" options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${datasetLabel(item)} · ${item.episodes} episodes` }))}
                     onChange={(uid) => {
                       navigationTarget.current = undefined;
                       setTasksLoaded(false);
@@ -2089,10 +2159,17 @@ function App() {
               {loadingSeries && <Progress percent={60} status="active" showInfo={false} />}
               {seriesView === "diff" && <Alert type="info" showIcon message="差值 = 修复后 − 原始；未修复位置为 0" />}
               {seriesView === "valid" && <Alert type="info" showIcon message="无效帧显示为曲线断点；原始 Parquet 和视频未被修改" />}
-              {!series.length && <Alert type="info" showIcon message="暂无曲线数据；请执行标准扫描，或确认该数据集包含 Parquet state/action 字段。" />}
+              {!series.length && seriesFields.length > 0 && <Alert type="info" showIcon message="当前 Episode 未读取到曲线数据，请检查数据分片与 Episode 元数据。" />}
+              {!seriesFields.length && <Alert type="info" showIcon message="该数据集 schema 中未发现可绘制的 State/Action 数值字段。" />}
               <Row gutter={[12, 12]}>
-                <Col xs={24} xl={12}><Curve title="State" rows={series} field="observation.state" elementNames={stateElementNames} fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
-                <Col xs={24} xl={12}><Curve title="Action" rows={series} field="action" elementNames={actionElementNames} fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
+                {seriesFields.map((field) => {
+                  const width = vector(series.find((row) => vector(row[field.key]).length)?.[field.key]).length;
+                  return <Col xs={24} xl={12} key={field.key}><Curve title={field.title} rows={series} field={field.key}
+                    elementNames={featureElementNames(preview?.dataset || selected, field.key, width)}
+                    fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>;
+                })}
+                {!stateSeriesFields.length && <Col xs={24} xl={12}><Card size="small" title="State"><Alert type="info" showIcon message="schema 中未发现 State 数值字段" /></Card></Col>}
+                {!actionSeriesFields.length && <Col xs={24} xl={12}><Card size="small" title="Action"><Alert type="info" showIcon message="schema 中未发现 Action 数值字段" /></Card></Col>}
               </Row>
             </Card>
             {preview && <StageVisualizations stages={preview.stage_results} timeline={timeline} onSeek={seek}

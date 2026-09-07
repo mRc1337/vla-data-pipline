@@ -98,6 +98,107 @@ def indexed_catalog(tmp_path: Path) -> Catalog:
     return catalog
 
 
+def make_mobile_aloha_stage45(data_root: Path) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    stage4 = data_root / "data_curation" / "stage4" / "demo"
+    (stage4 / "labels").mkdir(parents=True)
+    stage4_manifest = {
+        "schema_version": 2, "stage": "Stage 4", "stage_id": 4,
+        "detector_version": "mobile_aloha_s4s5-v1",
+        "parent_manifest": str(data_root / "data_curation" / "stage3" / "demo" / "manifest.json"),
+        "result": {
+            "processed_episodes": 3, "processed_frames": 60,
+            "joint_space_only_episodes": 3, "accepted_episodes": 2,
+            "nonfinite_flagged_frames": 0,
+        },
+    }
+    (stage4 / "manifest.json").write_text(json.dumps(stage4_manifest))
+    (stage4 / "summary.json").write_text(json.dumps(stage4_manifest["result"]))
+    summaries = {
+        "episode_index": [0, 1, 2], "num_frames": [20, 30, 10],
+        "s4_evaluation_level": ["joint_space_only_no_eef_pose_or_robot_model"] * 3,
+        "upstream_training_candidate": [False, True, True],
+        "finite_frames": [20, 30, 10], "nonfinite_frames": [0, 0, 0],
+        "absolute_joint_target_tracking_norm": [
+            {"median": 0.1, "p95": 0.2, "max": 0.3},
+            {"median": 0.2, "p95": 0.3, "max": 0.4},
+            {"median": 0.3, "p95": 0.4, "max": 0.5},
+        ],
+        "qvel_vs_finite_difference_norm": [
+            {"median": 0.4, "p95": 0.5, "max": 0.6},
+            {"median": 0.5, "p95": 0.6, "max": 0.7},
+            {"median": 0.6, "p95": 0.7, "max": 0.8},
+        ],
+        "accepted": [False, True, True], "status": ["pass_joint_space"] * 3,
+    }
+    pq.write_table(pa.Table.from_pylist([
+        {key: values[index] for key, values in summaries.items()} for index in range(3)
+    ]), stage4 / "labels" / "episode_summary.parquet")
+
+    stage5 = data_root / "data_curation" / "stage5" / "demo"
+    (stage5 / "labels").mkdir(parents=True)
+    (stage5 / "manifest.json").write_text(json.dumps({
+        "schema_version": 2, "stage": "Stage 5", "stage_id": 5,
+        "detector_version": "mobile_aloha_s4s5-v1",
+        "parent_manifest": str(stage4 / "manifest.json"),
+        "output_format": "lerobot_v3.0-canonical-joint-space-overlay",
+        "transformation": {
+            "joint_action_transform": "absolute_target_minus_measured_qpos",
+            "raw_fields_preserved": True,
+        },
+        "result": {"status": "pass", "frames": 60},
+    }))
+    (stage5 / "summary.json").write_text(json.dumps({
+        "s5": {"status": "pass", "frames": 60, "masked_values_zero": True},
+    }))
+    pq.write_table(pa.Table.from_pylist([
+        {key: values[index] for key, values in summaries.items()} for index in range(3)
+    ]), stage5 / "labels" / "episode_summary.parquet")
+    (stage5 / "labels" / "action_semantics.json").write_text(json.dumps({
+        "raw_action_semantics": "absolute joint target",
+        "canonical_action_semantics": "joint target minus measured qpos",
+        "joint_names": ["left_joint", "right_joint"],
+    }))
+    (stage5 / "canonical_schema.json").write_text(json.dumps({
+        "schema_version": "cross_embodiment_v1.0",
+        "state_mask_true_indices": [0, 1], "action_mask_true_indices": [0, 1],
+        "unavailable": ["EEF pose"],
+    }))
+    (stage5 / "validation.json").write_text(json.dumps({"status": "pass", "frames": 60}))
+
+
+def test_mobile_aloha_stage45_artifacts_are_available_and_keep_stage4_semantics(tmp_path):
+    make_search_dataset(tmp_path / "demo")
+    make_mobile_aloha_stage45(tmp_path)
+    catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+    catalog.scan(mode="standard")
+    catalog.sync_search_index(["demo"])
+
+    stage4 = catalog.episode_stage_detail("demo", 0, 4)
+    assert stage4["artifact_status"] == "available"
+    # accepted=False is cumulative upstream eligibility, not a Stage 4 failure.
+    assert stage4["verdict"] == "pass_joint_space"
+    summary_record = next(
+        row for row in stage4["records"] if row["file"] == "labels/episode_summary.parquet"
+    )
+    assert summary_record["upstream_training_candidate"] is False
+    assert summary_record["absolute_joint_target_tracking_norm"]["p95"] == pytest.approx(0.2)
+
+    stage5_filtered = catalog.episode_stage_detail("demo", 0, 5)
+    assert stage5_filtered["artifact_status"] == "available"
+    assert stage5_filtered["verdict"] == "not_candidate"
+    assert stage5_filtered["summary"]["validation"]["status"] == "pass"
+    assert stage5_filtered["summary"]["canonical_schema"]["schema_version"] == "cross_embodiment_v1.0"
+    assert stage5_filtered["summary"]["action_semantics"]["joint_names"] == [
+        "left_joint", "right_joint",
+    ]
+
+    stage5_candidate = catalog.episode_stage_detail("demo", 1, 5)
+    assert stage5_candidate["artifact_status"] == "available"
+    assert stage5_candidate["verdict"] == "aligned"
+
+
 def test_episode_browser_uses_search_index_cursor_and_server_query(tmp_path):
     catalog = indexed_catalog(tmp_path)
 

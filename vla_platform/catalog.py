@@ -4,6 +4,7 @@ import hashlib
 import base64
 import json
 import os
+import re
 import sqlite3
 import time
 import threading
@@ -19,9 +20,10 @@ from .stage_index import MANIFEST_NAME as STAGE_INDEX_MANIFEST, SCHEMA_VERSION a
 # source metadata can remain byte-for-byte unchanged while an old index still
 # contains incomplete derived values, so source mtimes alone are not enough to
 # decide whether an index is reusable.
-CATALOG_INDEX_VERSION = 2
+CATALOG_INDEX_VERSION = 3
 EPISODE_SEARCH_INDEX_VERSION = 2
 SEARCH_SUMMARY_VERSION = 1
+STAGE_FALLBACK_INDEX_VERSION = 2
 
 
 def derive_cameras(features: Any) -> list[str]:
@@ -44,15 +46,15 @@ def derive_cameras(features: Any) -> list[str]:
 ADVANCED_STAGE_SPECS: dict[int, dict[str, Any]] = {
     4: {
         "name": "Kinematic Consistency",
-        "description": "比较关节正运动学计算的末端位置与数据上报的末端位置。",
-        "visualization": "末端位置误差、TCP 中位偏移、残差方差及人工复核状态",
-        "expected_fields": ["median_offset", "offset_magnitude", "residual_variance", "corrected", "flagged_for_manual_review"],
+        "description": "按数据可用性执行末端位姿/FK 或关节目标与速度一致性检查。",
+        "visualization": "末端误差，或关节目标跟踪、速度有限差分与上游训练候选状态",
+        "expected_fields": ["s4_evaluation_level", "absolute_joint_target_tracking_norm", "qvel_vs_finite_difference_norm", "position_error_median_m", "accepted"],
     },
     5: {
-        "name": "Orientation Alignment",
-        "description": "应用 base-to-world 变换，检查并展示末端位置与四元数的坐标系对齐。",
-        "visualization": "变换矩阵、对齐前后轨迹和姿态角差",
-        "expected_fields": ["base_to_world_transform", "world_frame_convention", "position_before_after", "orientation_before_after"],
+        "name": "Coordinate / Action Alignment",
+        "description": "执行坐标系对齐或跨本体 State/Action 规范化，并保留可用性掩码。",
+        "visualization": "坐标变换、规范化语义、有效槽位、验证结果和训练候选状态",
+        "expected_fields": ["transformation", "canonical_schema", "action_semantics", "validation", "upstream_training_candidate"],
     },
     6: {
         "name": "Instruction Consistency / Semantic Subtasks",
@@ -124,6 +126,7 @@ class Catalog:
             db.executescript("""
             CREATE TABLE IF NOT EXISTS datasets (
               uid TEXT PRIMARY KEY, root TEXT NOT NULL, codebase_version TEXT,
+              display_name TEXT NOT NULL DEFAULT '',
               episodes INTEGER NOT NULL DEFAULT 0, frames INTEGER NOT NULL DEFAULT 0,
               duration REAL NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0,
               cameras TEXT NOT NULL DEFAULT '[]', schema_json TEXT NOT NULL DEFAULT '{}',
@@ -293,6 +296,19 @@ class Catalog:
                 db.execute(
                     "ALTER TABLE scan_fingerprints ADD COLUMN catalog_index_version INTEGER NOT NULL DEFAULT 0"
                 )
+            dataset_columns = {
+                row[1] for row in db.execute("PRAGMA table_info(datasets)").fetchall()
+            }
+            if "display_name" not in dataset_columns:
+                db.execute(
+                    "ALTER TABLE datasets ADD COLUMN display_name TEXT NOT NULL DEFAULT ''"
+                )
+            # A physical LeRobot root is one catalog dataset.  Keep this
+            # invariant in SQLite as a final guard against duplicate aliases.
+            # Older catalogs did not enforce it, so merge aliases first rather
+            # than making application startup fail while creating the index.
+            self._merge_duplicate_dataset_roots(db)
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_datasets_root ON datasets(root)")
 
     def rebuild_compact_database(self, target_path: str | Path) -> Path:
         """Build a compact catalog and atomically install it at ``target_path``.
@@ -600,12 +616,15 @@ class Catalog:
         for path in root.glob("data/**/*.parquet"):
             relative = str(path.relative_to(root))
             seen.add(relative)
+            size = 0
+            mtime_ns = 0
             try:
                 stat = path.stat()
+                size, mtime_ns = stat.st_size, stat.st_mtime_ns
                 cached = existing.get(relative)
-                if (cached and cached["size"] == stat.st_size
-                        and cached["mtime_ns"] == stat.st_mtime_ns
-                        and cached["integrity_status"] in {"pass", "fail"}):
+                if (cached and cached["size"] == size
+                        and cached["mtime_ns"] == mtime_ns
+                        and cached["integrity_status"] == "pass"):
                     rows.append(tuple(cached.get(column) for column in (
                         "dataset_uid", "relative_path", "size", "mtime_ns", "rows",
                         "schema_json", "integrity_status", "error")))
@@ -616,11 +635,16 @@ class Catalog:
                         rows.clear()
                     continue
                 parquet = pq.ParquetFile(path)
-                schema = {name: str(parquet.schema_arrow.field(name).type) for name in parquet.schema.names}
-                rows.append((uid, relative, stat.st_size, stat.st_mtime_ns, parquet.metadata.num_rows,
+                # ``parquet.schema.names`` contains physical leaf names. List
+                # columns therefore appear as repeated ``element`` entries and
+                # cannot be looked up in the top-level Arrow schema. Iterate
+                # Arrow fields directly so vector-valued state/action columns
+                # are indexed correctly.
+                schema = {field.name: str(field.type) for field in parquet.schema_arrow}
+                rows.append((uid, relative, size, mtime_ns, parquet.metadata.num_rows,
                              json.dumps(schema), "pass", None))
             except Exception as exc:
-                rows.append((uid, relative, 0, 0, None, "{}", "fail", str(exc)))
+                rows.append((uid, relative, size, mtime_ns, None, "{}", "fail", str(exc)))
             if len(rows) >= 500:
                 db.executemany("""INSERT OR REPLACE INTO parquet_files
                     (dataset_uid,relative_path,size,mtime_ns,rows,schema_json,integrity_status,error)
@@ -636,6 +660,201 @@ class Catalog:
                 "DELETE FROM parquet_files WHERE dataset_uid=? AND relative_path=?",
                 [(uid, relative) for relative in stale],
             )
+
+    @staticmethod
+    def _merge_duplicate_dataset_roots(db: sqlite3.Connection) -> None:
+        """Collapse legacy aliases that point at the same physical root."""
+        duplicate_roots = db.execute(
+            "SELECT root FROM datasets GROUP BY root HAVING COUNT(*) > 1"
+        ).fetchall()
+        dependent_tables = (
+            "episodes", "annotations", "video_files", "parquet_files", "episode_search",
+            "stage_episode_results", "stage_anomaly_ranges", "stage_index_sources",
+            "stage_index_files", "stage_index_shards", "search_dataset_summary",
+            "search_stage_summary",
+        )
+        for duplicate in duplicate_roots:
+            root = str(duplicate["root"])
+            aliases = db.execute(
+                "SELECT uid FROM datasets WHERE root=? ORDER BY scanned_at DESC, uid ASC",
+                (root,),
+            ).fetchall()
+            keep_uid = str(aliases[0]["uid"])
+            try:
+                db.execute("DELETE FROM episode_search_fts WHERE dataset_uid=?", (keep_uid,))
+            except sqlite3.OperationalError:
+                pass
+            for alias in aliases[1:]:
+                old_uid = str(alias["uid"])
+                for table in dependent_tables:
+                    # Prefer rows already attached to the newest alias, but
+                    # retain non-overlapping legacy rows before removing it.
+                    db.execute(
+                        f"UPDATE OR IGNORE {table} SET dataset_uid=? WHERE dataset_uid=?",
+                        (keep_uid, old_uid),
+                    )
+                    db.execute(f"DELETE FROM {table} WHERE dataset_uid=?", (old_uid,))
+                db.execute(
+                    "UPDATE scan_fingerprints SET dataset_uid=? WHERE root=?",
+                    (keep_uid, root),
+                )
+                try:
+                    db.execute("DELETE FROM episode_search_fts WHERE dataset_uid=?", (old_uid,))
+                except sqlite3.OperationalError:
+                    pass
+                db.execute("DELETE FROM datasets WHERE uid=?", (old_uid,))
+            try:
+                db.execute("""INSERT INTO episode_search_fts(
+                    dataset_uid,episode_index,collection_name,task_name,instruction,normalized_text
+                ) SELECT dataset_uid,episode_index,collection_name,task_name,instruction,normalized_text
+                    FROM episode_search WHERE dataset_uid=?""", (keep_uid,))
+            except sqlite3.OperationalError:
+                pass
+        if duplicate_roots:
+            db.execute("DELETE FROM search_summary_meta WHERE summary_key='global'")
+
+    @staticmethod
+    def _uid_part(value: str) -> str:
+        """Return a URL-safe, human-readable component for a catalog UID."""
+        cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-._")
+        return cleaned or "dataset"
+
+    def _identity_parts(self, root: Path) -> tuple[str, ...]:
+        """Return the stable path below a LeRobot version/container root."""
+        try:
+            relative = root.absolute().relative_to(self.data_root.absolute())
+            parts = relative.parts
+        except ValueError:
+            parts = root.absolute().parts
+        version_index = next(
+            (index for index, part in enumerate(parts) if part.lower().startswith("lerobot_v")),
+            None,
+        )
+        return tuple(parts[version_index + 1:]) if version_index is not None else tuple(parts)
+
+    def _identity_hash(self, root: Path, length: int = 8) -> str:
+        try:
+            identity = root.absolute().relative_to(self.data_root.absolute()).as_posix()
+        except ValueError:
+            identity = root.absolute().as_posix()
+        return hashlib.sha256(identity.encode()).hexdigest()[:length]
+
+    def _dataset_uid_candidate(self, root: Path, info: dict[str, Any]) -> str:
+        """Derive a stable UID without treating wrapper directory names as identity."""
+        for key in ("dataset_uid", "uid"):
+            explicit = info.get(key)
+            if isinstance(explicit, str) and explicit.strip():
+                return "--".join(
+                    self._uid_part(part) for part in re.split(r"[\\/]+", explicit) if part
+                )
+
+        parts = self._identity_parts(root)
+        # Stage outputs conventionally end in <dataset>/<run>/dataset. Preserve
+        # their source dataset name; other generic wrapper roots need the full
+        # semantic path to avoid collapsing hundreds of datasets into one row.
+        if (root.name == "dataset" and "data_curation" in parts
+                and any(re.fullmatch(r"stage[1-8]", part) for part in parts)):
+            return self._uid_part(root.parent.parent.name)
+        if root.name.lower() in {"dataset", "lerobot"}:
+            semantic = parts[:-1] or (root.parent.name,)
+            readable = "--".join(self._uid_part(part) for part in semantic)
+            readable = readable[:180].rstrip("-._") or "dataset"
+            return f"{readable}--{self._identity_hash(root)}"
+        return self._uid_part(root.name)
+
+    def _dataset_display_name(
+        self, root: Path, info: dict[str, Any], uid: str
+    ) -> str:
+        for key in ("display_name", "name", "dataset_name", "title"):
+            value = info.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        parts = self._identity_parts(root)
+        if root.name.lower() in {"dataset", "lerobot"}:
+            semantic = parts[:-1]
+            if len(semantic) >= 2:
+                return " / ".join(semantic[-2:])
+            if semantic:
+                return semantic[-1]
+        return root.name or uid
+
+    def _unique_dataset_uid(
+        self, db: sqlite3.Connection, root: Path, candidate: str
+    ) -> tuple[str, bool]:
+        """Protect an occupied UID by adding a deterministic path hash."""
+        def collision_uid(length: int) -> str:
+            base = candidate[:180].rstrip("-._") or "dataset"
+            return f"{base}--{self._identity_hash(root, length)}"
+
+        # Once a collision suffix has been assigned, keep it even if the
+        # formerly conflicting row is later removed. Public API links and
+        # annotations must not change merely because scan order changed.
+        existing = db.execute(
+            "SELECT uid FROM datasets WHERE root=?", (str(root),)
+        ).fetchone()
+        if existing is not None:
+            existing_uid = str(existing["uid"])
+            if existing_uid == candidate:
+                return existing_uid, False
+            if any(existing_uid == collision_uid(length) for length in (8, 12, 16, 32, 64)):
+                return existing_uid, True
+
+        occupied = db.execute("SELECT root FROM datasets WHERE uid=?", (candidate,)).fetchone()
+        if occupied is None or str(occupied["root"]) == str(root):
+            return candidate, False
+        for length in (8, 12, 16, 32, 64):
+            resolved = collision_uid(length)
+            row = db.execute("SELECT root FROM datasets WHERE uid=?", (resolved,)).fetchone()
+            if row is None or str(row["root"]) == str(root):
+                return resolved, True
+        raise RuntimeError(f"unable to resolve catalog UID collision for {root}")
+
+    @staticmethod
+    def _rekey_dataset_uid(
+        db: sqlite3.Connection, root: Path, old_uid: str, new_uid: str
+    ) -> None:
+        """Move one physical root and its derived rows to a corrected UID."""
+        if old_uid == new_uid:
+            return
+        occupied = db.execute(
+            "SELECT root FROM datasets WHERE uid=?", (new_uid,)
+        ).fetchone()
+        if occupied is not None:
+            raise RuntimeError(
+                f"cannot migrate catalog UID {old_uid!r} to occupied UID {new_uid!r}"
+            )
+        dependent_tables = (
+            "episodes", "annotations", "video_files", "parquet_files", "episode_search",
+            "stage_episode_results", "stage_anomaly_ranges", "stage_index_sources",
+            "stage_index_files", "stage_index_shards", "search_dataset_summary",
+            "search_stage_summary",
+        )
+        for table in dependent_tables:
+            db.execute(f"UPDATE {table} SET dataset_uid=? WHERE dataset_uid=?", (new_uid, old_uid))
+        # Fingerprints are root-specific. Other roots may share the same bad
+        # legacy UID, so never rewrite all of them together.
+        db.execute(
+            "UPDATE scan_fingerprints SET dataset_uid=? WHERE root=?",
+            (new_uid, str(root)),
+        )
+        try:
+            db.execute(
+                "DELETE FROM episode_search_fts WHERE dataset_uid IN (?,?)",
+                (old_uid, new_uid),
+            )
+        except sqlite3.OperationalError:
+            pass
+        db.execute("UPDATE datasets SET uid=? WHERE uid=? AND root=?", (
+            new_uid, old_uid, str(root),
+        ))
+        try:
+            db.execute("""INSERT INTO episode_search_fts(
+                dataset_uid,episode_index,collection_name,task_name,instruction,normalized_text
+            ) SELECT dataset_uid,episode_index,collection_name,task_name,instruction,normalized_text
+                FROM episode_search WHERE dataset_uid=?""", (new_uid,))
+        except sqlite3.OperationalError:
+            pass
+        db.execute("DELETE FROM search_summary_meta WHERE summary_key='global'")
 
     def scan(
         self,
@@ -674,11 +893,7 @@ class Catalog:
                             progress({"phase": "indexing", "current": position, "total": total, "uid": row["uid"], "skipped": True})
                         continue
             info = self._json(info_path)
-            # Stage runs use stage<N>/<dataset>/<run_id>/dataset; preserve the
-            # stable dataset uid while still indexing the immutable artifact.
-            uid = root.name
-            if uid == "dataset" and root.parent.parent != self.data_root:
-                uid = root.parent.parent.name
+            uid_candidate = self._dataset_uid_candidate(root, info)
             features = info.get("features", {})
             cameras = derive_cameras(features)
             episodes = int(info.get("total_episodes", 0) or 0)
@@ -692,20 +907,29 @@ class Catalog:
                             total_bytes += (Path(current) / name).stat().st_size
                         except OSError:
                             pass
-            row = {
-                "uid": uid, "root": str(root),
-                "codebase_version": info.get("codebase_version", "unknown"),
-                "episodes": episodes, "frames": frames,
-                "duration": frames / float(info.get("fps", 1) or 1),
-                "bytes": total_bytes, "cameras": cameras, "schema": features,
-                "scanned_at": time.time(),
-            }
             with self._connect() as db:
-                db.execute("""INSERT INTO datasets(uid,root,codebase_version,episodes,frames,duration,bytes,cameras,schema_json,scanned_at)
-                    VALUES(:uid,:root,:codebase_version,:episodes,:frames,:duration,:bytes,:cameras,:schema,:scanned_at)
+                uid, uid_collision = self._unique_dataset_uid(db, root, uid_candidate)
+                existing_root = db.execute(
+                    "SELECT uid FROM datasets WHERE root=?", (str(root),)
+                ).fetchone()
+                if existing_root and str(existing_root["uid"]) != uid:
+                    self._rekey_dataset_uid(db, root, str(existing_root["uid"]), uid)
+                row = {
+                    "uid": uid, "root": str(root),
+                    "display_name": self._dataset_display_name(root, info, uid),
+                    "codebase_version": info.get("codebase_version", "unknown"),
+                    "episodes": episodes, "frames": frames,
+                    "duration": frames / float(info.get("fps", 1) or 1),
+                    "bytes": total_bytes, "cameras": cameras, "schema": features,
+                    "scanned_at": time.time(),
+                }
+                db.execute("""INSERT INTO datasets(uid,root,display_name,codebase_version,episodes,frames,duration,bytes,cameras,schema_json,scanned_at)
+                    VALUES(:uid,:root,:display_name,:codebase_version,:episodes,:frames,:duration,:bytes,:cameras,:schema,:scanned_at)
                     ON CONFLICT(uid) DO UPDATE SET root=excluded.root, codebase_version=excluded.codebase_version,
+                    display_name=excluded.display_name,
                     episodes=excluded.episodes, frames=excluded.frames, duration=excluded.duration, bytes=excluded.bytes,
-                    cameras=excluded.cameras, schema_json=excluded.schema_json, scanned_at=excluded.scanned_at""",
+                    cameras=excluded.cameras, schema_json=excluded.schema_json, scanned_at=excluded.scanned_at
+                    WHERE datasets.root=excluded.root""",
                     {**row, "cameras": json.dumps(cameras), "schema": json.dumps(features)})
                 # Episodes are small metadata parquet files; index them without
                 # touching image/video payloads.
@@ -738,12 +962,15 @@ class Catalog:
                 ))
             found.append(row)
             if progress:
-                progress({"phase": "indexing", "current": position, "total": total, "uid": uid, "skipped": False})
+                progress({
+                    "phase": "indexing", "current": position, "total": total,
+                    "uid": uid, "uid_collision": uid_collision, "skipped": False,
+                })
         return found
 
     def list_datasets(self, include_schema: bool = False) -> list[dict[str, Any]]:
         with self._connect() as db:
-            rows = db.execute("""SELECT uid,root,codebase_version,episodes,frames,
+            rows = db.execute("""SELECT uid,root,display_name,codebase_version,episodes,frames,
                 duration,bytes,cameras,schema_json,scanned_at FROM datasets ORDER BY uid""").fetchall()
         return [self._dataset_row(r, include_schema=include_schema) for r in rows]
 
@@ -1107,7 +1334,11 @@ class Catalog:
     @staticmethod
     def _stage_source_fingerprint(stage_root: Path, manifest_path: Path | None) -> str:
         values: list[str] = []
-        paths = [stage_root, manifest_path, stage_root / "summary.json", stage_root / "reports" / "summary.json"]
+        paths = [
+            stage_root, manifest_path, stage_root / "summary.json",
+            stage_root / "reports" / "summary.json", stage_root / "canonical_schema.json",
+            stage_root / "validation.json", stage_root / "labels" / "action_semantics.json",
+        ]
         paths.extend(sorted((stage_root / "labels").glob("*.parquet")))
         for path in paths:
             if path is None:
@@ -1201,25 +1432,50 @@ class Catalog:
                 episode_index = int(row["episode_index"])
                 soft = int(row.get("s4_soft_mismatch_frames", 0) or 0)
                 hard = int(row.get("s4_hard_mismatch_frames", 0) or 0)
-                accepted = row.get("accepted") is not False
-                verdict = "fail" if not accepted else "warning" if soft or hard else str(row.get("status") or "pass")
+                joint_space = bool(row.get("s4_evaluation_level")) or (
+                    str(row.get("status") or "").lower() == "pass_joint_space"
+                )
+                nonfinite = int(row.get("nonfinite_frames", 0) or 0)
+                if joint_space:
+                    stage_passed = str(row.get("status") or "").lower().startswith("pass") and nonfinite == 0
+                    verdict = "pass_joint_space" if stage_passed else "fail"
+                    anomaly_count = nonfinite
+                    reasons = ["nonfinite_joint_state"] if nonfinite else []
+                else:
+                    accepted = row.get("accepted") is not False
+                    verdict = "fail" if not accepted else "warning" if soft or hard else str(row.get("status") or "pass")
+                    anomaly_count = soft + hard
+                    reasons = ["kinematic_mismatch"] if soft or hard else []
                 self._write_stage_index(
-                    db, uid, episode_index, stage_id, run_id, "available", verdict, soft + hard,
-                    "critical" if not accepted else "warning" if soft or hard else None,
+                    db, uid, episode_index, stage_id, run_id, "available", verdict, anomaly_count,
+                    "critical" if verdict == "fail" else "warning" if verdict == "warning" else None,
                     float(row.get("s4_hard_mismatch_ratio")) if row.get("s4_hard_mismatch_ratio") is not None else None,
-                    ["kinematic_mismatch"] if soft or hard else [], row,
+                    reasons, row,
                     str(stage_root / "labels" / "episode_summary.parquet"),
                 )
                 indexed.add(episode_index)
         elif stage_id == 5:
-            for row in self._parquet_rows(stage_root / "labels" / "episode_transform.parquet"):
+            transform_path = stage_root / "labels" / "episode_transform.parquet"
+            stage5_rows = self._parquet_rows(transform_path)
+            source_path = transform_path
+            canonical_joint_space = (
+                manifest.get("output_format") == "lerobot_v3.0-canonical-joint-space-overlay"
+                or (stage_root / "labels" / "action_semantics.json").is_file()
+            )
+            if not stage5_rows and canonical_joint_space:
+                stage5_rows = summaries
+                source_path = stage_root / "labels" / "episode_summary.parquet"
+            for row in stage5_rows:
                 episode_index = int(row["episode_index"])
-                candidate = row.get("s4_training_candidate") is not False
+                candidate_value = row.get(
+                    "s4_training_candidate", row.get("upstream_training_candidate", row.get("accepted"))
+                )
+                candidate = candidate_value is not False
                 self._write_stage_index(
                     db, uid, episode_index, stage_id, run_id, "available",
                     "aligned" if candidate else "not_candidate", 0,
                     None if candidate else "warning", details=row,
-                    source_path=str(stage_root / "labels" / "episode_transform.parquet"),
+                    source_path=str(source_path),
                 )
                 indexed.add(episode_index)
 
@@ -1492,7 +1748,9 @@ class Catalog:
         fingerprint = (
             f"{STAGE_INDEX_SCHEMA}:{index_manifest['generation']}"
             if index_manifest else
-            self._stage_source_fingerprint(stage_root, manifest_path) if stage_root else "missing"
+            f"fallback-v{STAGE_FALLBACK_INDEX_VERSION}:"
+            f"{self._stage_source_fingerprint(stage_root, manifest_path)}"
+            if stage_root else "missing"
         )
         with self._connect() as db:
             previous = db.execute(
@@ -2723,6 +2981,13 @@ class Catalog:
             },
             **summary,
         }
+        if stage_id == 5 and stage_root:
+            supplemental = {
+                "action_semantics": self._json(stage_root / "labels" / "action_semantics.json"),
+                "canonical_schema": self._json(stage_root / "canonical_schema.json"),
+                "validation": self._json(stage_root / "validation.json"),
+            }
+            summary.update({key: value for key, value in supplemental.items() if value})
         result.update({
             "stage": manifest.get("stage", result["stage"]),
             "detector_version": manifest.get("detector_version"),
