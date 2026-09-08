@@ -113,20 +113,20 @@ nohup python embodied_datasets/scripts/convert_scripts/convert_agibot_world_to_l
   --resume \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw/agibot_world \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/agibot_world \
-  --local-work-root /home/pai/zxw/agibot_world_staging \
+  --local-work-root $HOME/agibot_world_staging \
   --min-local-free-bytes 107374182400 \
   --max-local-inflight-bytes 137438953472 \
   --workers 4 \
   --encoder-threads-per-worker 8 \
-  > /home/pai/zxw/agibot_world_staging/agibot_world.log 2>&1 &
+  > $HOME/agibot_world_staging/agibot_world.log 2>&1 &
 ```
 
 Status and recovery use the same immutable state:
 
 ```bash
-find /home/pai/zxw/agibot_world_staging/.conversion_resume/agibot_world/tasks \
+find $HOME/agibot_world_staging/.conversion_resume/agibot_world/tasks \
   -name commit.json -print | sort
-tail -f /home/pai/zxw/agibot_world_staging/agibot_world.log
+tail -f $HOME/agibot_world_staging/agibot_world.log
 
 # Recovery: rerun the exact formal command above, including --resume.
 ```
@@ -162,7 +162,7 @@ dataset-sized local cache is created:
 python embodied_datasets/scripts/convert_scripts/repair_agibot_world_snapshot.py \
   --root /path/to/writable/agibot_world \
   --min-free-bytes 53687091200 \
-  --report /home/pai/zxw/agibot_world_staging/raw-repair-report.json
+  --report $HOME/agibot_world_staging/raw-repair-report.json
 ```
 
 An interrupted run resumes an adjacent `.part` file with an HTTP range request.

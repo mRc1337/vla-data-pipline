@@ -6,9 +6,11 @@ services:
       VLA_DATA_ROOT: /data/public_datasets_staging
       VLA_CURATION_ROOT: /data/public_datasets_staging/data_curation
       VLA_VIDEO_PROXY_ROOT: /var/cache/vla/video_proxy
+      VLA_THUMBNAIL_ROOT: /var/cache/vla/thumbnails
     volumes:
       - /mnt/data/embodied_datasets/public_datasets_staging:/data/public_datasets_staging
       - video_proxy_cache:/var/cache/vla/video_proxy
+      - thumbnail_cache:/var/cache/vla/thumbnails
     ports: ["8000:8000"]
     depends_on: [redis, postgres]
   worker:
@@ -37,3 +39,4 @@ services:
 
 volumes:
   video_proxy_cache:
+  thumbnail_cache:

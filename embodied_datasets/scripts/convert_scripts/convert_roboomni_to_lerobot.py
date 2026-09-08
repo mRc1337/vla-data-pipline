@@ -553,7 +553,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw-root", type=Path, default=Path("/mnt/data/embodied_datasets/public_datasets_raw"))
     parser.add_argument("--output-root", type=Path, default=Path("/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/roboomni"))
-    parser.add_argument("--local-work-root", type=Path, default=Path("/home/pai/zxw/roboomni_staging"))
+    parser.add_argument("--local-work-root", type=Path, default=Path.home() / "roboomni_staging")
     parser.add_argument("--output-dataset-uid", default="roboomni")
     parser.add_argument("--fps", type=int, required=True, help="explicit output FPS; source FPS is not declared")
     parser.add_argument("--inspect-only", "--dry-run", action="store_true", dest="inspect_only")

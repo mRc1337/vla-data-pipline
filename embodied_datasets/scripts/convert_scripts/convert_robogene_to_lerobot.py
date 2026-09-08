@@ -57,7 +57,7 @@ from readers.robogene_reader import (
 
 DEFAULT_RAW_ROOT = Path("/mnt/data/embodied_datasets/public_datasets_raw/robogene")
 DEFAULT_OUTPUT_ROOT = Path("/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0")
-DEFAULT_LOCAL_WORK_ROOT = Path("/home/pai/zxw/robogene_staging")
+DEFAULT_LOCAL_WORK_ROOT = Path.home() / "robogene_staging"
 DEFAULT_MAX_LOCAL_TEMP_BYTES = 100_000_000_000
 DEFAULT_MIN_LOCAL_FREE_BYTES = 200_000_000_000
 COPY_BLOCK_BYTES = 64 * 1024 * 1024

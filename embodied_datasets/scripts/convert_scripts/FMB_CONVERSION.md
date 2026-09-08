@@ -65,7 +65,7 @@ default local work unit contains at most eight episodes.
 
 The preflight cache, UID-scoped work units, checkpoints, logs, encoder temporary files,
 and upload queue are below
-`/home/pai/zxw/functional_manipulation_benchmark_fmb_staging/`.  The
+`$HOME/functional_manipulation_benchmark_fmb_staging/`.  The
 coordinator checks current usage plus the estimated peak of active units and the
 next dispatch before admitting work, and enforces `--max-local-temp-bytes` and
 `--min-local-free-bytes`.
@@ -91,7 +91,7 @@ cleanup.
 Preflight (one archive index/schema scan; no final output):
 
 ```bash
-cd /home/pai/zxw/vla-data-pipeline/embodied_datasets/scripts/convert_scripts
+cd $HOME/vla-data-pipeline/embodied_datasets/scripts/convert_scripts
 python3 convert_fmb_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
   --inspect-only
@@ -103,7 +103,7 @@ one local-only sample, validates the encoded videos, and deletes the sample:
     python3 convert_fmb_to_lerobot.py \
       --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
       --warmup-frames 30 \
-      --local-work-root /home/pai/zxw/functional_manipulation_benchmark_fmb_staging \
+      --local-work-root $HOME/functional_manipulation_benchmark_fmb_staging \
       --encoder-threads-per-worker 8
 
 Minimal smoke after a successful preflight, using an independent output UID
@@ -124,7 +124,7 @@ local sources are reused):
 python3 convert_fmb_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
   --resume \
-  --local-work-root /home/pai/zxw/functional_manipulation_benchmark_fmb_staging \
+  --local-work-root $HOME/functional_manipulation_benchmark_fmb_staging \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0
 ```
 
@@ -140,13 +140,13 @@ python3 convert_fmb_to_lerobot.py \
   --resume --max-episodes 2 --episodes-per-unit 1 \
   --output-dataset-uid functional_manipulation_benchmark_fmb_bench_w1 --workers 1 --max-inflight-units 1 \
   --encoder-threads-per-worker 8 \
-  --benchmark-report /home/pai/zxw/functional_manipulation_benchmark_fmb_staging/bench-w1.json
+  --benchmark-report $HOME/functional_manipulation_benchmark_fmb_staging/bench-w1.json
 python3 convert_fmb_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
   --resume --max-episodes 2 --episodes-per-unit 1 \
   --output-dataset-uid functional_manipulation_benchmark_fmb_bench_w4 --workers 4 --max-inflight-units 4 \
   --encoder-threads-per-worker 8 \
-  --benchmark-report /home/pai/zxw/functional_manipulation_benchmark_fmb_staging/bench-w4.json
+  --benchmark-report $HOME/functional_manipulation_benchmark_fmb_staging/bench-w4.json
 ```
 
 The bounded real-data check used two read-only-copied members from valid
@@ -178,7 +178,7 @@ The requested production command (provided, not executed here) is:
 ```bash
 python3 convert_fmb_to_lerobot.py --resume \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
-  --local-work-root /home/pai/zxw/functional_manipulation_benchmark_fmb_staging \
+  --local-work-root $HOME/functional_manipulation_benchmark_fmb_staging \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
   --max-local-temp-bytes 100000000000 --min-local-free-bytes 200000000000 \
   --max-inflight-units 1 --workers 1 --encoder-threads-per-worker 8 \
@@ -190,16 +190,16 @@ For a background run, use the same command with its log redirected into the
 local staging root (the command is provided, not executed here):
 
 ```bash
-mkdir -p /home/pai/zxw/functional_manipulation_benchmark_fmb_staging/logs
+mkdir -p $HOME/functional_manipulation_benchmark_fmb_staging/logs
 nohup python3 convert_fmb_to_lerobot.py --resume \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw/functional_manipulation_benchmark_fmb_extracted \
-  --local-work-root /home/pai/zxw/functional_manipulation_benchmark_fmb_staging \
+  --local-work-root $HOME/functional_manipulation_benchmark_fmb_staging \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
   --max-local-temp-bytes 100000000000 --min-local-free-bytes 200000000000 \
   --max-inflight-units 1 --workers 1 --encoder-threads-per-worker 8 \
   --upload-workers 1 --ossfs-io-timeout-seconds 900 \
   --trust-preflight-source \
-  > /home/pai/zxw/functional_manipulation_benchmark_fmb_staging/logs/production.log 2>&1 &
+  > $HOME/functional_manipulation_benchmark_fmb_staging/logs/production.log 2>&1 &
 ```
 
 The current mounted source contains two archives without a ZIP end-of-central-

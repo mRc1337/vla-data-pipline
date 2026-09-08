@@ -1,15 +1,26 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import ReactECharts from "echarts-for-react";
 import {
   Alert, Button, Card, Collapse, Descriptions, Empty, Input, InputNumber, Layout,
   List, Pagination, Progress, Row, Col, Segmented, Select, Space, Spin, Statistic, Table, Tag, message,
 } from "antd";
+import {
+  CameraVideo,
+  VideoPreviewErrorBoundary,
+  type BrowserVideoMetadata,
+} from "./videoPreview";
+import { discoverSeriesFields } from "./seriesFields";
 import "./style.css";
+import "./playbackRate.css";
+
+// Charts are only needed after an Episode is opened. Keep the initial search
+// page free of the ECharts payload and fetch it on first chart render.
+const ReactECharts = lazy(() => import("echarts-for-react"));
 
 type Dataset = {
   uid: string; episodes: number; frames: number; duration: number; bytes: number;
-  cameras: string[]; codebase_version: string; root?: string; schema?: Record<string, unknown>;
+  cameras: string[]; codebase_version: string; display_name?: string; root?: string;
+  schema?: Record<string, unknown>;
 };
 type DatasetCollection = {
   id: string; name: string; datasets: Dataset[]; episodes: number; frames: number; duration: number; bytes: number;
@@ -18,12 +29,17 @@ type Episode = {
   dataset_uid: string; episode_index: number; frames: number; duration: number;
   instruction?: string | null; task_index?: number | null; metadata_json?: string;
 };
+type EpisodePage = { items: Episode[]; next_cursor?: string | null; page_size: number };
 type DatasetTask = { task_index: number; name: string; episodes: number };
 type VideoRef = {
   camera: string; relative_path: string; url: string;
   timestamp_start?: number; timestamp_end?: number;
   source_start?: number; source_end?: number; duration?: number;
   chunk_index?: number; file_index?: number; integrity_status?: string;
+  width?: number | null; height?: number | null; fps?: number | null;
+  codec?: string | null; pixel_format?: string | null; channels?: number | null;
+  has_audio?: boolean | null; physical_frames?: number | null; frame_count?: number | null;
+  source_bytes?: number | null; file_integrity_status?: string;
   is_proxy?: boolean;
 };
 type ProxyVideo = { camera: string; status: "pending" | "ready"; url: string; duration: number; frame_count: number; fps: number };
@@ -35,6 +51,9 @@ type ProxyJob = {
 type StageResult = {
   stage_id: number; run_id: string; stage?: string; detector_version?: string;
   coordinate_system?: string;
+  verdict?: string; anomaly_count?: number; severity?: string | null; score?: number | null;
+  range_count?: number;
+  reason_codes?: string[]; detail_loaded?: boolean;
   summary?: Record<string, unknown>; records?: Array<Record<string, unknown>>;
   detail?: Record<string, unknown> | null;
   artifact_status?: "available" | "episode_pending" | "upstream_filtered" | "not_generated";
@@ -77,10 +96,66 @@ type SearchStageFacets = Record<string, {
   artifact_statuses: Array<{ value: string; count: number }>;
 }>;
 
+async function fetchEpisodePage(
+  uid: string,
+  taskIndex?: number,
+  cursor?: string | null,
+  query = "",
+): Promise<EpisodePage> {
+  const params = new URLSearchParams({ page_size: "100" });
+  if (taskIndex !== undefined) params.set("task_index", String(taskIndex));
+  if (cursor) params.set("cursor", cursor);
+  if (query) params.set("query", query);
+  const response = await fetch(`/api/datasets/${encodeURIComponent(uid)}/episodes?${params.toString()}`);
+  const payload: unknown = await response.json();
+  if (!response.ok) {
+    const detail = payload && typeof payload === "object" && "detail" in payload
+      ? String((payload as { detail: unknown }).detail)
+      : "Episode 列表读取失败";
+    throw new Error(detail);
+  }
+  if (Array.isArray(payload)) {
+    return { items: payload as Episode[], next_cursor: null, page_size: payload.length };
+  }
+  const page = payload as Partial<EpisodePage>;
+  return {
+    items: Array.isArray(page.items) ? page.items : [],
+    next_cursor: page.next_cursor ?? null,
+    page_size: Number(page.page_size || 100),
+  };
+}
+
+function mergeEpisodeOptions(current: Episode[], incoming: Episode[]): Episode[] {
+  const byIndex = new Map<number, Episode>();
+  [...current, ...incoming].forEach((episode) => byIndex.set(episode.episode_index, episode));
+  return Array.from(byIndex.values()).sort((left, right) => left.episode_index - right.episode_index);
+}
+
+type StageVerdictInput = {
+  stage_id: number;
+  artifact_status?: string | null;
+  verdict?: string | null;
+  anomaly_count?: number | null;
+  range_count?: number | null;
+  severity?: string | null;
+};
+
 const playbackStatusLabels: Record<PlaybackStatus, string> = {
   idle: "待播放", seeking: "正在定位", buffering: "正在缓冲",
   stalled: "读取停滞", playing: "播放中", paused: "已暂停", error: "播放失败",
 };
+
+const PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+const PLAYBACK_RATE_STORAGE_KEY = "vla.preview.playbackRate";
+
+function initialPlaybackRate(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(PLAYBACK_RATE_STORAGE_KEY));
+    return PLAYBACK_RATES.includes(stored as (typeof PLAYBACK_RATES)[number]) ? stored : 1;
+  } catch {
+    return 1;
+  }
+}
 
 const stageFilterOptions: Record<number, Array<{ label: string; value: string }>> = {
   1: [
@@ -126,7 +201,8 @@ const artifactFilterOptions = [
 function searchStatusLabel(value: string): string {
   const labels: Record<string, string> = {
     pass: "通过", anomaly: "有异常", filtered: "Episode 已过滤", fail: "失败",
-    unscored: "无法评分", warning: "警告", aligned: "已对齐", not_candidate: "非训练候选",
+    pass_joint_space: "关节空间通过", unscored: "无法评分", warning: "警告",
+    aligned: "已对齐", not_candidate: "非训练候选",
     complete: "已完成", needs_review: "需复核", insufficient_confidence: "低置信度",
     skip: "跳过", retain: "保留", exclude_affected_sample_windows: "排除窗口",
     exclude_episode_from_training: "排除 Episode", available: "已有产物",
@@ -136,37 +212,126 @@ function searchStatusLabel(value: string): string {
   return labels[value] || value;
 }
 
-function stageBadgePresentation(stage: SearchStageBadge): { text: string; color?: string } {
-  const id = stage.stage_id;
-  if (stage.artifact_status === "not_generated") return { text: `S${id} 未生成` };
-  if (stage.artifact_status === "episode_pending") return { text: `S${id} 待处理`, color: "gold" };
-  if (stage.artifact_status === "upstream_filtered") return { text: `S${id} 前序过滤`, color: "orange" };
-  if (id === 1 && stage.verdict === "anomaly") return { text: `S1 突变 ${stage.anomaly_count}帧`, color: "orange" };
-  if (id === 3 && stage.verdict === "anomaly") return { text: `S3 极值 ${stage.range_count || stage.anomaly_count}区间`, color: "orange" };
-  if (id === 6 && stage.severity === "warning") return { text: "S6 需复核", color: "gold" };
-  if (id === 7 && stage.verdict !== "pass") return { text: `S7 ${stage.verdict}`, color: stage.verdict === "fail" ? "red" : "gold" };
-  if (id === 8 && stage.verdict === "exclude_affected_sample_windows") return { text: "S8 排除窗口", color: "orange" };
-  if (id === 8 && stage.verdict === "exclude_episode_from_training") return { text: "S8 排除 Episode", color: "red" };
-  if (["fail", "filtered", "not_candidate"].includes(stage.verdict)) return { text: `S${id} ${stage.verdict}`, color: "red" };
-  if (["warning", "unscored", "needs_review"].includes(stage.verdict)) return { text: `S${id} ${stage.verdict}`, color: "gold" };
-  if (["pass", "complete", "aligned", "retain"].includes(stage.verdict)) {
-    return { text: `S${id} ${searchStatusLabel(stage.verdict)}`, color: "green" };
+function stagePresentation(stage: StageVerdictInput): { text: string; color?: string } {
+  const id = Number(stage.stage_id);
+  const prefix = `S${id}`;
+  if (stage.artifact_status === "not_generated") return { text: `${prefix} 未生成` };
+  if (stage.artifact_status === "episode_pending") return { text: `${prefix} 待处理`, color: "gold" };
+  if (stage.artifact_status === "upstream_filtered") return { text: `${prefix} 前序过滤`, color: "orange" };
+
+  const verdict = String(stage.verdict || "").toLowerCase();
+  const anomalyCount = Number(stage.anomaly_count ?? 0);
+  const rangeCount = Number(stage.range_count ?? stage.anomaly_count ?? 0);
+  if (id === 1 && verdict === "anomaly") return { text: `${prefix} 突变 ${anomalyCount}帧`, color: "orange" };
+  if (id === 3 && verdict === "anomaly") return { text: `${prefix} 极值 ${rangeCount}区间`, color: "orange" };
+  if (id === 6 && (stage.severity === "warning" || verdict === "needs_review")) {
+    return { text: `${prefix} 需复核`, color: "gold" };
   }
-  return { text: `S${id} ${searchStatusLabel(stage.verdict)}`, color: "gold" };
+  if (id === 8 && verdict === "exclude_affected_sample_windows") {
+    return { text: `${prefix} 排除窗口`, color: "orange" };
+  }
+  if (id === 8 && verdict === "exclude_episode_from_training") {
+    return { text: `${prefix} 排除 Episode`, color: "red" };
+  }
+
+  const redVerdicts = new Set(["fail", "filtered", "not_candidate"]);
+  const orangeVerdicts = new Set(["anomaly"]);
+  const goldVerdicts = new Set(["warning", "unscored", "needs_review", "insufficient_confidence", "skip"]);
+  const greenVerdicts = new Set(["pass", "pass_joint_space", "complete", "aligned", "retain"]);
+  const color = redVerdicts.has(verdict)
+    ? "red"
+    : orangeVerdicts.has(verdict)
+      ? "orange"
+      : goldVerdicts.has(verdict)
+        ? "gold"
+        : greenVerdicts.has(verdict)
+          ? "green"
+          : undefined;
+  if (!color) return { text: `${prefix} 状态未知`, color: "gold" };
+  return { text: `${prefix} ${searchStatusLabel(verdict)}`, color };
+}
+
+function StageVerdictTag({ stage }: { stage: StageVerdictInput }) {
+  const presentation = stagePresentation(stage);
+  return <Tag color={presentation.color}>{presentation.text}</Tag>;
+}
+
+function LazyThumbnail({ item }: { item: EpisodeSearchItem }) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [status, setStatus] = useState(item.thumbnail_status);
+  const [loaded, setLoaded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+  const [requested, setRequested] = useState(false);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => setStatus(item.thumbnail_status), [item.thumbnail_status]);
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    if (!window.IntersectionObserver) {
+      setVisible(true);
+      return undefined;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "240px" });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!visible || requested || status === "ready" || status === "unavailable") return undefined;
+    let cancelled = false;
+    setRequested(true);
+    const request = async () => {
+      try {
+        const response = await fetch("/api/thumbnails/prewarm", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ episodes: [{ dataset_uid: item.dataset_uid, episode_index: item.episode_index }] }),
+        });
+        if (!response.ok) throw new Error("thumbnail request failed");
+        if (!cancelled) setStatus("queued");
+      } catch {
+        if (!cancelled) setStatus("failed");
+      }
+    };
+    void request();
+    return () => { cancelled = true; };
+  }, [item.dataset_uid, item.episode_index, requested, status, visible]);
+  useEffect(() => {
+    if (!visible || !requested || status === "ready" || status === "failed" || status === "unavailable") return undefined;
+    let cancelled = false;
+    let timer: number | undefined;
+    const check = async () => {
+      try {
+        const response = await fetch(`/api/thumbnails/status/${encodeURIComponent(item.dataset_uid)}/${item.episode_index}`);
+        const payload = await response.json();
+        if (cancelled) return;
+        setStatus(payload.status || "unknown");
+        if (!["ready", "failed", "unavailable"].includes(payload.status)) {
+          timer = window.setTimeout(() => void check(), 1000);
+        }
+      } catch {
+        if (!cancelled) timer = window.setTimeout(() => void check(), 1500);
+      }
+    };
+    void check();
+    return () => { cancelled = true; if (timer !== undefined) window.clearTimeout(timer); };
+  }, [item.dataset_uid, item.episode_index, requested, status, visible]);
+  const showImage = visible && status === "ready" && !imageFailed;
+  return <div ref={hostRef} className="episode-cover-placeholder">
+    {showImage
+      ? <img loading="lazy" decoding="async" src={item.thumbnail_url} alt={`${item.title} 主视角首帧`} onLoad={() => setLoaded(true)} onError={() => setImageFailed(true)} />
+      : <><span>{item.collection_name.slice(0, 2).toUpperCase()}</span>
+        <small>{status === "unavailable" ? "无可用主视角" : status === "failed" ? "封面生成失败" : loaded ? "封面已缓存" : visible ? "封面生成中" : "滚动到此处加载"}</small></>}
+  </div>;
 }
 
 function EpisodeSearchCard({ item, onOpen }: { item: EpisodeSearchItem; onOpen: () => void }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [item.thumbnail_url]);
-  const showImage = item.thumbnail_status === "ready" && !imageFailed;
   return <Card hoverable className="episode-search-card" onClick={onOpen} cover={
     <div className="episode-cover">
-      {showImage
-        ? <img loading="lazy" decoding="async" src={item.thumbnail_url} alt={`${item.title} 主视角首帧`} onError={() => setImageFailed(true)} />
-        : <div className="episode-cover-placeholder">
-          <span>{item.collection_name.slice(0, 2).toUpperCase()}</span>
-          <small>{item.thumbnail_status === "unavailable" ? "无可用主视角" : item.thumbnail_status === "failed" ? "封面生成失败" : "封面生成中"}</small>
-        </div>}
+      <LazyThumbnail item={item} />
       <span className="episode-duration">{item.duration.toFixed(1)}s</span>
     </div>
   }>
@@ -179,8 +344,7 @@ function EpisodeSearchCard({ item, onOpen }: { item: EpisodeSearchItem; onOpen: 
         {item.task_name && <div className="episode-card-line" title={item.task_name}>Task：{item.task_name}</div>}
         {item.match_reasons.length > 0 && <div className="episode-card-tags"><Tag color="blue">命中 {item.match_reasons.join(" / ")}</Tag></div>}
         <div className="episode-card-tags">{item.stage_badges.map((stage) => {
-          const badge = stageBadgePresentation(stage);
-          return <Tag key={stage.stage_id} color={badge.color}>{badge.text}</Tag>;
+          return <StageVerdictTag key={stage.stage_id} stage={stage} />;
         })}</div>
       </>
     } />
@@ -195,6 +359,10 @@ function collectionName(dataset: Dataset): string {
   const versionIndex = parts.findIndex((part) => /^lerobot_v\d+_\d+$/i.test(part));
   if (versionIndex >= 0 && parts[versionIndex + 1]) return parts[versionIndex + 1];
   return dataset.uid;
+}
+
+function datasetLabel(dataset: Dataset): string {
+  return dataset.display_name?.trim() || dataset.uid;
 }
 
 function buildCollections(rows: Dataset[]): DatasetCollection[] {
@@ -342,27 +510,31 @@ function firstRecordFrom(stage: StageResult, fileName: string): Record<string, u
   return recordsFrom(stage, fileName)[0];
 }
 
-function artifactStatusTag(status: StageResult["artifact_status"]) {
-  if (status === "available") return <Tag color="green">已有产物</Tag>;
-  if (status === "episode_pending") return <Tag color="gold">该 Episode 待处理</Tag>;
-  if (status === "upstream_filtered") return <Tag color="orange">前序阶段已过滤</Tag>;
-  return <Tag>暂无产物</Tag>;
-}
-
 function resultTag(value: unknown) {
   const status = String(value ?? "unknown").toLowerCase();
-  if (["pass", "passed", "complete", "available", "retain", "true"].includes(status)) {
-    return <Tag color="green">{String(value)}</Tag>;
+  const text = typeof value === "boolean" ? (value ? "是" : "否") : searchStatusLabel(status);
+  if (["pass", "passed", "pass_joint_space", "complete", "available", "aligned", "retain", "true"].includes(status)) {
+    return <Tag color="green">{text}</Tag>;
   }
   if (["fail", "failed", "invalid", "exclude_episode_from_training", "false"].includes(status)) {
-    return <Tag color="red">{String(value)}</Tag>;
+    return <Tag color="red">{text}</Tag>;
   }
-  return <Tag color="gold">{String(value ?? "unknown")}</Tag>;
+  return <Tag color="gold">{text}</Tag>;
 }
 
 function fixed(value: unknown, digits = 4, suffix = ""): string {
   const number = numeric(value);
   return number === null ? "—" : `${number.toFixed(digits)}${suffix}`;
+}
+
+function formatBytes(value: unknown): string {
+  const bytes = numeric(value);
+  if (bytes === null) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let amount = bytes;
+  let unit = 0;
+  while (amount >= 1024 && unit < units.length - 1) { amount /= 1024; unit += 1; }
+  return `${amount.toFixed(unit ? 1 : 0)} ${units[unit]}`;
 }
 
 function vectorText(value: unknown, digits = 5): string {
@@ -419,12 +591,6 @@ function withTimeout<T>(promise: Promise<T>, messageText: string, timeout = MEDI
   });
 }
 
-function mediaErrorText(video: HTMLVideoElement): string {
-  const code = video.error?.code;
-  const detail = video.error?.message;
-  return `视频 ${video.dataset.camera || "unknown"} 播放失败${code ? `（错误码 ${code}）` : ""}${detail ? `：${detail}` : ""}`;
-}
-
 function Curve({ title, rows, field, elementNames, fps, intervals = [], playhead, onSeek }: {
   title: string; rows: SeriesRow[]; field: string; elementNames: string[]; fps: number;
   intervals?: Array<[{ xAxis: number }, { xAxis: number }]>;
@@ -464,7 +630,7 @@ function Curve({ title, rows, field, elementNames, fps, intervals = [], playhead
       } : undefined,
     })),
   }), [chartSeries, elementNames, field, intervals, playhead]);
-  if (!rows.length || !width) return <Card size="small" title={title}><Alert type="info" showIcon message="该字段暂无可绘制数据，请先运行 standard 扫描或检查 Parquet schema。" /></Card>;
+  if (!rows.length || !width) return <Card size="small" title={title}><Alert type="info" showIcon message="该字段在当前 Episode 中暂无可绘制数值。" /></Card>;
   const onEvents = onSeek ? {
     click: (params: { value?: unknown }) => {
       const value = Array.isArray(params.value) ? Number(params.value[0]) : Number(params.value);
@@ -487,8 +653,9 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
-function StageVisualizations({ stages, timeline, onSeek }: {
+function StageVisualizations({ stages, timeline, onSeek, onLoadStage, loadingStages }: {
   stages: StageResult[]; timeline: EpisodeTimeline; onSeek: (time: number) => void;
+  onLoadStage: (stageId: number) => void; loadingStages: Set<number>;
 }) {
   const rows = Array.from({ length: 8 }, (_, offset) => {
     const stageId = offset + 1;
@@ -511,10 +678,17 @@ function StageVisualizations({ stages, timeline, onSeek }: {
   const items = rows.map((stage) => {
         const spec = stage.visualization_spec || {};
         const label = <Space wrap>
-          <Tag color="blue">Stage {stage.stage_id}</Tag>
-          <span>{stage.stage || spec.name}</span>
-          {artifactStatusTag(stage.artifact_status)}
+          <StageVerdictTag stage={stage} />
+          <span>{spec.name || stage.stage}</span>
         </Space>;
+        if (stage.artifact_status === "available" && !stage.detail_loaded) {
+          const children = <Spin spinning={loadingStages.has(stage.stage_id)}>
+            <Alert type="info" showIcon
+              message={loadingStages.has(stage.stage_id) ? "正在读取 Stage 详情" : "展开后按需读取 Stage 详情"}
+              description={`摘要已从本地索引加载：${searchStatusLabel(String(stage.verdict || "available"))}${stage.anomaly_count ? ` · ${stage.anomaly_count} 个异常` : ""}`} />
+          </Spin>;
+          return { key: String(stage.stage_id), label, children };
+        }
         if (stage.stage_id <= 3) {
           if (stage.artifact_status !== "available") {
             const children = <>
@@ -624,6 +798,40 @@ function StageVisualizations({ stages, timeline, onSeek }: {
           const accepted = episodeSummary?.accepted !== false;
           const strategy = (stage.summary?.kinematic_strategy || {}) as Record<string, unknown>;
           const thresholds = (strategy.thresholds || {}) as Record<string, unknown>;
+          const jointSpace = Boolean(episodeSummary?.s4_evaluation_level)
+            || episodeSummary?.status === "pass_joint_space";
+          if (jointSpace) {
+            const tracking = (episodeSummary?.absolute_joint_target_tracking_norm || {}) as Record<string, unknown>;
+            const velocity = (episodeSummary?.qvel_vs_finite_difference_norm || {}) as Record<string, unknown>;
+            const nonfinite = numeric(episodeSummary?.nonfinite_frames) ?? 0;
+            const stagePassed = String(episodeSummary?.status || "").startsWith("pass") && nonfinite === 0;
+            const upstreamCandidate = episodeSummary?.upstream_training_candidate !== false;
+            const children = <>
+              <Alert type={stagePassed ? upstreamCandidate ? "success" : "warning" : "error"} showIcon
+                message={stagePassed ? "关节空间运动学一致性检测通过" : "关节空间数据包含非有限值或检测失败"}
+                description={!upstreamCandidate && stagePassed
+                  ? "Stage 4 自身检测通过；该 Episode 因前序 Stage 结果不是训练候选。"
+                  : "当前数据缺少可靠的 EEF 位姿或机器人模型，因此使用关节目标跟踪与速度有限差分进行验证。"} />
+              <Descriptions size="small" column={{ xs: 1, md: 3 }} className="stage-details">
+                <Descriptions.Item label="Stage 4 状态">{resultTag(episodeSummary?.status)}</Descriptions.Item>
+                <Descriptions.Item label="上游训练候选">{resultTag(upstreamCandidate)}</Descriptions.Item>
+                <Descriptions.Item label="评估级别">关节空间</Descriptions.Item>
+                <Descriptions.Item label="总帧/有限帧/非有限帧" span={3}>
+                  {String(episodeSummary?.num_frames ?? "—")} / {String(episodeSummary?.finite_frames ?? "—")} / {String(episodeSummary?.nonfinite_frames ?? "—")}
+                </Descriptions.Item>
+                <Descriptions.Item label="关节目标跟踪范数 中位/P95/最大" span={3}>
+                  {fixed(tracking.median, 6)} / {fixed(tracking.p95, 6)} / {fixed(tracking.max, 6)}
+                </Descriptions.Item>
+                <Descriptions.Item label="速度与有限差分范数 中位/P95/最大" span={3}>
+                  {fixed(velocity.median, 6)} / {fixed(velocity.p95, 6)} / {fixed(velocity.max, 6)}
+                </Descriptions.Item>
+                <Descriptions.Item label="全量关节空间 Episode">{String(stage.summary?.joint_space_only_episodes ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="全量训练候选">{String(stage.summary?.accepted_episodes ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="全量非有限帧">{String(stage.summary?.nonfinite_flagged_frames ?? "—")}</Descriptions.Item>
+              </Descriptions>
+            </>;
+            return { key: String(stage.stage_id), label, children };
+          }
           const children = <>
             <Alert type={accepted ? ranges.length ? "warning" : "success" : "error"} showIcon
               message={accepted
@@ -656,7 +864,39 @@ function StageVisualizations({ stages, timeline, onSeek }: {
         }
         if (stage.stage_id === 5 && stage.artifact_status === "available") {
           const transform = firstRecordFrom(stage, "episode_transform.parquet");
+          const episodeSummary = firstRecordFrom(stage, "episode_summary.parquet");
           const transformation = (stage.summary?.transformation || {}) as Record<string, unknown>;
+          const actionSemantics = (stage.summary?.action_semantics || {}) as Record<string, unknown>;
+          const canonicalSchema = (stage.summary?.canonical_schema || {}) as Record<string, unknown>;
+          const validation = (stage.summary?.validation || stage.summary?.s5 || {}) as Record<string, unknown>;
+          const canonicalJointSpace = Object.keys(actionSemantics).length > 0
+            || canonicalSchema.schema_version === "cross_embodiment_v1.0";
+          if (canonicalJointSpace) {
+            const candidate = episodeSummary?.upstream_training_candidate !== false;
+            const valid = String(validation.status || "").toLowerCase() === "pass";
+            const children = <>
+              <Alert type={!valid ? "error" : candidate ? "success" : "warning"} showIcon
+                message={!valid ? "跨本体规范化验证未通过" : candidate
+                  ? "跨本体 State/Action 规范化产物可用于训练"
+                  : "规范化产物已生成，但该 Episode 不是上游训练候选"}
+                description="原始字段保持不变；规范化字段、可用槽位掩码和视频引用已写入 Stage 5 输出数据集。" />
+              <Descriptions size="small" column={{ xs: 1, md: 2 }} className="stage-details">
+                <Descriptions.Item label="验证状态">{resultTag(validation.status)}</Descriptions.Item>
+                <Descriptions.Item label="上游训练候选">{resultTag(candidate)}</Descriptions.Item>
+                <Descriptions.Item label="规范版本">{String(canonicalSchema.schema_version ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="已转换帧数">{String(validation.frames ?? stage.summary?.frames ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="State 有效槽位" span={2}>{stringList(canonicalSchema.state_mask_true_indices).join(", ") || "—"}</Descriptions.Item>
+                <Descriptions.Item label="Action 有效槽位" span={2}>{stringList(canonicalSchema.action_mask_true_indices).join(", ") || "—"}</Descriptions.Item>
+                <Descriptions.Item label="原始 Action 语义" span={2}>{String(actionSemantics.raw_action_semantics ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="规范 Action 语义" span={2}>{String(actionSemantics.canonical_action_semantics ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="关节名称" span={2}>{stringList(actionSemantics.joint_names).join(", ") || "—"}</Descriptions.Item>
+                <Descriptions.Item label="关节 Action 变换" span={2}>{String(transformation.joint_action_transform ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="移动底座策略" span={2}>{String(actionSemantics.base_action_policy ?? "—")}</Descriptions.Item>
+                <Descriptions.Item label="不可用信息" span={2}>{stringList(canonicalSchema.unavailable).join("；") || "无"}</Descriptions.Item>
+              </Descriptions>
+            </>;
+            return { key: String(stage.stage_id), label, children };
+          }
           const candidate = transform?.s4_training_candidate !== false;
           const children = <>
             <Alert type={candidate ? "success" : "warning"} showIcon
@@ -871,7 +1111,14 @@ function StageVisualizations({ stages, timeline, onSeek }: {
         return { key: String(stage.stage_id), label, children };
       });
   return <Card title="Stage 1–8 检测与专项可视化" className="section-card">
-    <Collapse defaultActiveKey={rows.map((stage) => String(stage.stage_id))} items={items} />
+    <Collapse defaultActiveKey={[]} items={items} onChange={(keys) => {
+      const active = Array.isArray(keys) ? keys : [keys];
+      active.forEach((key) => {
+        const stageId = Number(key);
+        const stage = rows.find((item) => item.stage_id === stageId);
+        if (stage?.artifact_status === "available" && !stage.detail_loaded) onLoadStage(stageId);
+      });
+    }} />
   </Card>;
 }
 
@@ -885,10 +1132,15 @@ function App() {
   );
   const [selected, setSelected] = useState<Dataset>();
   const [tasks, setTasks] = useState<DatasetTask[]>([]);
+  const [tasksLoaded, setTasksLoaded] = useState(false);
   const [taskIndex, setTaskIndex] = useState<number>();
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [episodeNextCursor, setEpisodeNextCursor] = useState<string | null>(null);
+  const [episodeOptionQuery, setEpisodeOptionQuery] = useState("");
+  const [episodeOptionsLoading, setEpisodeOptionsLoading] = useState(false);
   const [episodeIndex, setEpisodeIndex] = useState<number>();
   const [preview, setPreview] = useState<Preview>();
+  const [loadingStageDetails, setLoadingStageDetails] = useState<Set<number>>(new Set());
   const [series, setSeries] = useState<SeriesRow[]>([]);
   const [seriesView, setSeriesView] = useState<SeriesView>("raw");
   const [loadingSeries, setLoadingSeries] = useState(false);
@@ -900,17 +1152,25 @@ function App() {
   const [proxyJob, setProxyJob] = useState<ProxyJob>();
   const [proxyError, setProxyError] = useState<string>();
   const [useOriginalVideo, setUseOriginalVideo] = useState(false);
+  const [videoErrors, setVideoErrors] = useState<Record<string, string>>({});
+  const [videoRetryTokens, setVideoRetryTokens] = useState<Record<string, number>>({});
+  const [previewReloadToken, setPreviewReloadToken] = useState(0);
+  const [browserVideoMetadata, setBrowserVideoMetadata] = useState<Record<string, BrowserVideoMetadata>>({});
   const [currentTime, setCurrentTime] = useState(0);
   const [currentFrame, setCurrentFrame] = useState(0);
+  const [selectedPlaybackRate, setSelectedPlaybackRate] = useState(initialPlaybackRate);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
   const currentTimeRef = useRef(0);
+  const effectivePlaybackRateRef = useRef(1);
   const playbackRequest = useRef(0);
   const lastFollowerSync = useRef(0);
   const lastUiUpdate = useRef(0);
   const lastHardSeek = useRef<Record<string, number>>({});
   const workbenchRef = useRef<HTMLDivElement>(null);
   const navigationTarget = useRef<EpisodeSearchItem | undefined>(undefined);
-  const initialSearchStarted = useRef(false);
+  const episodeOptionSequence = useRef(0);
+  const episodeSearchTimer = useRef<number | undefined>(undefined);
+  const episodeOptionsLoadingRef = useRef(false);
   const searchSequence = useRef(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDatasets, setSearchDatasets] = useState<string[]>([]);
@@ -921,6 +1181,11 @@ function App() {
   const [searchIndexTask, setSearchIndexTask] = useState<SearchIndexTask>();
   const [searchIndexAvailable, setSearchIndexAvailable] = useState<boolean>();
   const [searchStageFacets, setSearchStageFacets] = useState<SearchStageFacets>({});
+  const seriesFields = useMemo(
+    () => discoverSeriesFields(preview?.dataset.schema),
+    [preview?.dataset.schema],
+  );
+  const seriesFieldKeys = seriesFields.map((field) => field.key).join(",");
 
   const refresh = () => fetch("/api/datasets").then((response) => response.json()).then(setDatasets)
     .catch(() => message.error("后端未启动"));
@@ -929,8 +1194,65 @@ function App() {
     navigationTarget.current = undefined;
     setSelectedCollectionId(collection.id);
     setSelected(collection.datasets.length === 1 ? collection.datasets[0] : undefined);
-    setTasks([]); setTaskIndex(undefined); setEpisodes([]); setEpisodeIndex(undefined);
+    setTasks([]); setTasksLoaded(false); setTaskIndex(undefined); setEpisodes([]); setEpisodeIndex(undefined);
     setPreview(undefined); setSeries([]);
+  };
+
+  const searchEpisodeOptions = (value: string) => {
+    if (episodeSearchTimer.current !== undefined) window.clearTimeout(episodeSearchTimer.current);
+    const dataset = selected;
+    const requestedTask = taskIndex;
+    const requestedQuery = value.trim();
+    episodeSearchTimer.current = window.setTimeout(() => {
+      if (!dataset || !tasksLoaded || (tasks.length > 0 && requestedTask === undefined)) return;
+      const sequence = ++episodeOptionSequence.current;
+      episodeOptionsLoadingRef.current = true;
+      setEpisodeOptionsLoading(true);
+      void fetchEpisodePage(dataset.uid, requestedTask, null, requestedQuery)
+        .then((page) => {
+          if (sequence !== episodeOptionSequence.current) return;
+          setEpisodeOptionQuery(requestedQuery);
+          setEpisodeNextCursor(page.next_cursor ?? null);
+          setEpisodes((current) => {
+            const selectedEpisode = current.find((item) => item.episode_index === episodeIndex);
+            return mergeEpisodeOptions(page.items, selectedEpisode ? [selectedEpisode] : []);
+          });
+        })
+        .catch((error) => {
+          if (sequence === episodeOptionSequence.current) {
+            message.error(error instanceof Error ? error.message : "Episode 列表读取失败");
+          }
+        })
+        .finally(() => {
+          if (sequence === episodeOptionSequence.current) {
+            episodeOptionsLoadingRef.current = false;
+            setEpisodeOptionsLoading(false);
+          }
+        });
+    }, 250);
+  };
+
+  const loadMoreEpisodeOptions = async () => {
+    if (!selected || !tasksLoaded || (tasks.length > 0 && taskIndex === undefined)
+      || !episodeNextCursor || episodeOptionsLoadingRef.current) return;
+    const sequence = ++episodeOptionSequence.current;
+    episodeOptionsLoadingRef.current = true;
+    setEpisodeOptionsLoading(true);
+    try {
+      const page = await fetchEpisodePage(selected.uid, taskIndex, episodeNextCursor, episodeOptionQuery);
+      if (sequence !== episodeOptionSequence.current) return;
+      setEpisodes((current) => mergeEpisodeOptions(current, page.items));
+      setEpisodeNextCursor(page.next_cursor ?? null);
+    } catch (error) {
+      if (sequence === episodeOptionSequence.current) {
+        message.error(error instanceof Error ? error.message : "Episode 列表读取失败");
+      }
+    } finally {
+      if (sequence === episodeOptionSequence.current) {
+        episodeOptionsLoadingRef.current = false;
+        setEpisodeOptionsLoading(false);
+      }
+    }
   };
 
   const makeSearchBody = (
@@ -957,7 +1279,6 @@ function App() {
 
   const executeSearch = async (
     page = 1,
-    prewarm = true,
     overrides?: { query?: string; datasets?: string[]; stages?: Record<number, string[]>; sort?: string },
   ) => {
     const sequence = ++searchSequence.current;
@@ -970,27 +1291,15 @@ function App() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.detail || "Episode 搜索失败");
       if (sequence !== searchSequence.current) return;
-      let result = payload as EpisodeSearchResponse;
+      const result = payload as EpisodeSearchResponse;
       setSearchResult(result);
       setSearchLoading(false);
-      if (!prewarm || !result.items.length) return;
-      const prewarmResponse = await fetch("/api/thumbnails/prewarm", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ episodes: result.items.map((item) => ({
-          dataset_uid: item.dataset_uid, episode_index: item.episode_index,
-        })) }),
-      });
-      if (!prewarmResponse.ok) return;
-      const deadline = Date.now() + 30000;
-      while (sequence === searchSequence.current && Date.now() < deadline
-        && result.items.some((item) => ["not_generated", "queued", "generating"].includes(item.thumbnail_status))) {
-        await new Promise((resolve) => window.setTimeout(resolve, 800));
-        const poll = await fetch("/api/search/episodes", {
-          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-        });
-        if (!poll.ok || sequence !== searchSequence.current) return;
-        result = await poll.json() as EpisodeSearchResponse;
-        setSearchResult(result);
+      if (!Object.keys(searchStageFacets).length) {
+        const facets = await fetch("/api/search/facets");
+        if (facets.ok && sequence === searchSequence.current) {
+          const facetPayload = await facets.json();
+          setSearchStageFacets(facetPayload.stages || {});
+        }
       }
     } catch (error) {
       if (sequence === searchSequence.current) {
@@ -1023,6 +1332,7 @@ function App() {
       fetch("/api/search/facets").then((response) => response.json()).then((payload) => setSearchStageFacets(payload.stages || {}));
       await executeSearch(1);
     } catch (error) {
+      setSearchIndexTask(undefined);
       message.error(error instanceof Error ? error.message : "搜索索引构建失败");
     }
   };
@@ -1030,7 +1340,7 @@ function App() {
   const resetSearch = () => {
     const emptyStages: Record<number, string[]> = {};
     setSearchQuery(""); setSearchDatasets([]); setSearchStageValues(emptyStages); setSearchSort("relevance");
-    void executeSearch(1, true, { query: "", datasets: [], stages: emptyStages, sort: "relevance" });
+    void executeSearch(1, { query: "", datasets: [], stages: emptyStages, sort: "relevance" });
   };
 
   const openSearchEpisode = (item: EpisodeSearchItem) => {
@@ -1048,6 +1358,7 @@ function App() {
         setTaskIndex(nextTask);
       }
     } else {
+      setTasksLoaded(false);
       setSelected(dataset);
     }
   };
@@ -1077,52 +1388,74 @@ function App() {
   useEffect(() => { void refresh(); }, []);
 
   useEffect(() => {
-    if (!datasets.length || initialSearchStarted.current) return;
-    initialSearchStarted.current = true;
-    fetch("/api/search/index").then((response) => response.json()).then((stats) => {
-      const available = Number(stats.episodes || 0) > 0;
-      setSearchIndexAvailable(available);
-      if (available) {
-        fetch("/api/search/facets").then((response) => response.json()).then((payload) => setSearchStageFacets(payload.stages || {}));
-        void executeSearch(1);
-      }
-    }).catch(() => setSearchIndexAvailable(false));
-  }, [datasets]);
-
-  useEffect(() => {
+    setTasksLoaded(false);
     if (!selected) { setTasks([]); setTaskIndex(undefined); return; }
     let cancelled = false;
     setTasks([]); setTaskIndex(undefined); setEpisodes([]); setEpisodeIndex(undefined);
     fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/tasks`)
-      .then((response) => response.json()).then((items: DatasetTask[]) => {
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Task 列表读取失败");
+        return payload as DatasetTask[];
+      }).then((items) => {
         if (cancelled) return;
-        setTasks(items);
+        setTasks([...items].sort((left, right) => left.task_index - right.task_index));
         const target = navigationTarget.current;
         if (target?.dataset_uid === selected.uid) setTaskIndex(target.task_index ?? undefined);
+        setTasksLoaded(true);
       })
-      .catch(() => { if (!cancelled) message.error("Task 列表读取失败"); });
+      .catch((error) => {
+        if (cancelled) return;
+        setTasksLoaded(true);
+        message.error(error instanceof Error ? error.message : "Task 列表读取失败");
+      });
     return () => { cancelled = true; };
   }, [selected]);
 
   useEffect(() => {
-    if (!selected) { setEpisodes([]); setEpisodeIndex(undefined); return; }
+    if (!selected || !tasksLoaded || (tasks.length > 0 && taskIndex === undefined)) {
+      episodeOptionSequence.current += 1;
+      if (episodeSearchTimer.current !== undefined) window.clearTimeout(episodeSearchTimer.current);
+      setEpisodes([]); setEpisodeNextCursor(null); setEpisodeOptionQuery("");
+      setEpisodeIndex(undefined); setPreview(undefined); setSeries([]);
+      episodeOptionsLoadingRef.current = false;
+      setEpisodeOptionsLoading(false);
+      return;
+    }
     let cancelled = false;
+    const sequence = ++episodeOptionSequence.current;
+    if (episodeSearchTimer.current !== undefined) window.clearTimeout(episodeSearchTimer.current);
     setPreview(undefined); setSeries([]); setEpisodeIndex(undefined);
-    const query = taskIndex === undefined ? "" : `?task_index=${taskIndex}`;
-    fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes${query}`)
-      .then((response) => response.json()).then((items: Episode[]) => {
-        if (cancelled) return;
+    setEpisodes([]); setEpisodeNextCursor(null); setEpisodeOptionQuery("");
+    episodeOptionsLoadingRef.current = true;
+    setEpisodeOptionsLoading(true);
+    void fetchEpisodePage(selected.uid, taskIndex).then((payload) => {
+        if (cancelled || sequence !== episodeOptionSequence.current) return;
+        const items = payload.items;
         setEpisodes(items);
+        setEpisodeNextCursor(payload.next_cursor ?? null);
         const target = navigationTarget.current;
         if (target?.dataset_uid === selected.uid
           && (target.task_index == null || target.task_index === taskIndex)) {
           setEpisodeIndex(target.episode_index);
           navigationTarget.current = undefined;
           window.setTimeout(() => workbenchRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
-        } else if (items.length) setEpisodeIndex(items[0].episode_index);
-      }).catch(() => { if (!cancelled) message.error("Episode 列表读取失败"); });
-    return () => { cancelled = true; };
-  }, [selected, taskIndex]);
+        }
+      }).catch((error) => {
+        if (!cancelled && sequence === episodeOptionSequence.current) {
+          message.error(error instanceof Error ? error.message : "Episode 列表读取失败");
+        }
+      }).finally(() => {
+        if (!cancelled && sequence === episodeOptionSequence.current) {
+          episodeOptionsLoadingRef.current = false;
+          setEpisodeOptionsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+      if (episodeSearchTimer.current !== undefined) window.clearTimeout(episodeSearchTimer.current);
+    };
+  }, [selected, taskIndex, tasks.length, tasksLoaded]);
 
   useEffect(() => {
     if (!selected || episodeIndex === undefined) return;
@@ -1131,12 +1464,14 @@ function App() {
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      video.playbackRate = 1;
+      video.playbackRate = effectivePlaybackRateRef.current;
     });
     currentTimeRef.current = 0;
     lastUiUpdate.current = 0;
     setIsPlaying(false); setPlaybackStatus("idle"); setPlaybackError(undefined);
     setLoadingEpisode(true); setCurrentTime(0); setCurrentFrame(0);
+    setPreview(undefined); setVideoErrors({}); setVideoRetryTokens({});
+    setLoadingStageDetails(new Set());
     fetch(`/api/datasets/${encodeURIComponent(selected.uid)}/episodes/${episodeIndex}/preview`)
       .then((response) => response.json()).then((episodePreview) => {
       if (cancelled) return;
@@ -1144,7 +1479,37 @@ function App() {
     }).catch(() => { if (!cancelled) message.error("Episode 预览读取失败"); })
       .finally(() => { if (!cancelled) setLoadingEpisode(false); });
     return () => { cancelled = true; };
-  }, [episodeIndex, selected]);
+  }, [episodeIndex, previewReloadToken, selected]);
+
+  const loadStageDetail = async (stageId: number) => {
+    if (!selected || episodeIndex === undefined || loadingStageDetails.has(stageId)) return;
+    const requestedUid = selected.uid;
+    const requestedEpisode = episodeIndex;
+    setLoadingStageDetails((current) => new Set(current).add(stageId));
+    try {
+      const response = await fetch(
+        `/api/datasets/${encodeURIComponent(requestedUid)}/episodes/${requestedEpisode}/stages/${stageId}`,
+      );
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.detail || `Stage ${stageId} 详情读取失败`);
+      setPreview((current) => {
+        if (!current || current.dataset.uid !== requestedUid
+          || current.episode.episode_index !== requestedEpisode) return current;
+        return {
+          ...current,
+          stage_results: current.stage_results.map((stage) => (
+            stage.stage_id === stageId ? payload as StageResult : stage
+          )),
+        };
+      });
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : `Stage ${stageId} 详情读取失败`);
+    } finally {
+      setLoadingStageDetails((current) => {
+        const next = new Set(current); next.delete(stageId); return next;
+      });
+    }
+  };
 
   useEffect(() => {
     const format = preview?.curation?.format;
@@ -1158,11 +1523,11 @@ function App() {
   }, [preview?.curation?.format, seriesView]);
 
   useEffect(() => {
-    if (!selected || episodeIndex === undefined) return;
+    if (!selected || episodeIndex === undefined || preview?.dataset.uid !== selected.uid) return;
     let cancelled = false;
     setLoadingSeries(true); setSeries([]);
     const query = new URLSearchParams({
-      fields: "timestamp,frame_index,observation.state,action",
+      fields: ["timestamp", "frame_index", ...seriesFields.map((field) => field.key)].join(","),
       limit: "5000",
       view: seriesView,
     });
@@ -1176,7 +1541,7 @@ function App() {
       .catch((error) => { if (!cancelled) message.error(error instanceof Error ? error.message : "曲线数据读取失败"); })
       .finally(() => { if (!cancelled) setLoadingSeries(false); });
     return () => { cancelled = true; };
-  }, [episodeIndex, selected, seriesView]);
+  }, [episodeIndex, preview?.dataset.uid, selected, seriesFieldKeys, seriesView]);
 
   useEffect(() => {
     if (!preview) {
@@ -1234,10 +1599,35 @@ function App() {
       return proxy?.status === "ready" ? [{
         ...video, url: proxy.url, source_start: 0, source_end: timeline.duration,
         timestamp_start: 0, timestamp_end: timeline.duration, duration: timeline.duration,
+        fps: proxy.fps, frame_count: proxy.frame_count, codec: "h264", pixel_format: "yuv420p",
         integrity_status: "pass", is_proxy: true,
       }] : [];
     });
   }, [preview, readyProxyVideos, timeline.duration, useOriginalVideo]);
+
+  const technicalVideos = activeVideos.length ? activeVideos : (preview?.videos || []);
+  const playableVideos = useMemo(
+    () => activeVideos.filter((video) => !videoErrors[video.camera]),
+    [activeVideos, videoErrors],
+  );
+  const supportsPlaybackRate = activeVideos.length > 0 && activeVideos.every((video) => video.is_proxy);
+  const effectivePlaybackRate = supportsPlaybackRate ? selectedPlaybackRate : 1;
+  const playbackRateIndex = PLAYBACK_RATES.indexOf(selectedPlaybackRate as (typeof PLAYBACK_RATES)[number]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PLAYBACK_RATE_STORAGE_KEY, String(selectedPlaybackRate));
+    } catch {
+      // Playback still works when storage is unavailable or disabled.
+    }
+  }, [selectedPlaybackRate]);
+
+  useEffect(() => {
+    effectivePlaybackRateRef.current = effectivePlaybackRate;
+    Object.values(videoRefs.current).forEach((video) => {
+      if (video) video.playbackRate = effectivePlaybackRate;
+    });
+  }, [activeVideos, effectivePlaybackRate]);
 
   useEffect(() => {
     if (!preview) return;
@@ -1246,12 +1636,14 @@ function App() {
     lastFollowerSync.current = 0;
     lastUiUpdate.current = 0;
     lastHardSeek.current = {};
+    setBrowserVideoMetadata({});
+    setVideoErrors({}); setVideoRetryTokens({});
     setIsPlaying(false); setPlaybackStatus("idle"); setPlaybackError(undefined);
     setCurrentTime(0); setCurrentFrame(0);
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      video.playbackRate = 1;
+      video.playbackRate = effectivePlaybackRateRef.current;
       const meta = activeVideos.find((item) => item.camera === video.dataset.camera);
       if (meta && video.readyState >= 1) video.currentTime = videoWindow(meta, timeline.duration).start;
     });
@@ -1270,7 +1662,7 @@ function App() {
     Object.values(videoRefs.current).forEach((video) => {
       if (!video) return;
       video.pause();
-      video.playbackRate = 1;
+      video.playbackRate = effectivePlaybackRateRef.current;
     });
     setIsPlaying(false);
     setPlaybackStatus(status);
@@ -1284,6 +1676,8 @@ function App() {
   const syncTime = (source: HTMLVideoElement) => {
     const sourceMeta = activeVideos.find((item) => item.camera === source.dataset.camera);
     if (!sourceMeta) return;
+    const baseRate = effectivePlaybackRateRef.current;
+    if (source.playbackRate !== baseRate) source.playbackRate = baseRate;
     const sourceWindow = videoWindow(sourceMeta, timeline.duration);
     if (source.currentTime < sourceWindow.start) source.currentTime = sourceWindow.start;
     if (source.currentTime >= sourceWindow.end - 0.5 / fps) {
@@ -1311,12 +1705,13 @@ function App() {
         const camera = video.dataset.camera || "unknown";
         if (Math.abs(drift) > 0.5 && now - (lastHardSeek.current[camera] || 0) >= 1000) {
           lastHardSeek.current[camera] = now;
-          video.playbackRate = 1;
+          video.playbackRate = baseRate;
           video.currentTime = target;
         } else if (Math.abs(drift) > 0.2) {
-          video.playbackRate = Math.min(1.05, Math.max(0.95, 1 + drift * 0.2));
+          const correction = Math.min(1.05, Math.max(0.95, 1 + drift * 0.2));
+          video.playbackRate = Math.min(4, Math.max(0.25, baseRate * correction));
         } else {
-          video.playbackRate = 1;
+          video.playbackRate = baseRate;
         }
       });
     }
@@ -1343,31 +1738,58 @@ function App() {
   };
 
   const startPlayback = async () => {
-    if (!activeVideos.length) return;
+    if (!playableVideos.length) return;
     const request = ++playbackRequest.current;
     const relativeTime = currentTimeRef.current >= timeline.duration - 1 / fps ? 0 : currentTimeRef.current;
-    const videos = Object.values(videoRefs.current).filter((video): video is HTMLVideoElement => Boolean(video));
+    const videos = playableVideos
+      .map((video) => videoRefs.current[video.camera])
+      .filter((video): video is HTMLVideoElement => Boolean(video));
+    if (!videos.length) return;
     setPlaybackError(undefined);
     setPlaybackStatus("seeking");
     currentTimeRef.current = relativeTime;
     setCurrentTime(relativeTime);
     setCurrentFrame(Math.min(Math.max(0, timeline.frame_count - 1), Math.floor(relativeTime * fps + 1e-6)));
     try {
-      await Promise.all(videos.map((video) => {
+      const seekedVideos: HTMLVideoElement[] = [];
+      await Promise.all(videos.map(async (video) => {
         const meta = activeVideos.find((item) => item.camera === video.dataset.camera);
-        if (!meta) return Promise.resolve();
+        if (!meta) { seekedVideos.push(video); return; }
         const window = videoWindow(meta, timeline.duration);
-        video.playbackRate = 1;
-        return seekMedia(video, Math.min(window.end, window.start + relativeTime));
+        video.playbackRate = effectivePlaybackRateRef.current;
+        try {
+          await seekMedia(video, Math.min(window.end, window.start + relativeTime));
+          seekedVideos.push(video);
+        } catch (error) {
+          handleCameraError(
+            video.dataset.camera || "unknown",
+            video,
+            error instanceof Error ? error.message : "视频定位失败",
+          );
+        }
       }));
       if (request !== playbackRequest.current) return;
+      if (!seekedVideos.length) throw new Error("没有可播放的视频流");
       setPlaybackStatus("buffering");
-      await Promise.all(videos.map((video) => withTimeout(
-        video.play(),
-        `等待视频 ${video.dataset.camera || "unknown"} 开始播放超时`,
-      )));
+      const startedVideos: HTMLVideoElement[] = [];
+      await Promise.all(seekedVideos.map(async (video) => {
+        try {
+          await withTimeout(
+            video.play(),
+            `等待视频 ${video.dataset.camera || "unknown"} 开始播放超时`,
+          );
+          startedVideos.push(video);
+        } catch (error) {
+          handleCameraError(
+            video.dataset.camera || "unknown",
+            video,
+            error instanceof Error ? error.message : "视频开始播放失败",
+          );
+        }
+      }));
+      if (!startedVideos.length) throw new Error("没有可播放的视频流");
       if (request !== playbackRequest.current) {
-        videos.forEach((video) => video.pause());
+        startedVideos.forEach((video) => video.pause());
         return;
       }
       setIsPlaying(true);
@@ -1389,9 +1811,35 @@ function App() {
     void startPlayback();
   };
 
+  function handleCameraError(camera: string, _video: HTMLVideoElement, errorText: string): void {
+    setVideoErrors((current) => ({ ...current, [camera]: errorText }));
+    const hasAnotherPlayableCamera = playableVideos.some((video) => (
+      video.camera !== camera && videoRefs.current[video.camera] !== null
+    ));
+    if (!hasAnotherPlayableCamera) {
+      pausePlayback("error");
+      setPlaybackError(errorText);
+    }
+  }
+
+  const retryCamera = (camera: string) => {
+    setVideoErrors((current) => {
+      const next = { ...current };
+      delete next[camera];
+      return next;
+    });
+    setVideoRetryTokens((current) => ({ ...current, [camera]: (current[camera] || 0) + 1 }));
+  };
+
+  const retryPreview = () => {
+    setPreviewReloadToken((current) => current + 1);
+  };
+
   useEffect(() => {
     if (!isPlaying || !activeVideos.length) return undefined;
-    const primary = videoRefs.current[activeVideos[0].camera];
+    const primary = playableVideos
+      .map((video) => videoRefs.current[video.camera])
+      .find((video): video is HTMLVideoElement => Boolean(video));
     if (!primary) return undefined;
     type FrameVideo = HTMLVideoElement & {
       requestVideoFrameCallback?: (callback: () => void) => number;
@@ -1413,18 +1861,10 @@ function App() {
       if (handle && frameVideo.cancelVideoFrameCallback) frameVideo.cancelVideoFrameCallback(handle);
       if (animationHandle) window.cancelAnimationFrame(animationHandle);
     };
-  }, [activeVideos, isPlaying, preview, timeline.duration]);
+  }, [activeVideos, isPlaying, playableVideos, preview, timeline.duration, videoErrors]);
 
-  const stateWidth = vector(series.find((row) => vector(row["observation.state"]).length)?.["observation.state"]).length;
-  const actionWidth = vector(series.find((row) => vector(row.action).length)?.action).length;
-  const stateElementNames = useMemo(
-    () => featureElementNames(preview?.dataset || selected, "observation.state", stateWidth),
-    [preview?.dataset, selected, stateWidth],
-  );
-  const actionElementNames = useMemo(
-    () => featureElementNames(preview?.dataset || selected, "action", actionWidth),
-    [actionWidth, preview?.dataset, selected],
-  );
+  const stateSeriesFields = seriesFields.filter((field) => field.kind === "state");
+  const actionSeriesFields = seriesFields.filter((field) => field.kind === "action");
   const seriesViewOptions = preview?.curation?.format === "vla_curation_filter"
     ? [{ label: "原始数据", value: "raw" }, { label: "有效帧", value: "valid" }]
     : preview?.curation?.has_repairs
@@ -1523,20 +1963,63 @@ function App() {
           {selectedCollection && !selected && <Card title={`数据集 / ${selectedCollection.name}`}>
             <Alert type="info" showIcon message="该集合包含多个物理数据集，请先选择其中一个，再选择 Task 和 Episode。" />
             <Select showSearch virtual optionFilterProp="label" placeholder="选择子数据集 / Task 集合" style={{ width: "100%", marginTop: 12 }}
-              options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${item.uid} · ${item.episodes} episodes · ${item.frames} frames` }))}
-              onChange={(uid) => { navigationTarget.current = undefined; setSelected(selectedCollection.datasets.find((item) => item.uid === uid)); }} />
+              options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${datasetLabel(item)} · ${item.episodes} episodes · ${item.frames} frames` }))}
+              onChange={(uid) => {
+                navigationTarget.current = undefined;
+                setTasksLoaded(false);
+                setSelected(selectedCollection.datasets.find((item) => item.uid === uid));
+              }} />
           </Card>}
           {selected && <div ref={workbenchRef}>
-            <Card title={`Episode 预览 / ${selectedCollection?.name || selected.uid}`} extra={<Space>
-              {selectedCollection && selectedCollection.datasets.length > 1 && <Select showSearch virtual optionFilterProp="label" value={selected.uid}
-                placeholder="选择子数据集" style={{ width: 300 }} options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${item.uid} · ${item.episodes} episodes` }))}
-                onChange={(uid) => { navigationTarget.current = undefined; setSelected(selectedCollection.datasets.find((item) => item.uid === uid)); setTaskIndex(undefined); }} />}
-              <Select allowClear showSearch virtual optionFilterProp="label" placeholder="选择 Task" value={taskIndex} options={taskOptions}
-                onChange={(value) => { navigationTarget.current = undefined; setTaskIndex(value); }} style={{ width: 380 }} />
-              <Select showSearch virtual optionFilterProp="label" placeholder="选择 Episode" value={episodeIndex} options={episodeOptions} onChange={setEpisodeIndex} style={{ width: 360 }} />
-              {episodeIndex !== undefined && <InputNumber min={0} max={Math.max(0, selected.episodes - 1)} value={episodeIndex} onChange={(value) => value !== null && setEpisodeIndex(value)} />}
-            </Space>}>
-              <Row gutter={16}>
+            <Card title={`Episode 预览 / ${selectedCollection?.name || selected.uid}`}>
+              <div className={`episode-selector-row episode-selector-primary${selectedCollection && selectedCollection.datasets.length > 1 ? "" : " single"}`}>
+                {selectedCollection && selectedCollection.datasets.length > 1 && <div className="episode-selector-field">
+                  <span>子数据集</span>
+                  <Select showSearch virtual optionFilterProp="label" value={selected.uid}
+                    placeholder="选择子数据集" options={selectedCollection.datasets.map((item) => ({ value: item.uid, label: `${datasetLabel(item)} · ${item.episodes} episodes` }))}
+                    onChange={(uid) => {
+                      navigationTarget.current = undefined;
+                      setTasksLoaded(false);
+                      setSelected(selectedCollection.datasets.find((item) => item.uid === uid));
+                      setTaskIndex(undefined);
+                    }} />
+                </div>}
+                <div className="episode-selector-field">
+                  <span>Task</span>
+                  <Select allowClear showSearch virtual optionFilterProp="label" placeholder="选择 Task" value={taskIndex} options={taskOptions}
+                    loading={!tasksLoaded}
+                    onChange={(value) => {
+                      navigationTarget.current = undefined;
+                      setTaskIndex(value);
+                      setEpisodeIndex(undefined); setPreview(undefined); setSeries([]);
+                    }} />
+                </div>
+              </div>
+              <div className="episode-selector-row episode-selector-secondary">
+                <div className="episode-selector-field">
+                  <span>Episode</span>
+                  <Select key={`${selected.uid}:${taskIndex ?? "all"}`} showSearch virtual filterOption={false}
+                    placeholder={tasks.length > 0 && taskIndex === undefined
+                      ? "请先选择 Task"
+                      : "选择或搜索 Episode 编号 / Instruction"}
+                    value={episodeIndex}
+                    options={episodeOptions} loading={episodeOptionsLoading}
+                    disabled={!tasksLoaded || (tasks.length > 0 && taskIndex === undefined)}
+                    notFoundContent={episodeOptionsLoading ? <Spin size="small" /> : "No data"}
+                    onSearch={searchEpisodeOptions} onChange={setEpisodeIndex}
+                    onPopupScroll={(event) => {
+                      const target = event.currentTarget;
+                      if (target.scrollHeight - target.scrollTop - target.clientHeight < 48) {
+                        void loadMoreEpisodeOptions();
+                      }
+                    }} />
+                </div>
+                {episodeIndex !== undefined && <div className="episode-selector-field episode-number-field">
+                  <span>编号</span>
+                  <InputNumber min={0} max={Math.max(0, selected.episodes - 1)} value={episodeIndex} onChange={(value) => value !== null && setEpisodeIndex(value)} />
+                </div>}
+              </div>
+              <Row gutter={16} className="episode-statistics">
                 <Col><Statistic title="Episodes" value={selected.episodes} /></Col>
                 <Col><Statistic title="Frames" value={selected.frames} /></Col>
                 <Col><Statistic title="Cameras" value={preview?.videos.length || selected.cameras.length} /></Col>
@@ -1549,7 +2032,11 @@ function App() {
                 <Descriptions.Item label="时间戳">{currentTime.toFixed(3)} s</Descriptions.Item>
               </Descriptions>}
             </Card>
-            {preview && <Card title="多相机同步视频" className="section-card">
+            {preview && <VideoPreviewErrorBoundary
+              key={`${preview.dataset.uid}:${preview.episode.episode_index}:${previewReloadToken}`}
+              onRetry={retryPreview}
+            >
+              <Card title="多相机同步视频" className="section-card">
               <Space className="playback-state" wrap>
                 <Tag color={playbackStatus === "error" ? "red" : playbackStatus === "playing" ? "green" : ["buffering", "seeking", "stalled"].includes(playbackStatus) ? "blue" : "default"}>
                   {playbackStatusLabels[playbackStatus]}
@@ -1573,39 +2060,97 @@ function App() {
                 action={<Button size="small" onClick={() => setUseOriginalVideo(true)}>使用原始视频</Button>} />}
               {!useOriginalVideo && proxyJob && ["queued", "generating"].includes(proxyJob.status)
                 && <Progress percent={proxyJob.status === "generating" ? 65 : 15} status="active" showInfo={false} />}
+              <Collapse className="video-metadata-collapse" items={[{
+                key: "video-metadata",
+                label: `视频技术信息 · ${technicalVideos.length} 个相机（点击展开）`,
+                children: <Space direction="vertical" size={10} style={{ width: "100%" }}>
+                  <Descriptions size="small" bordered column={{ xs: 1, sm: 2, lg: 4 }}>
+                    <Descriptions.Item label="Episode 分辨率基准">各相机独立记录</Descriptions.Item>
+                    <Descriptions.Item label="Episode FPS">{fixed(timeline.fps, 2)}</Descriptions.Item>
+                    <Descriptions.Item label="Episode 帧数">{timeline.frame_count}</Descriptions.Item>
+                    <Descriptions.Item label="Episode 时长">{fixed(timeline.duration, 3, " s")}</Descriptions.Item>
+                  </Descriptions>
+                  {technicalVideos.map((video) => {
+                    const observed = browserVideoMetadata[video.camera];
+                    const width = observed?.width || numeric(video.width);
+                    const height = observed?.height || numeric(video.height);
+                    const sourceWindow = videoWindow(video, timeline.duration);
+                    return <Card key={video.camera} size="small" title={video.camera}
+                      extra={<Tag color={video.is_proxy ? "green" : "blue"}>{video.is_proxy ? "Episode H.264 代理" : "原始 MP4 分片"}</Tag>}>
+                      <Descriptions size="small" column={{ xs: 1, sm: 2, lg: 3 }}>
+                        <Descriptions.Item label="分辨率">{width && height ? `${width} × ${height}` : "—"}</Descriptions.Item>
+                        <Descriptions.Item label="FPS">{fixed(video.fps ?? timeline.fps, 2)}</Descriptions.Item>
+                        <Descriptions.Item label="编码">{video.codec || (video.is_proxy ? "h264" : "—")}</Descriptions.Item>
+                        <Descriptions.Item label="像素格式">{video.pixel_format || "—"}</Descriptions.Item>
+                        <Descriptions.Item label="通道/音频">{video.channels ?? "—"} channels · {video.has_audio ? "有音频" : "无音频"}</Descriptions.Item>
+                        <Descriptions.Item label="当前媒体时长">{observed && Number.isFinite(observed.duration) ? `${observed.duration.toFixed(3)} s` : "加载视频后显示"}</Descriptions.Item>
+                        <Descriptions.Item label="Episode 时间窗">{sourceWindow.start.toFixed(3)}–{sourceWindow.end.toFixed(3)} s</Descriptions.Item>
+                        <Descriptions.Item label="物理分片帧数">{video.physical_frames ?? "未索引"}</Descriptions.Item>
+                        <Descriptions.Item label="源文件大小">{formatBytes(video.source_bytes)}</Descriptions.Item>
+                        <Descriptions.Item label="分片编号">chunk-{String(video.chunk_index ?? "?").padStart(3, "0")} / file-{String(video.file_index ?? "?").padStart(3, "0")}</Descriptions.Item>
+                        <Descriptions.Item label="完整性">{video.integrity_status || "—"} · {video.file_integrity_status || "not_indexed"}</Descriptions.Item>
+                        <Descriptions.Item label="源文件" span={3}><code className="video-source-path">{video.relative_path}</code></Descriptions.Item>
+                      </Descriptions>
+                    </Card>;
+                  })}
+                </Space>,
+              }]} />
               <Row gutter={[12, 12]}>{activeVideos.map((video) => <Col xs={24} md={12} key={video.camera}>
                 <div className="camera-title">{video.camera} · {video.is_proxy
                   ? `Episode 代理 · 0.00–${timeline.duration.toFixed(2)} s`
                   : `file-${String(video.file_index ?? "?").padStart(3, "0")} · 源时间窗 ${videoWindow(video, timeline.duration).start.toFixed(2)}–${videoWindow(video, timeline.duration).end.toFixed(2)} s`}</div>
                 {video.integrity_status === "duration_mismatch" && <Alert type="warning" showIcon message="该相机视频窗口长度与 Episode 长度不一致" />}
-                <video className="episode-video" playsInline muted preload="metadata" src={video.url} data-camera={video.camera}
-                  onClick={togglePlayback} ref={(element) => { videoRefs.current[video.camera] = element; }}
-                  onLoadedMetadata={(event) => {
-                    const target = videoWindow(video, timeline.duration).start;
-                    if (Math.abs(event.currentTarget.currentTime - target) > 0.1) event.currentTarget.currentTime = target;
+                <CameraVideo
+                  key={`${video.camera}:${video.url}:${videoRetryTokens[video.camera] || 0}`}
+                  camera={video.camera}
+                  src={video.url}
+                  target={videoWindow(video, timeline.duration).start}
+                  retryToken={videoRetryTokens[video.camera] || 0}
+                  error={videoErrors[video.camera]}
+                  onClick={togglePlayback}
+                  onLoadedMetadata={(camera, element, metadata) => {
+                    element.playbackRate = effectivePlaybackRateRef.current;
+                    setBrowserVideoMetadata((current) => ({ ...current, [camera]: metadata }));
                   }}
                   onWaiting={() => { if (isPlaying) setPlaybackStatus("buffering"); }}
                   onStalled={() => { if (isPlaying) setPlaybackStatus("stalled"); }}
                   onCanPlay={() => { if (isPlaying) setPlaybackStatus("playing"); }}
-                  onError={(event) => {
-                    const errorText = mediaErrorText(event.currentTarget);
-                    pausePlayback("error");
-                    setPlaybackError(errorText);
-                  }} />
+                  onError={handleCameraError}
+                  onRetry={() => retryCamera(video.camera)}
+                  setRef={(element) => { videoRefs.current[video.camera] = element; }}
+                />
               </Col>)}</Row>
               <div className="video-controls">
                 <Space>
-                  <Button type="primary" onClick={togglePlayback} disabled={!activeVideos.length} danger={playbackStatus === "error"}>
+                  <Button type="primary" onClick={togglePlayback} disabled={!playableVideos.length} danger={playbackStatus === "error"}>
                     {isPlaying || playbackStatus === "seeking" || playbackStatus === "buffering" ? "暂停" : "播放"}
                   </Button>
-                  <Button disabled={!activeVideos.length} onClick={() => seek(currentTime - 1 / fps)}>上一帧</Button>
-                  <Button disabled={!activeVideos.length} onClick={() => seek(currentTime + 1 / fps)}>下一帧</Button>
+                  <Button disabled={!playableVideos.length} onClick={() => seek(currentTime - 1 / fps)}>上一帧</Button>
+                  <Button disabled={!playableVideos.length} onClick={() => seek(currentTime + 1 / fps)}>下一帧</Button>
+                  <Space.Compact className="playback-rate-control">
+                    <Button disabled={!supportsPlaybackRate || playbackRateIndex <= 0}
+                      onClick={() => setSelectedPlaybackRate(PLAYBACK_RATES[playbackRateIndex - 1])}>
+                      减速
+                    </Button>
+                    <Select aria-label="代理视频播放速度" value={selectedPlaybackRate}
+                      disabled={!supportsPlaybackRate} style={{ width: 92 }}
+                      options={PLAYBACK_RATES.map((rate) => ({ value: rate, label: `${rate}×` }))}
+                      onChange={setSelectedPlaybackRate} />
+                    <Button disabled={!supportsPlaybackRate || playbackRateIndex >= PLAYBACK_RATES.length - 1}
+                      onClick={() => setSelectedPlaybackRate(PLAYBACK_RATES[playbackRateIndex + 1])}>
+                      加速
+                    </Button>
+                  </Space.Compact>
                 </Space>
+                {!supportsPlaybackRate && <span className="playback-rate-hint">
+                  {useOriginalVideo ? "倍速仅支持 Episode H.264 代理视频" : "代理视频就绪后可调整倍速"}
+                </span>}
                 <span>Episode {currentTime.toFixed(2)} / {timeline.duration.toFixed(2)} s · Frame {currentFrame}</span>
                 <input aria-label="Episode 时间轴" type="range" min={0} max={timeline.duration || 1} step={1 / fps}
-                  disabled={!activeVideos.length} value={Math.min(currentTime, timeline.duration || 1)} onChange={(event) => seek(Number(event.target.value))} />
+                  disabled={!playableVideos.length} value={Math.min(currentTime, timeline.duration || 1)} onChange={(event) => seek(Number(event.target.value))} />
               </div>
-            </Card>}
+              </Card>
+            </VideoPreviewErrorBoundary>}
             <Card title="state / action 曲线" className="section-card" extra={<Segmented
               value={seriesView}
               options={seriesViewOptions}
@@ -1614,13 +2159,21 @@ function App() {
               {loadingSeries && <Progress percent={60} status="active" showInfo={false} />}
               {seriesView === "diff" && <Alert type="info" showIcon message="差值 = 修复后 − 原始；未修复位置为 0" />}
               {seriesView === "valid" && <Alert type="info" showIcon message="无效帧显示为曲线断点；原始 Parquet 和视频未被修改" />}
-              {!series.length && <Alert type="info" showIcon message="暂无曲线数据；请执行标准扫描，或确认该数据集包含 Parquet state/action 字段。" />}
+              {!series.length && seriesFields.length > 0 && <Alert type="info" showIcon message="当前 Episode 未读取到曲线数据，请检查数据分片与 Episode 元数据。" />}
+              {!seriesFields.length && <Alert type="info" showIcon message="该数据集 schema 中未发现可绘制的 State/Action 数值字段。" />}
               <Row gutter={[12, 12]}>
-                <Col xs={24} xl={12}><Curve title="State" rows={series} field="observation.state" elementNames={stateElementNames} fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
-                <Col xs={24} xl={12}><Curve title="Action" rows={series} field="action" elementNames={actionElementNames} fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>
+                {seriesFields.map((field) => {
+                  const width = vector(series.find((row) => vector(row[field.key]).length)?.[field.key]).length;
+                  return <Col xs={24} xl={12} key={field.key}><Curve title={field.title} rows={series} field={field.key}
+                    elementNames={featureElementNames(preview?.dataset || selected, field.key, width)}
+                    fps={fps} intervals={intervals} playhead={currentTime} onSeek={seek} /></Col>;
+                })}
+                {!stateSeriesFields.length && <Col xs={24} xl={12}><Card size="small" title="State"><Alert type="info" showIcon message="schema 中未发现 State 数值字段" /></Card></Col>}
+                {!actionSeriesFields.length && <Col xs={24} xl={12}><Card size="small" title="Action"><Alert type="info" showIcon message="schema 中未发现 Action 数值字段" /></Card></Col>}
               </Row>
             </Card>
-            {preview && <StageVisualizations stages={preview.stage_results} timeline={timeline} onSeek={seek} />}
+            {preview && <StageVisualizations stages={preview.stage_results} timeline={timeline} onSeek={seek}
+              onLoadStage={(stageId) => void loadStageDetail(stageId)} loadingStages={loadingStageDetails} />}
           </div>}
         </Col>
       </Row>
@@ -1628,4 +2181,6 @@ function App() {
   </Layout>;
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <Suspense fallback={<div className="app-loading">正在加载工作台组件…</div>}><App /></Suspense>,
+);

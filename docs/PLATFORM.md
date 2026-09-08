@@ -24,7 +24,7 @@ Range 响应。
 ```
 
 ```bash
-cd /home/pai/zxw/vla-data-pipeline
+cd $HOME/vla-data-pipeline
 .venv/bin/pip install -r requirements.txt
 VLA_DATA_ROOT=/mnt/data/embodied_datasets/public_datasets_staging \
   .venv/bin/uvicorn vla_platform.api:app --host 0.0.0.0 --port 8000
@@ -50,11 +50,14 @@ PostgreSQL、Celery CPU worker 和 Nginx。GPU Stage 可复制 worker 服务并
   Parquet state/action 采样。新 `vla_curation_filter` 使用 `valid`：从父 Manifest 链读取
   `step_validity.parquet`，无效帧以曲线断点显示；旧 overlay 的 `repaired/diff` 仅保留只读兼容。
 - `GET /api/datasets/{uid}/tasks` 返回数据集的子任务名称、task index 和 episode 数量；`GET /api/datasets/{uid}/episodes?task_index=<id>` 按 task 筛选 episode。前端浏览顺序为“数据集 → Task → Episode”。
-- `GET /api/datasets/{uid}/episodes/{index}/preview` 返回 Episode 元数据、instruction、按元数据定位的多相机视频 URL 和 Stage 产物对比；前端工作台提供 Episode 搜索选择、同步播放、当前帧/时间戳及 state/action 曲线。
+- `GET /api/datasets/{uid}/episodes/{index}/preview` 只从本地 SQLite 返回 Episode 元数据、
+  多相机视频定位和 Stage 摘要，不扫描远端 Stage 目录。展开某个 Stage 时，前端再请求
+  `GET /api/datasets/{uid}/episodes/{index}/stages/{stage_id}`；后端依据索引中的 Stage 根目录
+  和 Manifest 明确列出的文件按需读取，不执行递归目录扫描。
 - State/Action 曲线按数据集 `features[字段].names` 显示原始元素名称，并支持分别多选；平台不对固定索引赋予末端位置、姿态或关节语义，以兼容跨本体表示。
 - 新格式曲线支持“原始数据 / 有效帧”切换，不显示虚假的修复值或差值；Stage 标签中的相邻异常帧会合并为连续红色区间，单帧异常至少显示一帧宽度。
 - Episode 工作台将 Stage 1–3 异常位置与 Stage 4–8 专项内容合并为一个
-  Stage 1–8 模块；各 Stage 默认展开并可独立折叠，避免长页面持续占用空间。
+  Stage 1–8 模块；各 Stage 默认展开，首屏摘要显示后异步加载详情，并可独立折叠。
   页面顺序为多相机视频、State/Action 曲线、Stage 1–8 模块。当前 Stage 6 原生读取
   `data_curation/stage6/<dataset>/episode_<index>.json`，展示任务计划、场景对象、
   语义子任务时间轴、置信度和可点击证据帧；Manifest 中的完成数同时显示为全量进度。
@@ -69,6 +72,17 @@ PostgreSQL、Celery CPU worker 和 Nginx。GPU Stage 可复制 worker 服务并
   置信度及可跳转的采样帧；Stage 8 展示处置建议、无效区间和逐相机黑屏/模糊/损坏统计。
   Stage 4/5/7/8 没有当前 Episode 产物时才显示方法目标、预期可视化和所需字段的占位，
   “暂无产物”不解释为通过。Stage 6 若目录已存在但尚未生成选中 Episode，则显示“待处理”。
+- Stage 任务完成一批结果后，应调用
+  `vla_platform.stage_index.publish_stage_index_snapshot(stage_root, stage_id, payloads)`。
+  它按稳定的 Episode 区间生成 `search_index/part-*.parquet`，最后原子发布
+  `search_index_manifest.json`。Manifest 包含 generation、更新时间、文件数、变更 shard 和
+  tombstone；搜索索引先比较 generation，未变化时不枚举 Episode JSON，变化时只批量读取
+  新增或修改的 Parquet shard。主 `manifest.json` 的内容哈希也会写入索引 manifest；若 Stage
+  继续产出导致主 manifest 变化，旧快照自动失效，不会掩盖新标签。旧的逐 Episode JSON
+  目录仍可兼容读取；已有产物可执行
+  `python -m vla_platform.stage_index <stage_root> --stage-id <1-8>` 一次性生成首个快照。
+  对已经完整进入本地目录索引的已完成 Stage，可追加
+  `--catalog-db <catalog.sqlite3> --dataset-uid <uid>`，直接从本地索引回填，避免再次读取海量 JSON。
 - `POST /api/datasets/{uid}/episodes/{index}/video-proxies` 按需生成从零开始、帧数固定的 H.264 Episode 代理，`GET /api/video-proxy-jobs/{job_id}` 查询任务状态。前端默认使用代理，并可切回原始分片。
 - 代理默认缓存在本地 `.local-run/video_proxy`，避免 FFmpeg 在 OSS/FUSE 挂载上随机写 MP4；可用 `VLA_VIDEO_PROXY_ROOT` 修改位置。默认单 Worker、每次编码 2 线程、缓存上限 20 GiB，可分别通过 `VLA_PROXY_WORKERS`、`VLA_PROXY_ENCODER_THREADS`、`VLA_PROXY_CACHE_BYTES` 调整。
 - `GET /api/video-proxies/files/{relative_path}` 和 `GET /api/videos/{uid}/{relative_path}` 均支持 `Range: bytes=start-end`，不会把 MP4 上传到云端。

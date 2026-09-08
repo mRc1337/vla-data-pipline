@@ -19,7 +19,7 @@ from readers import dexcap_hdf5_reader as _reader
 _pipeline.DEFAULT_RAW_ROOT = Path(
     "/mnt/data/embodied_datasets/public_datasets_raw/dexcap"
 )
-_pipeline.DEFAULT_LOCAL_WORK_ROOT = Path("/home/pai/zxw/dexcap_staging")
+_pipeline.DEFAULT_LOCAL_WORK_ROOT = Path.home() / "dexcap_staging"
 _pipeline.PARTITION_SPECS = _reader.PARTITION_SPECS
 _pipeline.OFFICIAL_PARTITIONS = tuple(item.name for item in _reader.PARTITION_SPECS)
 _pipeline.READER_FORMAT = "dexcap_hdf5"

@@ -7,8 +7,10 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from vla_platform import api as api_module
 from vla_platform.api import app
 from vla_platform.catalog import Catalog
+from vla_platform.stage_index import MANIFEST_NAME, publish_stage_index_snapshot
 from vla_platform.thumbnail import ThumbnailManager
 
 
@@ -96,6 +98,149 @@ def indexed_catalog(tmp_path: Path) -> Catalog:
     return catalog
 
 
+def make_mobile_aloha_stage45(data_root: Path) -> None:
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    stage4 = data_root / "data_curation" / "stage4" / "demo"
+    (stage4 / "labels").mkdir(parents=True)
+    stage4_manifest = {
+        "schema_version": 2, "stage": "Stage 4", "stage_id": 4,
+        "detector_version": "mobile_aloha_s4s5-v1",
+        "parent_manifest": str(data_root / "data_curation" / "stage3" / "demo" / "manifest.json"),
+        "result": {
+            "processed_episodes": 3, "processed_frames": 60,
+            "joint_space_only_episodes": 3, "accepted_episodes": 2,
+            "nonfinite_flagged_frames": 0,
+        },
+    }
+    (stage4 / "manifest.json").write_text(json.dumps(stage4_manifest))
+    (stage4 / "summary.json").write_text(json.dumps(stage4_manifest["result"]))
+    summaries = {
+        "episode_index": [0, 1, 2], "num_frames": [20, 30, 10],
+        "s4_evaluation_level": ["joint_space_only_no_eef_pose_or_robot_model"] * 3,
+        "upstream_training_candidate": [False, True, True],
+        "finite_frames": [20, 30, 10], "nonfinite_frames": [0, 0, 0],
+        "absolute_joint_target_tracking_norm": [
+            {"median": 0.1, "p95": 0.2, "max": 0.3},
+            {"median": 0.2, "p95": 0.3, "max": 0.4},
+            {"median": 0.3, "p95": 0.4, "max": 0.5},
+        ],
+        "qvel_vs_finite_difference_norm": [
+            {"median": 0.4, "p95": 0.5, "max": 0.6},
+            {"median": 0.5, "p95": 0.6, "max": 0.7},
+            {"median": 0.6, "p95": 0.7, "max": 0.8},
+        ],
+        "accepted": [False, True, True], "status": ["pass_joint_space"] * 3,
+    }
+    pq.write_table(pa.Table.from_pylist([
+        {key: values[index] for key, values in summaries.items()} for index in range(3)
+    ]), stage4 / "labels" / "episode_summary.parquet")
+
+    stage5 = data_root / "data_curation" / "stage5" / "demo"
+    (stage5 / "labels").mkdir(parents=True)
+    (stage5 / "manifest.json").write_text(json.dumps({
+        "schema_version": 2, "stage": "Stage 5", "stage_id": 5,
+        "detector_version": "mobile_aloha_s4s5-v1",
+        "parent_manifest": str(stage4 / "manifest.json"),
+        "output_format": "lerobot_v3.0-canonical-joint-space-overlay",
+        "transformation": {
+            "joint_action_transform": "absolute_target_minus_measured_qpos",
+            "raw_fields_preserved": True,
+        },
+        "result": {"status": "pass", "frames": 60},
+    }))
+    (stage5 / "summary.json").write_text(json.dumps({
+        "s5": {"status": "pass", "frames": 60, "masked_values_zero": True},
+    }))
+    pq.write_table(pa.Table.from_pylist([
+        {key: values[index] for key, values in summaries.items()} for index in range(3)
+    ]), stage5 / "labels" / "episode_summary.parquet")
+    (stage5 / "labels" / "action_semantics.json").write_text(json.dumps({
+        "raw_action_semantics": "absolute joint target",
+        "canonical_action_semantics": "joint target minus measured qpos",
+        "joint_names": ["left_joint", "right_joint"],
+    }))
+    (stage5 / "canonical_schema.json").write_text(json.dumps({
+        "schema_version": "cross_embodiment_v1.0",
+        "state_mask_true_indices": [0, 1], "action_mask_true_indices": [0, 1],
+        "unavailable": ["EEF pose"],
+    }))
+    (stage5 / "validation.json").write_text(json.dumps({"status": "pass", "frames": 60}))
+
+
+def test_mobile_aloha_stage45_artifacts_are_available_and_keep_stage4_semantics(tmp_path):
+    make_search_dataset(tmp_path / "demo")
+    make_mobile_aloha_stage45(tmp_path)
+    catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+    catalog.scan(mode="standard")
+    catalog.sync_search_index(["demo"])
+
+    stage4 = catalog.episode_stage_detail("demo", 0, 4)
+    assert stage4["artifact_status"] == "available"
+    # accepted=False is cumulative upstream eligibility, not a Stage 4 failure.
+    assert stage4["verdict"] == "pass_joint_space"
+    summary_record = next(
+        row for row in stage4["records"] if row["file"] == "labels/episode_summary.parquet"
+    )
+    assert summary_record["upstream_training_candidate"] is False
+    assert summary_record["absolute_joint_target_tracking_norm"]["p95"] == pytest.approx(0.2)
+
+    stage5_filtered = catalog.episode_stage_detail("demo", 0, 5)
+    assert stage5_filtered["artifact_status"] == "available"
+    assert stage5_filtered["verdict"] == "not_candidate"
+    assert stage5_filtered["summary"]["validation"]["status"] == "pass"
+    assert stage5_filtered["summary"]["canonical_schema"]["schema_version"] == "cross_embodiment_v1.0"
+    assert stage5_filtered["summary"]["action_semantics"]["joint_names"] == [
+        "left_joint", "right_joint",
+    ]
+
+    stage5_candidate = catalog.episode_stage_detail("demo", 1, 5)
+    assert stage5_candidate["artifact_status"] == "available"
+    assert stage5_candidate["verdict"] == "aligned"
+
+
+def test_episode_browser_uses_search_index_cursor_and_server_query(tmp_path):
+    catalog = indexed_catalog(tmp_path)
+
+    first = catalog.list_episodes_page("demo", page_size=2)
+    assert [item["episode_index"] for item in first["items"]] == [0, 1]
+    assert first["next_cursor"] == "1"
+    second = catalog.list_episodes_page("demo", page_size=2, cursor=1)
+    assert [item["episode_index"] for item in second["items"]] == [2]
+    assert second["next_cursor"] is None
+
+    by_number = catalog.list_episodes_page("demo", page_size=10, query="Episode 2")
+    assert [item["episode_index"] for item in by_number["items"]] == [2]
+    by_instruction = catalog.list_episodes_page("demo", page_size=10, query="towel")
+    assert [item["episode_index"] for item in by_instruction["items"]] == [1, 2]
+    task_page = catalog.list_episodes_page("demo", task_index=1, page_size=1)
+    assert [item["episode_index"] for item in task_page["items"]] == [1]
+    assert task_page["next_cursor"] == "1"
+
+    # A partial legacy row must not shadow the complete episode_search index.
+    with catalog._connect() as db:
+        db.execute("DELETE FROM episodes WHERE dataset_uid='demo'")
+        db.execute("""INSERT INTO episodes(
+            dataset_uid,episode_index,frames,duration,instruction,task_index,metadata_json
+        ) VALUES('demo',2,10,0.5,'fold the towel',1,'{}')""")
+    complete = catalog.list_episodes_page("demo", page_size=10)
+    assert [item["episode_index"] for item in complete["items"]] == [0, 1, 2]
+
+
+def test_search_index_dataset_selectors_accept_collection_names(tmp_path):
+    collection = tmp_path / "lerobot_v3_0" / "demo_collection"
+    make_search_dataset(collection / "member_a")
+    make_search_dataset(collection / "member_b")
+    catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+    catalog.scan(mode="standard", scan_root=collection)
+
+    assert catalog.resolve_search_index_datasets(["demo_collection"]) == (
+        ["member_a", "member_b"], []
+    )
+    assert catalog.resolve_search_index_datasets(["member_b"]) == (["member_b"], [])
+    assert catalog.resolve_search_index_datasets(["missing"]) == ([], ["missing"])
+
+
 def test_episode_search_text_stage_filters_pagination_and_missing_states(tmp_path):
     catalog = indexed_catalog(tmp_path)
     text_result = catalog.search_episodes(query="white mug")
@@ -116,17 +261,97 @@ def test_episode_search_text_stage_filters_pagination_and_missing_states(tmp_pat
         "stage_id": 6, "verdicts": ["complete"],
         "artifact_statuses": ["episode_pending"],
     }])
-    assert within_stage_or["total"] == 3
+    # Only the Episode with a real Stage 6 artifact matches. Missing rows are
+    # dynamically exposed as not_generated, not as episode_pending placeholders.
+    assert within_stage_or["total"] == 1
 
     missing = catalog.search_episodes(stage_filters=[
         {"stage_id": 8, "artifact_statuses": ["not_generated"]},
     ], page=1, page_size=2)
-    assert missing["total"] == 3 and len(missing["items"]) == 2
-    assert missing["dataset_count"] == 1 and missing["task_count"] == 2
+    assert missing["total"] == 1 and len(missing["items"]) == 1
+    assert missing["dataset_count"] == 1 and missing["task_count"] == 1
     assert all(
         next(b for b in item["stage_badges"] if b["stage_id"] == 8)["verdict"] == "not_generated"
         for item in missing["items"]
     )
+
+
+def test_default_search_uses_dataset_counts_before_summary_refresh(tmp_path):
+    catalog = indexed_catalog(tmp_path)
+    with catalog._connect() as db:
+        db.execute("DELETE FROM search_dataset_summary")
+        db.execute("DELETE FROM search_stage_summary")
+        db.execute("DELETE FROM search_summary_meta")
+
+    result = catalog.search_episodes(page=1, page_size=2)
+    assert result["total"] == 3
+    assert result["dataset_count"] == 1
+    assert result["task_count"] == 0
+    assert len(result["items"]) == 2
+
+
+def test_preview_summary_uses_sqlite_and_stage_details_are_lazy(tmp_path, monkeypatch):
+    catalog = indexed_catalog(tmp_path)
+
+    def reject_recursive_glob(_path, pattern):
+        raise AssertionError(f"preview must not enumerate Stage directories: {pattern}")
+
+    monkeypatch.setattr(Path, "glob", reject_recursive_glob)
+    summary = catalog.episode_preview_summary("demo", 0)
+    assert summary["episode"]["instruction"] == "put the white mug down"
+    assert summary["timeline"]["duration"] == 1.0
+    assert {item["camera"] for item in summary["videos"]} == {
+        "observation.images.front", "observation.images.wrist",
+    }
+    stage1 = next(item for item in summary["stage_results"] if item["stage_id"] == 1)
+    assert stage1["artifact_status"] == "available"
+    assert stage1["range_count"] == 1
+    assert stage1["detail_loaded"] is False
+
+    detail = catalog.episode_stage_detail("demo", 0, 1)
+    assert detail["detail_loaded"] is True
+    assert any(record["file"] == "labels/episode_summary.parquet" for record in detail["records"])
+
+    stage6 = catalog.episode_stage_detail("demo", 0, 6)
+    assert stage6["detail"]["status"] == "complete"
+
+    monkeypatch.setattr("vla_platform.api.catalog", catalog)
+    with TestClient(app) as client:
+        response = client.get("/api/datasets/demo/episodes/0/preview")
+        assert response.status_code == 200
+        assert response.json()["stage_results"][0]["detail_loaded"] is False
+        response = client.get("/api/datasets/demo/episodes/0/stages/6")
+        assert response.status_code == 200
+        assert response.json()["detail"]["status"] == "complete"
+
+
+def test_upstream_filtered_status_propagates_across_multiple_stages(tmp_path):
+    catalog = indexed_catalog(tmp_path)
+    with catalog._connect() as db:
+        stage2 = db.execute(
+            """SELECT artifact_status,verdict FROM stage_episode_results
+                WHERE dataset_uid='demo' AND episode_index=2 AND stage_id=2"""
+        ).fetchone()
+        assert stage2 is None
+    dynamic = catalog.search_episodes(stage_filters=[{
+        "stage_id": 2, "artifact_statuses": ["upstream_filtered"],
+    }])
+    assert [item["episode_index"] for item in dynamic["items"]] == [2]
+
+    with catalog._connect() as db:
+        # A legacy placeholder, if encountered during an offline migration,
+        # is still repaired in place; new indexing never creates one.
+        db.execute(
+            """INSERT INTO stage_episode_results(
+                dataset_uid,episode_index,stage_id,run_id,artifact_status,verdict,indexed_at
+            ) VALUES('demo',2,3,'legacy','episode_pending','episode_pending',0)"""
+        )
+        catalog._fill_missing_stage_rows(db, "demo", 3, "demo", True, True)
+        stage3 = db.execute(
+            """SELECT artifact_status,verdict FROM stage_episode_results
+                WHERE dataset_uid='demo' AND episode_index=2 AND stage_id=3"""
+        ).fetchone()
+        assert tuple(stage3) == ("upstream_filtered", "upstream_filtered")
 
 
 def test_json_stage_index_updates_incrementally(tmp_path):
@@ -144,6 +369,74 @@ def test_json_stage_index_updates_incrementally(tmp_path):
     assert updated["total"] == 1
     badge = next(value for value in updated["items"][0]["stage_badges"] if value["stage_id"] == 6)
     assert badge["severity"] == "warning"
+
+
+def test_sharded_stage_index_skips_unchanged_and_applies_changes(tmp_path, monkeypatch):
+    catalog = indexed_catalog(tmp_path)
+    stage = tmp_path / "data_curation" / "stage6" / "demo"
+    payloads = [
+        {"episode_index": index, "status": "complete", "quality": {"uncertainties": []}}
+        for index in range(3)
+    ]
+    first_manifest = publish_stage_index_snapshot(stage, 6, payloads, shard_size=1)
+    assert first_manifest["file_count"] == 3
+    assert len(first_manifest["shards"]) == 3
+    unchanged_shard = stage / "search_index" / "part-000002.parquet"
+    unchanged_mtime = unchanged_shard.stat().st_mtime_ns
+    assert publish_stage_index_snapshot(stage, 6, payloads, shard_size=1)["generation"] == first_manifest["generation"]
+    assert unchanged_shard.stat().st_mtime_ns == unchanged_mtime
+    catalog.sync_search_index(["demo"])
+
+    original_glob = Path.glob
+
+    def reject_legacy_episode_scan(path, pattern):
+        if pattern == "episode_*.json":
+            raise AssertionError("unchanged bundle must not scan legacy Episode JSON")
+        return original_glob(path, pattern)
+
+    monkeypatch.setattr(Path, "glob", reject_legacy_episode_scan)
+    count, skipped = catalog._sync_stage_search_index("demo", tmp_path / "demo", 6)
+    assert skipped is True and count == 3
+    monkeypatch.setattr(Path, "glob", original_glob)
+
+    second_manifest = publish_stage_index_snapshot(stage, 6, [
+        {"episode_index": 0, "status": "needs_review", "quality": {"uncertainties": ["ambiguous"]}},
+        payloads[2],
+    ], shard_size=1)
+    assert second_manifest["changes"]["upsert_shards"] == ["search_index/part-000000.parquet"]
+    assert second_manifest["changes"]["tombstones"] == [1]
+    catalog.sync_search_index(["demo"])
+
+    changed = catalog.search_episodes(stage_filters=[{"stage_id": 6, "verdicts": ["needs_review"]}])
+    assert [(item["episode_index"], item["dataset_uid"]) for item in changed["items"]] == [(0, "demo")]
+    missing = catalog.search_episodes(stage_filters=[{
+        "stage_id": 6, "artifact_statuses": ["upstream_filtered"],
+    }])
+    assert [item["episode_index"] for item in missing["items"]] == [1]
+    assert (stage / MANIFEST_NAME).is_file()
+
+    # A producer must publish the compact manifest after its primary manifest;
+    # a newer primary manifest invalidates the snapshot and triggers fallback.
+    (stage / "manifest.json").write_text(json.dumps({"stage_id": 6, "run_complete": True}))
+    assert catalog._stage_index_manifest(stage, 6) is None
+
+
+def test_completed_legacy_json_stage_uses_manifest_fast_path(tmp_path, monkeypatch):
+    catalog = indexed_catalog(tmp_path)
+    stage = tmp_path / "data_curation" / "stage6" / "demo"
+    (stage / "manifest.json").write_text(json.dumps({"stage_id": 6, "run_complete": True}))
+    catalog.sync_search_index(["demo"])
+
+    original_glob = Path.glob
+
+    def reject_episode_scan(path, pattern):
+        if pattern == "episode_*.json":
+            raise AssertionError("completed unchanged stage must not scan Episode JSON")
+        return original_glob(path, pattern)
+
+    monkeypatch.setattr(Path, "glob", reject_episode_scan)
+    count, skipped = catalog._sync_stage_search_index("demo", tmp_path / "demo", 6)
+    assert skipped is True and count == 1
 
 
 def test_thumbnail_uses_primary_camera_episode_start_and_invalidates_cache(tmp_path, monkeypatch):
@@ -212,3 +505,23 @@ def test_search_and_thumbnail_api(monkeypatch, tmp_path):
             assert task["status"] == "succeeded"
     finally:
         manager._executor.shutdown(wait=True)
+
+
+def test_duplicate_search_index_request_reuses_active_task(monkeypatch, tmp_path):
+    catalog = indexed_catalog(tmp_path)
+    monkeypatch.setattr(api_module, "catalog", catalog)
+    active = {
+        "task_id": "search-index-existing", "status": "running",
+        "datasets": ["demo"], "current": 1, "total": 9,
+        "created_at": time.time(), "error": None,
+    }
+    api_module.search_index_tasks.clear()
+    api_module.search_index_tasks[active["task_id"]] = active
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/search/index", json={"datasets": ["demo"]})
+        assert response.status_code == 202
+        assert response.json()["task_id"] == active["task_id"]
+        assert list(api_module.search_index_tasks) == [active["task_id"]]
+    finally:
+        api_module.search_index_tasks.clear()

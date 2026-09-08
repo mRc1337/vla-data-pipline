@@ -47,6 +47,8 @@ def test_pipeline_writes_manifest(tmp_path):
     asyncio.run(runner._run(task, {}))
     assert task.status == "succeeded"
     assert (tmp_path / "curation" / "stage1" / "demo" / task.task_id / "manifest.json").exists()
+    search_manifest = tmp_path / "curation" / "stage1" / "demo" / "search_index_manifest.json"
+    assert json.loads(search_manifest.read_text())["file_count"] == 1
 
 
 def test_health_endpoint():
@@ -86,6 +88,42 @@ def test_quick_scan_avoids_deep_size_walk_and_reuses_fingerprint(tmp_path):
     second = catalog.scan(mode="quick")
     assert second[0]["uid"] == "demo"
     assert catalog.list_datasets()[0]["bytes"] == 0
+
+
+def test_preview_hydrates_requested_episode_after_quick_scan(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    dataset = tmp_path / "demo"
+    episode_dir = dataset / "meta" / "episodes" / "chunk-000"
+    video_dir = dataset / "videos" / "observation.images.front" / "chunk-000"
+    episode_dir.mkdir(parents=True)
+    video_dir.mkdir(parents=True)
+    (dataset / "meta" / "info.json").write_text(json.dumps({
+        "codebase_version": "v3.0", "total_episodes": 1, "total_frames": 2, "fps": 10,
+        "features": {"observation.images.front": {"dtype": "video", "shape": [8, 8, 3]}},
+    }))
+    pq.write_table(pa.table({
+        "episode_index": pa.array([0]), "length": pa.array([2]),
+        "tasks": pa.array([["pick the block"]]),
+        "videos/observation.images.front/chunk_index": pa.array([0]),
+        "videos/observation.images.front/file_index": pa.array([0]),
+        "videos/observation.images.front/from_timestamp": pa.array([0.0]),
+        "videos/observation.images.front/to_timestamp": pa.array([0.2]),
+    }), episode_dir / "file-000.parquet")
+    (video_dir / "file-000.mp4").write_bytes(b"video")
+
+    catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+    catalog.scan(mode="quick")
+    with catalog._connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 0
+
+    preview = catalog.episode_preview_summary("demo", 0)
+    assert preview["episode"]["instruction"] == "pick the block"
+    assert preview["timeline"]["frame_count"] == 2
+    assert preview["videos"][0]["relative_path"].endswith("file-000.mp4")
+    assert preview["videos"][0]["integrity_status"] == "not_indexed"
+    with catalog._connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 1
 
 
 def test_standard_scan_indexes_video_metadata_without_decoding_payload(tmp_path):
@@ -153,7 +191,11 @@ def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_p
     (dataset / "videos" / "observation.images.wrist" / "chunk-000").mkdir(parents=True)
     info = {"codebase_version": "v3.0", "total_episodes": 1, "total_frames": 2,
             "fps": 10, "video_path": "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
-            "features": {"observation.images.front": {"dtype": "video"},
+            "features": {"observation.images.front": {
+                             "dtype": "video", "shape": [240, 320, 3],
+                             "info": {"video.height": 240, "video.width": 320,
+                                      "video.codec": "av1", "video.pix_fmt": "yuv420p",
+                                      "video.fps": 10, "video.channels": 3, "has_audio": False}},
                          "observation.images.wrist": {"dtype": "video"},
                          "observation.state": {"dtype": "float32", "shape": [2]},
                          "action": {"dtype": "float32", "shape": [2]}}}
@@ -208,6 +250,17 @@ def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_p
 
     catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
     catalog.scan(mode="standard")
+    with catalog._connect() as db:
+        parquet_row = db.execute(
+            "SELECT rows,schema_json,integrity_status,error FROM parquet_files "
+            "WHERE dataset_uid='demo' AND relative_path='data/chunk-000/file-000.parquet'"
+        ).fetchone()
+    assert parquet_row["rows"] == 2
+    assert parquet_row["integrity_status"] == "pass"
+    assert parquet_row["error"] is None
+    assert set(json.loads(parquet_row["schema_json"])) >= {
+        "observation.state", "action", "episode_index",
+    }
     assert catalog.list_tasks("demo") == [{"task_index": 0, "name": "move the block", "episodes": 1}]
     assert catalog.list_episodes("demo", 0)[0]["task_index"] == 0
     preview = catalog.episode_preview("demo", 0)
@@ -219,6 +272,11 @@ def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_p
     videos = {item["camera"]: item for item in preview["videos"]}
     assert videos["observation.images.front"]["file_index"] == 1
     assert videos["observation.images.front"]["source_start"] == 0.0
+    assert videos["observation.images.front"]["width"] == 320
+    assert videos["observation.images.front"]["height"] == 240
+    assert videos["observation.images.front"]["fps"] == 10
+    assert videos["observation.images.front"]["codec"] == "av1"
+    assert videos["observation.images.front"]["source_bytes"] == len(b"not-a-real-video")
     assert videos["observation.images.wrist"]["file_index"] == 0
     assert videos["observation.images.wrist"]["source_start"] == 10.0
     assert videos["observation.images.wrist"]["source_end"] == 10.2
@@ -257,6 +315,51 @@ def test_episode_preview_reads_metadata_series_and_video_refs(monkeypatch, tmp_p
     assert response.status_code == 200
     assert response.json()["view"] == "repaired"
     assert response.json()["rows"][1]["observation.state"] == [20.0, 30.0]
+
+
+def test_episode_series_reads_split_state_and_plural_actions(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    dataset = tmp_path / "geek_data" / "agilex_demo"
+    (dataset / "meta" / "episodes" / "chunk-000").mkdir(parents=True)
+    (dataset / "data" / "chunk-000").mkdir(parents=True)
+    (dataset / "meta" / "info.json").write_text(json.dumps({
+        "codebase_version": "v3.0", "total_episodes": 1, "total_frames": 2, "fps": 30,
+        "features": {
+            "observation.state.joint": {"dtype": "float32", "shape": [2]},
+            "observation.state.end": {"dtype": "float32", "shape": [2]},
+            "actions": {"dtype": "float32", "shape": [3]},
+        },
+    }))
+    pq.write_table(pa.table({
+        "episode_index": pa.array([0]), "length": pa.array([2]),
+        "data/chunk_index": pa.array([0]), "data/file_index": pa.array([0]),
+    }), dataset / "meta" / "episodes" / "chunk-000" / "file-000.parquet")
+    pq.write_table(pa.table({
+        "observation.state.joint": pa.array([[1.0, 2.0], [3.0, 4.0]]),
+        "observation.state.end": pa.array([[5.0, 6.0], [7.0, 8.0]]),
+        "actions": pa.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]),
+        "timestamp": pa.array([0.0, 1 / 30]), "frame_index": pa.array([0, 1]),
+        "episode_index": pa.array([0, 0]),
+    }), dataset / "data" / "chunk-000" / "file-000.parquet")
+
+    catalog = Catalog(tmp_path / "catalog.sqlite3", tmp_path)
+    catalog.scan(mode="standard", scan_root=dataset)
+    rows = catalog.episode_series(
+        "agilex_demo", 0,
+        ["timestamp", "frame_index", "observation.state.joint", "observation.state.end", "actions"],
+        limit=2,
+    )
+
+    assert rows[0]["observation.state.joint"] == [1.0, 2.0]
+    assert rows[0]["observation.state.end"] == [5.0, 6.0]
+    assert rows[0]["actions"] == pytest.approx([0.1, 0.2, 0.3])
+    with catalog._connect() as db:
+        parquet_row = db.execute(
+            "SELECT integrity_status,schema_json FROM parquet_files WHERE dataset_uid='agilex_demo'"
+        ).fetchone()
+    assert parquet_row["integrity_status"] == "pass"
+    assert "actions" in json.loads(parquet_row["schema_json"])
 
 
 def test_filter_manifest_exposes_validity_without_fake_repairs(monkeypatch, tmp_path):
@@ -534,6 +637,87 @@ def test_video_proxy_manager_generates_versioned_cached_clips(monkeypatch, tmp_p
         assert len(commands) == 1
     finally:
         manager._executor.shutdown(wait=True)
+
+
+def test_video_proxy_manager_skips_missing_camera_sources(monkeypatch, tmp_path):
+    available = tmp_path / "front.mp4"
+    available.write_bytes(b"source-video")
+
+    class FakeCatalog:
+        def episode_preview(self, uid, episode_index):
+            return {
+                "timeline": {"fps": 10, "frame_count": 20, "duration": 2.0},
+                "videos": [
+                    {"camera": "front", "relative_path": "front.mp4", "source_start": 0, "source_end": 2},
+                    {"camera": "wrist", "relative_path": "missing.mp4", "source_start": 0, "source_end": 2},
+                ],
+            }
+
+        def resolve_path(self, uid, relative):
+            path = tmp_path / relative
+            if not path.is_file():
+                raise FileNotFoundError(relative)
+            return path
+
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        Path(command[-1]).write_bytes(b"proxy-video")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("vla_platform.video_proxy.shutil.which", lambda _: "/usr/bin/ffmpeg")
+    monkeypatch.setattr("vla_platform.video_proxy.subprocess.run", fake_run)
+    manager = VideoProxyManager(tmp_path / "proxies")
+    try:
+        task = manager.request(FakeCatalog(), "demo", 0)
+        deadline = time.time() + 2
+        while task["status"] != "ready" and time.time() < deadline:
+            time.sleep(0.01)
+            task = manager.status(task["job_id"])
+        assert task and task["status"] == "ready"
+        assert [video["camera"] for video in task["videos"]] == ["front"]
+        assert task["warnings"] == [{
+            "camera": "wrist", "relative_path": "missing.mp4",
+            "reason": "source video is missing",
+        }]
+        assert len(commands) == 1
+    finally:
+        manager._executor.shutdown(wait=True)
+
+
+def test_video_proxy_manager_rejects_episode_with_no_available_sources(monkeypatch, tmp_path):
+    class FakeCatalog:
+        def episode_preview(self, uid, episode_index):
+            return {
+                "timeline": {"fps": 10, "frame_count": 20, "duration": 2.0},
+                "videos": [{
+                    "camera": "front", "relative_path": "missing.mp4",
+                    "source_start": 0, "source_end": 2,
+                }],
+            }
+
+        def resolve_path(self, uid, relative):
+            raise FileNotFoundError(relative)
+
+    monkeypatch.setattr("vla_platform.video_proxy.shutil.which", lambda _: "/usr/bin/ffmpeg")
+    manager = VideoProxyManager(tmp_path / "proxies")
+    try:
+        with pytest.raises(ValueError, match="no available video streams.*front"):
+            manager.request(FakeCatalog(), "demo", 0)
+    finally:
+        manager._executor.shutdown(wait=True)
+
+
+def test_video_proxy_api_reports_unavailable_sources_as_unprocessable(monkeypatch):
+    class FakeProxyManager:
+        def request(self, catalog, uid, episode_index):
+            raise ValueError("episode contains no available video streams; missing cameras: front")
+
+    monkeypatch.setattr("vla_platform.api.proxy_manager", FakeProxyManager())
+    response = TestClient(app).post("/api/datasets/demo/episodes/0/video-proxies?prewarm=0")
+    assert response.status_code == 422
+    assert "missing cameras: front" in response.json()["detail"]
 
 
 def test_video_proxy_api_and_range(monkeypatch, tmp_path):

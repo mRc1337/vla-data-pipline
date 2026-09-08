@@ -32,7 +32,7 @@ from readers.agibot_world_reader import AgibotCatalog, CatalogTask, EpisodeSourc
 
 DEFAULT_RAW_ROOT = Path("/mnt/data/embodied_datasets/public_datasets_raw/agibot_world")
 DEFAULT_OUTPUT = Path("/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/agibot_world")
-DEFAULT_LOCAL = Path("/home/pai/zxw/agibot_world_staging")
+DEFAULT_LOCAL = Path.home() / "agibot_world_staging"
 REMOTE_WORK = Path("/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/.conversion_work/agibot_world")
 DEFAULT_MAX_LOCAL_INFLIGHT_BYTES = 128 * 1024**3
 TASK_MARKER_VERSION = 3

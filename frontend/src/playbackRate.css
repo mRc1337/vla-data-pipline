@@ -1,0 +1,8 @@
+.playback-rate-control {
+  white-space: nowrap;
+}
+
+.playback-rate-hint {
+  color: #667085;
+  font-size: 12px;
+}

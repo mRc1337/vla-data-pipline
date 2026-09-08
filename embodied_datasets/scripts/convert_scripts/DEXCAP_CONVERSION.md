@@ -42,7 +42,7 @@ cropped, padded, reordered, cast, or silently dropped.
 
 The coordinator freezes the plan and global episode/frame/task ranges before
 dispatch. Each worker writes one complete unit below
-`/home/pai/zxw/dexcap_staging/work/<run_id>/unit-XXXXXX/`. The unit is reopened
+`$HOME/dexcap_staging/work/<run_id>/unit-XXXXXX/`. The unit is reopened
 and validated before its Parquet and MP4 files are copied directly to their
 final chunk paths under the OSS staging output. The uploader validates size,
 Parquet footer/schema or MP4 codec/shape/FPS/frame count, and first/middle/last
@@ -86,7 +86,7 @@ Formal command (not executed during this task):
 .venv/bin/python embodied_datasets/scripts/convert_scripts/convert_dexcap_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw/dexcap \
   --output-root /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0 \
-  --local-work-root /home/pai/zxw/dexcap_staging \
+  --local-work-root $HOME/dexcap_staging \
   --output-dataset-uid dexcap \
   --acceleration-mode parallel \
   --workers 4 --encoder-threads-per-worker 8 \

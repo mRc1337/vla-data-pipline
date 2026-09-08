@@ -7,11 +7,13 @@ import shutil
 import asyncio
 import json
 import threading
+import hashlib
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 
 from .catalog import Catalog
@@ -44,7 +46,7 @@ except (OSError, Exception) as exc:
     else:
         raise exc
 VIDEO_PROXY_ROOT = Path(os.environ.get("VLA_VIDEO_PROXY_ROOT", str(DB_PATH.parent / "video_proxy")))
-THUMBNAIL_ROOT = Path(os.environ.get("VLA_THUMBNAIL_ROOT", str(CURATION_ROOT / "_catalog" / "thumbnails")))
+THUMBNAIL_ROOT = Path(os.environ.get("VLA_THUMBNAIL_ROOT", str(DB_PATH.parent / "thumbnails")))
 try:
     THUMBNAIL_ROOT.mkdir(parents=True, exist_ok=True)
 except OSError:
@@ -57,6 +59,7 @@ thumbnail_manager = ThumbnailManager(
 )
 catalog.recover_interrupted_scans()
 app = FastAPI(title="VLA Data Governance Platform", version="0.1.0")
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 scan_tasks: dict[str, dict[str, Any]] = {}
 scan_cancellations: dict[str, threading.Event] = {}
 scan_lock = threading.Lock()
@@ -139,6 +142,7 @@ class EpisodeSearchRequest(BaseModel):
     sort: Literal["relevance", "episode", "duration_asc", "duration_desc"] = "relevance"
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=24, ge=1, le=30)
+    cursor: str | None = Field(default=None, max_length=512)
 
 
 class SearchIndexRequest(BaseModel):
@@ -165,9 +169,14 @@ async def health() -> dict[str, Any]:
 async def _run_search_index(task_id: str, dataset_uids: list[str]) -> None:
     task = search_index_tasks[task_id]
     try:
-        await asyncio.to_thread(search_index_execution_lock.acquire)
+        # Do not occupy a worker thread while another index build owns the
+        # single-writer lock. A few queued jobs could otherwise exhaust the
+        # shared executor and prevent the active job from making progress.
+        while not search_index_execution_lock.acquire(blocking=False):
+            await asyncio.sleep(0.1)
         try:
-            task.update(status="running", started_at=time.time())
+            with search_index_lock:
+                task.update(status="running", started_at=time.time())
 
             def progress(update: dict[str, Any]) -> None:
                 with search_index_lock:
@@ -188,16 +197,23 @@ async def _run_search_index(task_id: str, dataset_uids: list[str]) -> None:
 @app.post("/api/search/index", status_code=202)
 async def build_search_index(body: SearchIndexRequest | None = None) -> dict[str, Any]:
     body = body or SearchIndexRequest()
-    missing = [uid for uid in body.datasets if not catalog.get_dataset(uid)]
+    dataset_uids, missing = await asyncio.to_thread(
+        catalog.resolve_search_index_datasets, body.datasets
+    )
     if missing:
         raise HTTPException(404, f"datasets not indexed: {', '.join(missing)}")
-    task_id = f"search-index-{uuid.uuid4().hex[:12]}"
-    task = {
-        "task_id": task_id, "status": "queued", "datasets": body.datasets,
-        "current": 0, "total": 0, "created_at": time.time(), "error": None,
-    }
-    search_index_tasks[task_id] = task
-    asyncio.create_task(_run_search_index(task_id, body.datasets))
+    with search_index_lock:
+        for existing in search_index_tasks.values():
+            if (existing["status"] in {"queued", "running"}
+                    and existing["datasets"] == dataset_uids):
+                return dict(existing)
+        task_id = f"search-index-{uuid.uuid4().hex[:12]}"
+        task = {
+            "task_id": task_id, "status": "queued", "datasets": dataset_uids,
+            "current": 0, "total": 0, "created_at": time.time(), "error": None,
+        }
+        search_index_tasks[task_id] = task
+    asyncio.create_task(_run_search_index(task_id, dataset_uids))
     return task
 
 
@@ -230,44 +246,56 @@ async def search_episodes(body: EpisodeSearchRequest) -> dict[str, Any]:
         body.sort,
         body.page,
         body.page_size,
+        body.cursor,
     )
-    for item in result["items"]:
-        try:
-            thumbnail = thumbnail_manager.inspect(
-                catalog, item["dataset_uid"], int(item["episode_index"])
-            )
-            item["thumbnail_status"] = thumbnail["status"]
-            item["thumbnail_url"] = thumbnail["url"]
-            item["primary_camera"] = thumbnail["camera"]
-        except (FileNotFoundError, IndexError, OSError, ValueError) as exc:
-            item["thumbnail_status"] = "unavailable"
-            item["thumbnail_error"] = str(exc)
+    def attach_thumbnails() -> None:
+        for item in result["items"]:
+            try:
+                thumbnail = thumbnail_manager.inspect(
+                    catalog, item["dataset_uid"], int(item["episode_index"])
+                )
+                item["thumbnail_status"] = thumbnail["status"]
+                item["thumbnail_url"] = thumbnail["url"]
+                item["primary_camera"] = thumbnail["camera"]
+            except (FileNotFoundError, IndexError, OSError, ValueError) as exc:
+                item["thumbnail_status"] = "unavailable"
+                item["thumbnail_error"] = str(exc)
+
+    await asyncio.to_thread(attach_thumbnails)
     return result
 
 
 @app.post("/api/thumbnails/prewarm", status_code=202)
 async def prewarm_thumbnails(body: ThumbnailPrewarmRequest) -> dict[str, Any]:
-    results = []
-    for item in body.episodes:
-        try:
-            results.append(thumbnail_manager.request(
-                catalog, item.dataset_uid, item.episode_index
-            ))
-        except (FileNotFoundError, IndexError, OSError, ValueError) as exc:
-            results.append({
-                "dataset_uid": item.dataset_uid,
-                "episode_index": item.episode_index,
-                "status": "unavailable",
-                "error": str(exc),
-            })
+    def request_all() -> list[dict[str, Any]]:
+        results = []
+        for item in body.episodes:
+            try:
+                results.append(thumbnail_manager.request(
+                    catalog, item.dataset_uid, item.episode_index
+                ))
+            except (FileNotFoundError, IndexError, OSError, ValueError) as exc:
+                results.append({
+                    "dataset_uid": item.dataset_uid,
+                    "episode_index": item.episode_index,
+                    "status": "unavailable",
+                    "error": str(exc),
+                })
+        return results
+
+    results = await asyncio.to_thread(request_all)
     return {"items": results}
 
 
 @app.get("/api/thumbnails/{dataset_uid}/{episode_index}")
 async def thumbnail(dataset_uid: str, episode_index: int):
     try:
-        status = thumbnail_manager.request(catalog, dataset_uid, episode_index)
-        path = thumbnail_manager.resolve(catalog, dataset_uid, episode_index)
+        status, path = await asyncio.to_thread(
+            lambda: (
+                thumbnail_manager.request(catalog, dataset_uid, episode_index),
+                thumbnail_manager.resolve(catalog, dataset_uid, episode_index),
+            )
+        )
     except (FileNotFoundError, IndexError, OSError, ValueError):
         raise HTTPException(404, "thumbnail source not found") from None
     if path is None:
@@ -276,6 +304,17 @@ async def thumbnail(dataset_uid: str, episode_index: int):
         path, media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
+
+
+@app.get("/api/thumbnails/status/{dataset_uid}/{episode_index}")
+async def thumbnail_status(dataset_uid: str, episode_index: int) -> dict[str, Any]:
+    """Return thumbnail state without scheduling FFmpeg work."""
+    try:
+        return await asyncio.to_thread(
+            thumbnail_manager.inspect, catalog, dataset_uid, episode_index
+        )
+    except (FileNotFoundError, IndexError, OSError, ValueError):
+        raise HTTPException(404, "thumbnail source not found") from None
 
 
 def _safe_scan_root(root: str | None) -> str | None:
@@ -396,18 +435,34 @@ async def scan_events(scan_id: str):
 
 
 @app.get("/api/datasets")
-async def datasets(uid: str | None = None, codebase_version: str | None = None) -> list[dict[str, Any]]:
+async def datasets(
+    request: Request,
+    uid: str | None = None,
+    codebase_version: str | None = None,
+) -> Response:
     rows = catalog.list_datasets()
     if uid: rows = [row for row in rows if uid.lower() in row["uid"].lower()]
     if codebase_version: rows = [row for row in rows if row["codebase_version"] == codebase_version]
-    return rows
+    fingerprint = "|".join(
+        f"{row['uid']}:{row.get('scanned_at', 0)}:{row.get('episodes', 0)}:{row.get('frames', 0)}"
+        for row in rows
+    )
+    etag = f'W/"{hashlib.sha256(fingerprint.encode()).hexdigest()[:24]}"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=30"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return JSONResponse(rows, headers=headers)
 
 
 @app.get("/api/datasets/{uid}")
-async def dataset(uid: str) -> dict[str, Any]:
+async def dataset(uid: str, request: Request) -> Response:
     value = catalog.get_dataset(uid)
     if not value: raise HTTPException(404, "dataset not indexed")
-    return value
+    etag = f'W/"{hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()[:24]}"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=60"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return JSONResponse(value, headers=headers)
 
 
 @app.get("/api/datasets/{uid}/videos")
@@ -420,21 +475,43 @@ async def videos(uid: str, integrity_status: str | None = Query(None)) -> list[d
 @app.get("/api/datasets/{uid}/tasks")
 async def tasks(uid: str) -> list[dict[str, Any]]:
     if not catalog.get_dataset(uid): raise HTTPException(404, "dataset not indexed")
-    return catalog.list_tasks(uid)
+    return await asyncio.to_thread(catalog.list_tasks, uid)
 
 
 @app.get("/api/datasets/{uid}/episodes")
-async def episodes(uid: str, task_index: int | None = Query(None, ge=0)) -> list[dict[str, Any]]:
+async def episodes(
+    uid: str,
+    task_index: int | None = Query(None, ge=0),
+    page_size: int | None = Query(None, ge=1, le=500),
+    cursor: int | None = Query(None, ge=-1),
+    query: str | None = Query(None, max_length=200),
+) -> list[dict[str, Any]] | dict[str, Any]:
     if not catalog.get_dataset(uid): raise HTTPException(404, "dataset not indexed")
+    if page_size is not None or cursor is not None or query is not None:
+        return await asyncio.to_thread(
+            catalog.list_episodes_page, uid, task_index, page_size or 100, cursor, query
+        )
     return catalog.list_episodes(uid, task_index)
 
 
 @app.get("/api/datasets/{uid}/episodes/{episode_index}/preview")
 async def episode_preview(uid: str, episode_index: int) -> dict[str, Any]:
     try:
-        return catalog.episode_preview(uid, episode_index)
+        return await asyncio.to_thread(catalog.episode_preview_summary, uid, episode_index)
     except (FileNotFoundError, IndexError):
         raise HTTPException(404, "episode not found") from None
+
+
+@app.get("/api/datasets/{uid}/episodes/{episode_index}/stages/{stage_id}")
+async def episode_stage_detail(uid: str, episode_index: int, stage_id: int) -> dict[str, Any]:
+    if not 1 <= stage_id <= 8:
+        raise HTTPException(404, "stage not found")
+    try:
+        return await asyncio.to_thread(
+            catalog.episode_stage_detail, uid, episode_index, stage_id
+        )
+    except (FileNotFoundError, IndexError):
+        raise HTTPException(404, "stage artifact not found") from None
 
 
 @app.get("/api/datasets/{uid}/episodes/{episode_index}/series")
@@ -446,8 +523,9 @@ async def series(
     view: Literal["raw", "valid", "repaired", "diff"] = "raw",
 ) -> dict[str, Any]:
     try:
-        values = catalog.episode_series(
-            uid, episode_index, [f.strip() for f in fields.split(",")], limit, view
+        values = await asyncio.to_thread(
+            catalog.episode_series,
+            uid, episode_index, [f.strip() for f in fields.split(",")], limit, view,
         )
     except FileNotFoundError: raise HTTPException(404, "dataset not indexed")
     return {
@@ -472,10 +550,12 @@ async def create_video_proxies(
     uid: str, episode_index: int, prewarm: int = Query(2, ge=0, le=2)
 ) -> dict[str, Any]:
     try:
-        task = proxy_manager.request(catalog, uid, episode_index)
+        task = await asyncio.to_thread(proxy_manager.request, catalog, uid, episode_index)
     except (FileNotFoundError, IndexError):
         raise HTTPException(404, "episode not found") from None
-    except (OSError, RuntimeError, ValueError) as exc:
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except (OSError, RuntimeError) as exc:
         raise HTTPException(500, str(exc)) from exc
     # The dedicated executor is intentionally single-worker by default. Queue
     # nearby episodes after responding so metadata reads and future encodes do

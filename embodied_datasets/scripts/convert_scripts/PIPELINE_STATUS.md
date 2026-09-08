@@ -2,7 +2,7 @@
 
 初稿写于 2026-08-13，最近更新于 2026-08-19。本文同时记录本机（Windows，conda 环境
 `vla_data_pipline`）和 PAI DSW 服务器
-`/home/pai/zxw/vla-data-pipeline/.venv` 上**实际验证过**的内容，以及仍需拿真实数据完成的验证。
+`$HOME/vla-data-pipeline/.venv` 上**实际验证过**的内容，以及仍需拿真实数据完成的验证。
 服务器环境和 Mobile ALOHA 当前状态以本文 2026-08-17 的记录为准。
 
 ## 现在有什么
@@ -148,14 +148,14 @@ provenance 中记录原始 dtype runs；不可精确表示的值仍阻塞。默�
 已用该 opt-in 完成整个 ManiSkill suite 的只读
 preflight：1014 files / 8171 episodes / 1448392 action frames / 1015 output parts / 5432 个
 component-episode promotion records / 0 source issues，覆盖全部 1003 个原阻塞文件；证据位于
-`/home/pai/zxw/roboverse_logs/maniskill_dtype_promotion_preflight.{json,log}`。聚焦 reader/converter
+`$HOME/roboverse_logs/maniskill_dtype_promotion_preflight.{json,log}`。聚焦 reader/converter
 测试 48 passed，并验证不可精确表示的 `16777217 -> float32` 仍被拒绝；
 修复后的 v10 全量只读 preflight 随后完整扫描 10622 files 并以 0 退出：86727 source episodes、
 10746462 action frames、5291564 state frames、12534 parts、126317 output episodes、12957517
 output frames、5432 promotion records、711 feature inventory rows、0 blockers、0 NaN/+Inf/-Inf。
 仅余 20 个官方 BiDex 零字节静态 sidecar，均为可显式确认的非阻塞问题。完整 JSON 报告和进度位于
-`/home/pai/zxw/roboverse_logs/preflight_v10_post_repair.json` 与
-`/home/pai/zxw/roboverse_logs/preflight_v10_post_repair.log`。全量正式转换未启动，也没有写 OSS。最终测试计数见
+`$HOME/roboverse_logs/preflight_v10_post_repair.json` 与
+`$HOME/roboverse_logs/preflight_v10_post_repair.log`。全量正式转换未启动，也没有写 OSS。最终测试计数见
 `ROBOVERSE_CONVERSION.md` 的 verification 记录。
 
 **MimicGen：专用集合转换、真实 smoke 和可恢复 checkpoint 已实现。** 服务器下载目录实际拼成了
@@ -167,14 +167,14 @@ object 2、robot 16、large_interpolation 6）。`readers/robomimic_hdf5_reader.
 `convert_core/checkpoint.py` 的 fingerprint/原子 JSON/非阻塞锁，并在分区完成后重新打开和
 FFprobe 视频才写 marker。真实 `core/square_d0` 1 episode / 136 帧 CPU H.264 smoke 已通过：
 LeRobot 重开成功，Parquet 首/中/末帧 45 个数值样本逐值完全相等，6 个解码图像最低 PSNR
-34.99 dB；报告在 `/home/pai/zxw/mimicgen_logs/smoke_square_1ep_evaluation.json`。新增测试 12 项
+34.99 dB；报告在 `$HOME/mimicgen_logs/smoke_square_1ep_evaluation.json`。新增测试 12 项
 通过；最终当前工作区全仓库测试为 380 passed / 1 skipped。全量正式转换未启动、未写 OSS；
 完整语义映射、resume 约定和命令见 `MIMICGEN_CONVERSION.md`。
 源数据有一个已显式保留的 metadata 异常：`source/square.hdf5` 只有 10 个 demo，但八个旧
 `mask/*` 列表含有不存在的 `demo_10`～`demo_199`；转换器不伪造 episode，在 manifest 原样
 记录 mask 并列出 dangling references。其余 11 个 source 文件的 mask 引用均有效。
 2026-08-18 的 4-worker 全量只读 preflight 已通过 62 partitions / 50120 episodes /
-14875672 frames，日志为 `/home/pai/zxw/mimicgen_logs/full_preflight.log`。
+14875672 frames，日志为 `$HOME/mimicgen_logs/full_preflight.log`。
 
 **DexMimicGen：9 分区 reader/coordinator、配额门禁、集合 manifest、XML sidecar、part 级 checkpoint
 与独立 evaluator 已实现，并通过真实 OSSFS smoke。** 官方 9 个 HDF5 共 9178 episodes / 2915177 frames，
@@ -213,7 +213,7 @@ video chunk；有效 `_SUCCESS` 默认拒绝覆盖，`--skip-existing` 验证后
 effort 536 episodes、移动 278 episodes；三者均为 50 FPS。截至本文最近更新时，正式转换
 已用原始非流式 AV1 路径启动；最近一次记录为 29300/971850 帧（3.0%，11.14 frames/s），
 进程仍在运行，最终目录尚未原子发布，因此仍不能视为可验收输出。以
-`/home/pai/zxw/mobile_aloha_logs/convert.log` 末尾和 PID 存活状态为准。
+`$HOME/mobile_aloha_logs/convert.log` 末尾和 PID 存活状态为准。
 
 **流式编码小样本已用真实 Mobile ALOHA 验证。** 取
 `aloha_mobile_cabinet/episode_0.hdf5`（1500 帧、3 路 640x480、50 FPS）运行 CPU H.264
@@ -222,8 +222,8 @@ effort 536 episodes、移动 278 episodes；三者均为 50 FPS。截至本文�
 velocity/effort 最大绝对误差全为 0，三路 PSNR 分别为 38.13/39.89/38.92 dB，30 dB 门禁通过。
 同一 episode、同一 H.264 参数的非流式 PNG 中转对照用时 83.44 秒、17.98 frames/s；流式路径
 实测加速 4.07 倍，且三路 MP4 字节数和抽样画质结果完全相同。机器可读报告分别位于
-`/home/pai/zxw/mobile_aloha_streaming_test/cpu_h264/evaluation.json` 和
-`/home/pai/zxw/mobile_aloha_streaming_test/baseline_h264/evaluation.json`。
+`$HOME/mobile_aloha_streaming_test/cpu_h264/evaluation.json` 和
+`$HOME/mobile_aloha_streaming_test/baseline_h264/evaluation.json`。
 
 NVENC 路径已经实现真实并发 session preflight、最长 episode + 1 的无丢帧队列下限，以及输出
 MP4 frame/codec/FPS 校验。当前宿主机内核能看到 4 张 A800 80GB，但执行容器没有
@@ -237,7 +237,7 @@ MP4 frame/codec/FPS 校验。当前宿主机内核能看到 4 张 A800 80GB，�
 MP4 也建在 dataset root 下。服务器本地 overlay 盘约有 2 TB 可用空间，因此当前约定是先写：
 
 ```text
-/home/pai/zxw/mobile_aloha_staging/lerobot_v3_0/mobile_aloha
+$HOME/mobile_aloha_staging/lerobot_v3_0/mobile_aloha
 ```
 
 脚本会先在同一父目录写 `.mobile_aloha.incomplete-<uuid>`，三个分区全部写完并逐一重新打开
@@ -287,7 +287,7 @@ RLDS 数据集验证之前，需要：**
   服务器 `/usr/bin/ffmpeg` 为 6.1.1，包含 libx264 和 libsvtav1 编码器。
 - **服务器当前全仓库测试结果是 455 passed / 1 skipped / 4 warnings。** 第一次直接运行时有 46 项失败，全部源于受管环境中
   `/root/.cache/huggingface` 只读；把 `HF_HOME`/`HF_DATASETS_CACHE` 指到 `/tmp` 或
-  `/home/pai/zxw/.cache/huggingface` 后重跑，全部通过。运行转换和测试前
+  `$HOME/.cache/huggingface` 后重跑，全部通过。运行转换和测试前
   应显式设置一个可写的 `HF_HOME`，不要把首次失败误判成 LeRobot 或数据格式问题。
 - **其他现成环境不能替代项目 `.venv`。** `/root/lerobot_v30_env` 已不存在；
   `/root/robotwin_env` 的包元数据是 LeRobot 0.3.3，缺少本项目写入器需要的 `finalize()`，也
@@ -355,24 +355,24 @@ co-training 数据按固定 schema 分区；它不需要 `configs/*.yaml`，因�
 服务器正式转换命令（从项目根目录执行）：
 
 ```bash
-cd /home/pai/zxw/vla-data-pipeline
+cd $HOME/vla-data-pipeline
 
-mkdir -p /home/pai/zxw/mobile_aloha_logs
-mkdir -p /home/pai/zxw/.cache/huggingface
+mkdir -p $HOME/mobile_aloha_logs
+mkdir -p $HOME/.cache/huggingface
 
 nohup env \
-  HF_HOME=/home/pai/zxw/.cache/huggingface \
+  HF_HOME=$HOME/.cache/huggingface \
   .venv/bin/python -u \
   embodied_datasets/scripts/convert_scripts/convert_mobile_aloha_to_lerobot.py \
   --raw-root /mnt/data/embodied_datasets/public_datasets_raw \
-  --staging-root /home/pai/zxw/mobile_aloha_staging \
+  --staging-root $HOME/mobile_aloha_staging \
   --dataset-uid mobile_aloha \
   --resume \
   --streaming-encoding --video-codec h264 --video-preset fast \
   --eta-interval-seconds 10 \
-  > /home/pai/zxw/mobile_aloha_logs/convert.log 2>&1 &
+  > $HOME/mobile_aloha_logs/convert.log 2>&1 &
 
-echo $! > /home/pai/zxw/mobile_aloha_logs/convert.pid
+echo $! > $HOME/mobile_aloha_logs/convert.pid
 ```
 
 该命令启用 episode 边界断点续传。`Ctrl-C`/`SIGTERM` 后原样重跑命令即可；转换器会校验源文件
@@ -382,8 +382,8 @@ footer，最后一个打开文件不保证可恢复。
 实时观察 ETA 和检查后台进程：
 
 ```bash
-tail -f /home/pai/zxw/mobile_aloha_logs/convert.log
-ps -fp "$(cat /home/pai/zxw/mobile_aloha_logs/convert.pid)"
+tail -f $HOME/mobile_aloha_logs/convert.log
+ps -fp "$(cat $HOME/mobile_aloha_logs/convert.pid)"
 ```
 
 完成后除了依赖转换器内置的
@@ -395,12 +395,12 @@ ps -fp "$(cat /home/pai/zxw/mobile_aloha_logs/convert.pid)"
 
 ```bash
 rsync -r --info=progress2 \
-    /home/pai/zxw/mobile_aloha_staging/lerobot_v3_0/mobile_aloha/ \
+    $HOME/mobile_aloha_staging/lerobot_v3_0/mobile_aloha/ \
     /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/mobile_aloha/
 
 # 只读 checksum 复核；无输出表示源和目标中同名文件内容一致。
 rsync -rcn --itemize-changes \
-    /home/pai/zxw/mobile_aloha_staging/lerobot_v3_0/mobile_aloha/ \
+    $HOME/mobile_aloha_staging/lerobot_v3_0/mobile_aloha/ \
     /mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0/mobile_aloha/
 ```
 

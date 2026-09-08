@@ -55,8 +55,11 @@ class VideoProxyManager:
     def _ready(path: Path) -> bool:
         return path.is_file() and path.stat().st_size > 0
 
-    def _specs(self, catalog: Any, uid: str, episode_index: int) -> tuple[str, list[ProxySpec]]:
-        preview = catalog.episode_preview(uid, episode_index)
+    def _specs(
+        self, catalog: Any, uid: str, episode_index: int
+    ) -> tuple[str, list[ProxySpec], list[dict[str, str]]]:
+        preview_loader = getattr(catalog, "episode_preview_summary", catalog.episode_preview)
+        preview = preview_loader(uid, episode_index)
         timeline = preview["timeline"]
         fps = float(timeline["fps"])
         frame_count = int(timeline["frame_count"])
@@ -64,18 +67,32 @@ class VideoProxyManager:
         if frame_count <= 0 or duration <= 0:
             raise ValueError("episode contains no video frames")
         source_records: list[tuple[dict[str, Any], Path, os.stat_result]] = []
+        warnings: list[dict[str, str]] = []
         digest = hashlib.sha256()
         digest.update(f"{PROXY_VERSION}|{uid}|{episode_index}|{fps}|{frame_count}".encode())
         for video in preview["videos"]:
-            source = catalog.resolve_path(uid, video["relative_path"])
-            stat = source.stat()
+            try:
+                source = catalog.resolve_path(uid, video["relative_path"])
+                stat = source.stat()
+            except FileNotFoundError:
+                warnings.append({
+                    "camera": str(video["camera"]),
+                    "relative_path": str(video["relative_path"]),
+                    "reason": "source video is missing",
+                })
+                digest.update(
+                    f"|missing|{video['camera']}|{video['relative_path']}".encode()
+                )
+                continue
             source_records.append((video, source, stat))
             digest.update(
                 f"|{video['camera']}|{video['relative_path']}|{video['source_start']}|"
                 f"{video['source_end']}|{stat.st_size}|{stat.st_mtime_ns}".encode()
             )
         if not source_records:
-            raise ValueError("episode contains no video streams")
+            missing = ", ".join(item["camera"] for item in warnings)
+            detail = f"; missing cameras: {missing}" if missing else ""
+            raise ValueError(f"episode contains no available video streams{detail}")
         version = digest.hexdigest()[:16]
         uid_dir = f"{_safe_name(uid)}-{hashlib.sha256(uid.encode()).hexdigest()[:8]}"
         episode_dir = self.cache_root / uid_dir / f"episode-{episode_index:06d}"
@@ -89,7 +106,7 @@ class VideoProxyManager:
                 source_start=float(video["source_start"]), duration=duration,
                 frame_count=frame_count, fps=fps, version=version,
             ))
-        return f"proxy-{version}", specs
+        return f"proxy-{version}", specs, warnings
 
     def _video_payload(self, spec: ProxySpec) -> dict[str, Any]:
         return {
@@ -118,13 +135,14 @@ class VideoProxyManager:
             "job_id": job["job_id"], "dataset_uid": job["dataset_uid"],
             "episode_index": job["episode_index"], "status": status,
             "error": error, "created_at": job["created_at"],
+            "warnings": job.get("warnings", []),
             "videos": [self._video_payload(spec) for spec in specs],
         }
 
     def request(self, catalog: Any, uid: str, episode_index: int) -> dict[str, Any]:
         if shutil.which("ffmpeg") is None:
             raise RuntimeError("ffmpeg is required to generate episode video proxies")
-        job_id, specs = self._specs(catalog, uid, episode_index)
+        job_id, specs, warnings = self._specs(catalog, uid, episode_index)
         with self._lock:
             existing = self._jobs.get(job_id)
             if existing:
@@ -133,7 +151,7 @@ class VideoProxyManager:
                     return snapshot
             job: dict[str, Any] = {
                 "job_id": job_id, "dataset_uid": uid, "episode_index": episode_index,
-                "specs": specs, "created_at": time.time(),
+                "specs": specs, "warnings": warnings, "created_at": time.time(),
             }
             self._jobs[job_id] = job
             if not all(self._ready(spec.target) for spec in specs):

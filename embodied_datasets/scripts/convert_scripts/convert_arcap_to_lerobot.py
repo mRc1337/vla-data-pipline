@@ -83,7 +83,7 @@ DEFAULT_OUTPUT_ROOT = Path(
     "/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0"
 )
 DEFAULT_RAW_ROOT = Path("/mnt/data/embodied_datasets/public_datasets_raw/arcap")
-DEFAULT_LOCAL_WORK_ROOT = Path("/home/pai/zxw/arcap_staging")
+DEFAULT_LOCAL_WORK_ROOT = Path.home() / "arcap_staging"
 DEFAULT_MAX_LOCAL_TEMP_BYTES = 100_000_000_000
 DEFAULT_MIN_LOCAL_FREE_BYTES = 200_000_000_000
 DEFAULT_WORKER_MEMORY_LIMIT_BYTES = 8 * GIB

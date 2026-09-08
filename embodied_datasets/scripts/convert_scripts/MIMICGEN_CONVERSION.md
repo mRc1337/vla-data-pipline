@@ -145,7 +145,7 @@ MP4 encoders:
 ├── .conversion_logs/mimicgen/
 └── .conversion_locks/mimicgen.lock
 
-/home/pai/zxw/mimicgen_runtime/formal/
+$HOME/mimicgen_runtime/formal/
 ├── temp/
 ├── cache/
 ├── partitions/              # local validated partition outputs before upload
@@ -207,7 +207,7 @@ Read-only full preflight:
 
 ```bash
 MIMICGEN_STAGE_ROOT=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0
-MIMICGEN_PREFLIGHT_WORK=/home/pai/zxw/mimicgen_runtime/preflight
+MIMICGEN_PREFLIGHT_WORK=$HOME/mimicgen_runtime/preflight
 mkdir -p "$MIMICGEN_PREFLIGHT_WORK/temp" \
   "$MIMICGEN_PREFLIGHT_WORK/cache/huggingface/datasets" \
   "$MIMICGEN_PREFLIGHT_WORK/cache/xdg" \
@@ -233,7 +233,7 @@ One real smoke episode under an independent UID:
 
 ```bash
 MIMICGEN_STAGE_ROOT=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0
-MIMICGEN_SMOKE_WORK=/home/pai/zxw/mimicgen_runtime/smoke
+MIMICGEN_SMOKE_WORK=$HOME/mimicgen_runtime/smoke
 mkdir -p "$MIMICGEN_SMOKE_WORK/temp" \
   "$MIMICGEN_SMOKE_WORK/cache/huggingface/datasets" \
   "$MIMICGEN_SMOKE_WORK/cache/xdg" "$MIMICGEN_SMOKE_WORK/cache/torch" \
@@ -261,7 +261,7 @@ Evaluate exact numeric storage plus decoded first/middle/last frame PSNR:
 
 ```bash
 MIMICGEN_STAGE_ROOT=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0
-MIMICGEN_EVAL_WORK=/home/pai/zxw/mimicgen_runtime/evaluate
+MIMICGEN_EVAL_WORK=$HOME/mimicgen_runtime/evaluate
 mkdir -p "$MIMICGEN_EVAL_WORK/temp" \
   "$MIMICGEN_EVAL_WORK/cache/huggingface/datasets" \
   "$MIMICGEN_EVAL_WORK/cache/xdg" "$MIMICGEN_EVAL_WORK/cache/torch" \
@@ -286,12 +286,12 @@ only; do not launch without explicit authorization). `tee` keeps live output in
 tmux while also writing the durable log to `/mnt/data`:
 
 ```bash
-cd /home/pai/zxw/vla-data-pipeline
+cd $HOME/vla-data-pipeline
 
 tmux new -A -s mimicgen_convert
 
 MIMICGEN_STAGE_ROOT=/mnt/data/embodied_datasets/public_datasets_staging/lerobot_v3_0
-MIMICGEN_WORK=/home/pai/zxw/mimicgen_runtime/formal
+MIMICGEN_WORK=$HOME/mimicgen_runtime/formal
 MIMICGEN_RESUME="$MIMICGEN_STAGE_ROOT/.conversion_resume/mimicgen"
 MIMICGEN_LOGS="$MIMICGEN_STAGE_ROOT/.conversion_logs/mimicgen"
 MIMICGEN_STDOUT="$MIMICGEN_LOGS/convert-$(date +%Y%m%d-%H%M%S).log"

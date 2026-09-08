@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from .stage_index import publish_stage_index_snapshot
+
 
 class CurationStage(Protocol):
     stage_id: int
@@ -104,6 +106,9 @@ class PipelineRunner:
                 "created_at": task.created_at, "started_at": started_at, "finished_at": time.time()}, indent=2))
             (run_root / "reports").mkdir(exist_ok=True)
             (run_root / "reports" / "summary.json").write_text(json.dumps(task.summary, indent=2))
+            # Publish the compact search representation last. Consumers see
+            # either the previous complete generation or this complete one.
+            publish_stage_index_snapshot(run_root.parent, task.stage_id, results)
             task.status = "succeeded"
         except Exception as exc:  # task state is surfaced to the UI
             task.status, task.error = "failed", str(exc)
